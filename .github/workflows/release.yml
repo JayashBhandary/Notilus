@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0). Used as the release name when triggered manually.'
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.44.0'
+  FLUTTER_CHANNEL: 'stable'
+
+jobs:
+  build-macos:
+    name: Build macOS (arm64 + x64 + universal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+
+      - name: Resolve version
+        id: ver
+        run: |
+          REF="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+
+      - run: flutter pub get
+
+      - name: Build macOS app (universal)
+        run: flutter build macos --release
+
+      - name: Verify universal binary
+        run: |
+          BIN="build/macos/Build/Products/Release/Notilus.app/Contents/MacOS/Notilus"
+          file "$BIN"
+          lipo -info "$BIN"
+          lipo -info "$BIN" | grep -E 'arm64' && lipo -info "$BIN" | grep -E 'x86_64'
+
+      - name: Package DMGs (universal, arm64, x64)
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.ver.outputs.version }}"
+          SRC="build/macos/Build/Products/Release/Notilus.app"
+
+          thin_app() {
+            local app="$1"
+            local arch="$2"
+            find "$app" -type f -print0 | while IFS= read -r -d '' f; do
+              if file -b "$f" | grep -q "Mach-O.*universal"; then
+                lipo "$f" -thin "$arch" -output "$f.tmp" && mv "$f.tmp" "$f"
+              fi
+            done
+            # Re-sign ad-hoc since lipo invalidated signatures
+            codesign --force --deep --sign - "$app"
+          }
+
+          package_dmg() {
+            local flavor="$1"
+            local arch="$2"   # empty = universal, no thinning
+            local stage="dist/$flavor"
+            local app_copy="$stage/Notilus.app"
+            rm -rf "$stage"
+            mkdir -p "$stage"
+            cp -R "$SRC" "$app_copy"
+            ln -s /Applications "$stage/Applications"
+
+            if [ -n "$arch" ]; then
+              echo "==> Thinning $flavor to $arch"
+              thin_app "$app_copy" "$arch"
+              echo "==> Verifying thinned main binary"
+              lipo -info "$app_copy/Contents/MacOS/Notilus"
+            fi
+
+            hdiutil create \
+              -volname "Notilus" \
+              -srcfolder "$stage" \
+              -ov -format UDZO \
+              "Notilus-${VERSION}-macos-${flavor}.dmg"
+          }
+
+          package_dmg "universal" ""
+          package_dmg "arm64"     "arm64"
+          package_dmg "x64"       "x86_64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: Notilus-*-macos-*.dmg
+          if-no-files-found: error
+
+  build-windows:
+    name: Build Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+
+      - name: Resolve version
+        id: ver
+        shell: bash
+        run: |
+          REF="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+
+      - run: flutter pub get
+
+      - name: Build Windows app
+        run: flutter build windows --release
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          $dest = "Notilus-$version-windows-x64.zip"
+          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath $dest
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: Notilus-*-windows-x64.zip
+          if-no-files-found: error
+
+  build-linux:
+    name: Build Linux (x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: ${{ env.FLUTTER_CHANNEL }}
+
+      - name: Resolve version
+        id: ver
+        run: |
+          REF="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
+          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+
+      - run: flutter pub get
+
+      - name: Build Linux app
+        run: flutter build linux --release
+
+      - name: Package tarball
+        run: |
+          tar -czf "Notilus-${{ steps.ver.outputs.version }}-linux-x64.tar.gz" \
+            -C build/linux/x64/release/bundle .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: Notilus-*-linux-x64.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Resolve tag
+        id: ver
+        run: |
+          REF="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Notilus ${{ steps.ver.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            artifacts/macos/*.dmg
+            artifacts/windows/*.zip
+            artifacts/linux/*.tar.gz
