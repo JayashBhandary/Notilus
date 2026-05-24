@@ -1,16 +1,72 @@
+import 'dart:io';
+
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
+import '../screens/file_preview_screen.dart';
+import '../services/file_actions_service.dart';
 import '../theme.dart';
+import '../utils/responsive.dart';
 import 'desk_context_menu.dart';
 import 'file_icon_grid.dart';
 
-class FileListView extends StatelessWidget {
+final FileActionsService _actions = FileActionsService();
+bool get _isMacOS => !kIsWeb && Platform.isMacOS;
+bool get _isIOS => !kIsWeb && Platform.isIOS;
+
+/// Opens the FilePreviewScreen for [entry], using the current folder's
+/// other files as siblings for swipe / arrow-key navigation.
+void openFilePreview(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry entry,
+) {
+  final siblings =
+      browser.entries.where((e) => !e.isDirectory).toList(growable: false);
+  final idx = siblings.indexWhere((e) => e.path == entry.path);
+  if (idx < 0) return;
+  Navigator.of(context).push(
+    CupertinoPageRoute(
+      builder: (_) => FilePreviewScreen(
+        files: siblings,
+        initialIndex: idx,
+      ),
+    ),
+  );
+}
+
+class FileListView extends StatefulWidget {
   const FileListView({super.key});
+
+  @override
+  State<FileListView> createState() => _FileListViewState();
+}
+
+class _FileListViewState extends State<FileListView> {
+  final FocusNode _focusNode = FocusNode(debugLabel: 'FileList');
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey != LogicalKeyboardKey.space) {
+      return KeyEventResult.ignored;
+    }
+    final browser = context.read<BrowserProvider>();
+    final sel = browser.primarySelection;
+    if (sel == null || sel.isDirectory) return KeyEventResult.ignored;
+    openFilePreview(context, browser, sel);
+    return KeyEventResult.handled;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -18,24 +74,30 @@ class FileListView extends StatelessWidget {
     final palette = AppColors.of(context);
     final isList = browser.viewMode == ViewMode.list;
 
-    return Container(
-      color: palette.contentBg,
-      child: Column(
-        children: [
-          if (isList) _Header(palette: palette, browser: browser),
-          Expanded(
-            child: _BackgroundCatcher(
-              onSecondaryTap: (pos) =>
-                  showBackgroundContextMenu(context, browser, pos),
-              child: isList
-                  ? _body(browser, palette)
-                  : FileIconGrid(
-                      onSecondaryRowTap: (entry, pos) =>
-                          showRowContextMenu(context, browser, entry, pos),
-                    ),
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKeyEvent: _onKey,
+      child: Container(
+        color: palette.contentBg,
+        child: Column(
+          children: [
+            if (isList) _Header(palette: palette, browser: browser),
+            Expanded(
+              child: _BackgroundCatcher(
+                onTap: () => _focusNode.requestFocus(),
+                onSecondaryTap: (pos) =>
+                    showBackgroundContextMenu(context, browser, pos),
+                child: isList
+                    ? _body(browser, palette)
+                    : FileIconGrid(
+                        onSecondaryRowTap: (entry, pos) =>
+                            showRowContextMenu(context, browser, entry, pos),
+                      ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -158,6 +220,7 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final compact = isCompact(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -174,13 +237,14 @@ class _Header extends StatelessWidget {
             palette: palette,
             browser: browser,
           ),
-          _SortableHeader(
-            label: 'Date modified',
-            field: SortField.modified,
-            flex: 3,
-            palette: palette,
-            browser: browser,
-          ),
+          if (!compact)
+            _SortableHeader(
+              label: 'Date modified',
+              field: SortField.modified,
+              flex: 3,
+              palette: palette,
+              browser: browser,
+            ),
           _SortableHeader(
             label: 'Size',
             field: SortField.size,
@@ -253,16 +317,19 @@ class _SortableHeader extends StatelessWidget {
 class _BackgroundCatcher extends StatelessWidget {
   const _BackgroundCatcher({
     required this.child,
+    required this.onTap,
     required this.onSecondaryTap,
   });
 
   final Widget child;
+  final VoidCallback onTap;
   final ValueChanged<Offset> onSecondaryTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
+      onTap: onTap,
       onSecondaryTapDown: (d) => onSecondaryTap(d.globalPosition),
       child: child,
     );
@@ -291,6 +358,7 @@ class _FileRowState extends State<_FileRow> {
   Widget build(BuildContext context) {
     final browser = context.read<BrowserProvider>();
     final palette = AppColors.of(context);
+    final compact = isCompact(context);
     Color? bg;
     if (widget.selected) {
       bg = palette.accent.withValues(alpha: 0.18);
@@ -301,8 +369,8 @@ class _FileRowState extends State<_FileRow> {
     }
 
     final density = browser.rowDensity;
-    final vPad = 5 * density;
-    final iconSize = 18 * density;
+    final vPad = (compact ? 8 : 5) * density;
+    final iconSize = (compact ? 20 : 18) * density;
     final fontSize = 13 * density;
 
     return MouseRegion(
@@ -314,12 +382,32 @@ class _FileRowState extends State<_FileRow> {
         onTap: () {
           final additive = HardwareKeyboard.instance.isMetaPressed ||
               HardwareKeyboard.instance.isControlPressed;
+          if (compact) {
+            // Touch: tap opens — folders navigate, files preview.
+            if (widget.entry.isDirectory) {
+              browser.navigateTo(widget.entry.path);
+            } else {
+              openFilePreview(context, browser, widget.entry);
+            }
+            return;
+          }
+          // Desktop: select, and reclaim keyboard focus so space-bar
+          // Quick Look fires after typing in (e.g.) the chat composer.
+          Focus.maybeOf(context)?.requestFocus();
           browser.toggleSelect(widget.entry, additive: additive);
         },
         onDoubleTap: () {
+          // Desktop: double-click navigates folders. For files, use the
+          // space-bar Quick Look shortcut or right-click → Open.
           if (widget.entry.isDirectory) {
             browser.navigateTo(widget.entry.path);
           }
+        },
+        onLongPressStart: (d) {
+          if (!widget.selected) {
+            browser.toggleSelect(widget.entry, additive: false);
+          }
+          showRowContextMenu(context, browser, widget.entry, d.globalPosition);
         },
         onSecondaryTapDown: (d) {
           // Make sure the right-clicked row is selected.
@@ -351,16 +439,17 @@ class _FileRowState extends State<_FileRow> {
                   style: TextStyle(fontSize: fontSize, color: palette.text),
                 ),
               ),
-              Expanded(
-                flex: 3,
-                child: Text(
-                  _formatDate(widget.entry.modified),
-                  style: TextStyle(
-                    fontSize: fontSize - 1,
-                    color: palette.subtleText,
+              if (!compact)
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    _formatDate(widget.entry.modified),
+                    style: TextStyle(
+                      fontSize: fontSize - 1,
+                      color: palette.subtleText,
+                    ),
                   ),
                 ),
-              ),
               Expanded(
                 flex: 2,
                 child: Text(
@@ -459,19 +548,74 @@ List<DeskMenuItem> _baseMenuItems(
   BrowserProvider browser, {
   required FileEntry? target,
 }) {
+  final fileItems = <DeskMenuItem>[];
+  if (target != null) {
+    final isDir = target.isDirectory;
+    fileItems.addAll([
+      DeskMenuItem(
+        label: 'Open',
+        icon: CupertinoIcons.arrow_up_right_square,
+        onTap: () {
+          if (isDir) {
+            browser.navigateTo(target.path);
+          } else {
+            openFilePreview(context, browser, target);
+          }
+        },
+      ),
+      if (!isDir)
+        DeskMenuItem(
+          label: _isIOS ? 'Share…' : 'Open With',
+          icon: CupertinoIcons.square_arrow_up,
+          submenu: _isIOS ? null : _openWithSubmenu(context, target),
+          onTap: _isIOS
+              ? () async => _actions.openWithChooser(target)
+              : null,
+        ),
+      DeskMenuItem.divider(),
+      DeskMenuItem(
+        label: 'Get Info',
+        icon: CupertinoIcons.info_circle,
+        onTap: () => _showInfoDialog(context, target),
+      ),
+      DeskMenuItem(
+        label: 'Rename…',
+        icon: CupertinoIcons.pencil,
+        onTap: () => _renameEntry(context, browser, target),
+      ),
+      DeskMenuItem(
+        label: 'Duplicate',
+        icon: CupertinoIcons.square_on_square,
+        onTap: () => _duplicateEntry(context, browser, target),
+      ),
+      DeskMenuItem(
+        label: 'Copy Path',
+        icon: CupertinoIcons.doc_on_clipboard,
+        onTap: () async {
+          await _actions.copyPath(target);
+        },
+      ),
+      DeskMenuItem(
+        label: _isIOS ? 'Open Parent Folder' : 'Reveal in Finder',
+        icon: CupertinoIcons.arrow_up_right_diamond,
+        onTap: () => _revealEntry(context, browser, target),
+      ),
+      DeskMenuItem.divider(),
+      DeskMenuItem(
+        label: _isMacOS ? 'Move to Trash' : 'Delete',
+        icon: CupertinoIcons.trash,
+        onTap: () => _confirmTrash(context, browser, target),
+      ),
+      DeskMenuItem.divider(),
+    ]);
+  }
   return [
+    ...fileItems,
     DeskMenuItem(
       label: 'New Folder',
       icon: CupertinoIcons.folder_badge_plus,
       enabled: browser.currentPath.isNotEmpty,
       onTap: () => _newFolder(context, browser),
-    ),
-    DeskMenuItem.divider(),
-    DeskMenuItem(
-      label: 'Get Info',
-      icon: CupertinoIcons.info_circle,
-      enabled: target != null,
-      onTap: target == null ? null : () => _showInfoDialog(context, target),
     ),
     DeskMenuItem.divider(),
     DeskMenuItem(
@@ -488,6 +632,26 @@ List<DeskMenuItem> _baseMenuItems(
       label: 'Show View Options',
       icon: CupertinoIcons.slider_horizontal_3,
       onTap: () => _showViewOptions(context, browser),
+    ),
+  ];
+}
+
+List<DeskMenuItem> _openWithSubmenu(BuildContext context, FileEntry target) {
+  return [
+    DeskMenuItem(
+      label: 'Default Application',
+      icon: CupertinoIcons.app,
+      onTap: () async {
+        final ok = await _actions.openInDefaultApp(target);
+        if (!ok && context.mounted) _showError(context, 'Couldn\'t open.');
+      },
+    ),
+    DeskMenuItem(
+      label: 'Choose Application…',
+      icon: CupertinoIcons.app_badge,
+      onTap: () async {
+        await _actions.openWithChooser(target);
+      },
     ),
   ];
 }
@@ -775,4 +939,138 @@ class _ViewOptionsDialogState extends State<_ViewOptionsDialog> {
       ],
     );
   }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// File action helpers (rename / duplicate / reveal / trash)
+// ──────────────────────────────────────────────────────────────────────
+
+Future<void> _renameEntry(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry entry,
+) async {
+  final controller = TextEditingController(text: entry.name);
+  final palette = AppColors.of(context);
+  final newName = await showCupertinoDialog<String?>(
+    context: context,
+    builder: (ctx) => CupertinoAlertDialog(
+      title: Text('Rename "${entry.name}"'),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: CupertinoTextField(
+          controller: controller,
+          autofocus: true,
+          style: TextStyle(color: palette.text),
+          onSubmitted: (_) => Navigator.of(ctx).pop(controller.text),
+        ),
+      ),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(ctx).pop(null),
+          child: const Text('Cancel'),
+        ),
+        CupertinoDialogAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.of(ctx).pop(controller.text),
+          child: const Text('Rename'),
+        ),
+      ],
+    ),
+  );
+  if (newName == null) return;
+  final result = await _actions.rename(entry, newName);
+  if (result == null && context.mounted) {
+    await _showError(context, 'Couldn\'t rename. A file with that name may '
+        'already exist, or the destination isn\'t writable.');
+    return;
+  }
+  await browser.refresh();
+}
+
+Future<void> _duplicateEntry(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry entry,
+) async {
+  final result = await _actions.duplicate(entry);
+  if (result == null && context.mounted) {
+    await _showError(context, 'Couldn\'t duplicate this item.');
+    return;
+  }
+  await browser.refresh();
+}
+
+Future<void> _revealEntry(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry entry,
+) async {
+  if (_isMacOS) {
+    await _actions.revealInOs(entry);
+    return;
+  }
+  // iOS / others: just navigate to the parent inside Notilus.
+  final parent = p.dirname(entry.path);
+  await browser.navigateTo(parent);
+}
+
+Future<void> _confirmTrash(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry entry,
+) async {
+  final title = _isMacOS ? 'Move to Trash?' : 'Delete?';
+  final body = _isMacOS
+      ? '"${entry.name}" will be moved to the Trash.'
+      : '"${entry.name}" will be permanently deleted. This cannot be undone.';
+  final ok = await showCupertinoDialog<bool>(
+    context: context,
+    builder: (ctx) => CupertinoAlertDialog(
+      title: Text(title),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(body),
+      ),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: const Text('Cancel'),
+        ),
+        CupertinoDialogAction(
+          isDestructiveAction: true,
+          onPressed: () => Navigator.of(ctx).pop(true),
+          child: Text(_isMacOS ? 'Move to Trash' : 'Delete'),
+        ),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  final success = await _actions.trash(entry);
+  if (!success && context.mounted) {
+    await _showError(context,
+        _isMacOS ? 'Couldn\'t move to Trash.' : 'Couldn\'t delete this item.');
+    return;
+  }
+  await browser.refresh();
+}
+
+Future<void> _showError(BuildContext context, String message) async {
+  await showCupertinoDialog<void>(
+    context: context,
+    builder: (ctx) => CupertinoAlertDialog(
+      title: const Text('Couldn\'t complete action'),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(message),
+      ),
+      actions: [
+        CupertinoDialogAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('OK'),
+        ),
+      ],
+    ),
+  );
 }

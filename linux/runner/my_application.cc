@@ -54,6 +54,13 @@ static void my_application_activate(GApplication* application) {
 
   gtk_window_set_default_size(window, 1280, 720);
 
+  // Enforce a minimum window size so the 3-pane layout stays usable.
+  GdkGeometry min_geometry;
+  min_geometry.min_width = 900;
+  min_geometry.min_height = 600;
+  gtk_window_set_geometry_hints(window, nullptr, &min_geometry,
+                                GDK_HINT_MIN_SIZE);
+
   g_autoptr(FlDartProject) project = fl_dart_project_new();
   fl_dart_project_set_dart_entrypoint_arguments(
       project, self->dart_entrypoint_arguments);

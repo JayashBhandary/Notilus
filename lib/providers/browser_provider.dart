@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
@@ -20,6 +23,18 @@ class BrowserProvider extends ChangeNotifier {
   List<DriveEntry> _drives = const [];
   bool _loading = false;
   String? _error;
+
+  // Navigation history. _back is most-recently-visited-first.
+  final List<String> _back = [];
+  final List<String> _forward = [];
+
+  bool get canGoBack => _back.isNotEmpty;
+  bool get canGoForward => _forward.isNotEmpty;
+
+  // Filesystem watcher for the current folder. We debounce listings since a
+  // single file save can fire multiple events.
+  StreamSubscription<FileSystemEvent>? _watchSub;
+  Timer? _watchDebounce;
 
   // View state
   SortField _sortField = SortField.name;
@@ -67,6 +82,32 @@ class BrowserProvider extends ChangeNotifier {
   }
 
   Future<void> navigateTo(String path) async {
+    if (path == _currentPath) {
+      await _load(path);
+      return;
+    }
+    if (_currentPath.isNotEmpty) {
+      _back.add(_currentPath);
+    }
+    _forward.clear();
+    await _load(path);
+  }
+
+  Future<void> goBack() async {
+    if (_back.isEmpty) return;
+    final target = _back.removeLast();
+    if (_currentPath.isNotEmpty) _forward.add(_currentPath);
+    await _load(target);
+  }
+
+  Future<void> goForward() async {
+    if (_forward.isEmpty) return;
+    final target = _forward.removeLast();
+    if (_currentPath.isNotEmpty) _back.add(_currentPath);
+    await _load(target);
+  }
+
+  Future<void> _load(String path) async {
     _currentPath = path;
     _selectedPaths.clear();
     _loading = true;
@@ -77,6 +118,55 @@ class BrowserProvider extends ChangeNotifier {
     _error = result.error;
     _loading = false;
     notifyListeners();
+    _startWatching(path);
+  }
+
+  void _startWatching(String path) {
+    _stopWatching();
+    if (path.isEmpty) return;
+    try {
+      // Directory.watch isn't supported on every platform/filesystem; if it
+      // throws we just skip auto-refresh and rely on manual navigation.
+      final dir = Directory(path);
+      if (!dir.existsSync()) return;
+      _watchSub = dir.watch(recursive: false).listen(
+        (_) => _scheduleSilentReload(),
+        onError: (_) {},
+        cancelOnError: false,
+      );
+    } catch (_) {
+      // No-op: watching isn't critical.
+    }
+  }
+
+  void _stopWatching() {
+    _watchSub?.cancel();
+    _watchSub = null;
+    _watchDebounce?.cancel();
+    _watchDebounce = null;
+  }
+
+  void _scheduleSilentReload() {
+    _watchDebounce?.cancel();
+    _watchDebounce =
+        Timer(const Duration(milliseconds: 180), _silentReload);
+  }
+
+  Future<void> _silentReload() async {
+    if (_currentPath.isEmpty) return;
+    final result = await _fileService.listDirectory(_currentPath);
+    _entries = result.entries;
+    _error = result.error;
+    // Drop any selections that no longer exist.
+    _selectedPaths.removeWhere(
+        (p) => _entries.indexWhere((e) => e.path == p) < 0);
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _stopWatching();
+    super.dispose();
   }
 
   void toggleSelect(FileEntry entry, {bool additive = false}) {

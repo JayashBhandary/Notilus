@@ -67,24 +67,28 @@ class AppPalette {
     brightness: Brightness.light,
   );
 
+  // Pure-neutral grayscale (R=G=B) — no blue/purple tint. Each surface is
+  // one step lighter than the last so the hierarchy still reads:
+  //   scaffold < sidebar < content < header < card < hover < divider < selected
   static const AppPalette dark = AppPalette(
-    sidebarBg: Color(0xFF1F1F22),
-    sidebarHover: Color(0xFF2A2A2E),
-    sidebarSelected: Color(0xFF3A3A40),
-    sidebarHeader: Color(0xFF8E8E93),
-    contentBg: Color(0xFF1C1C1E),
-    divider: Color(0xFF2E2E32),
-    headerBg: Color(0xFF26262A),
-    subtleText: Color(0xFF9A9AA0),
-    text: Color(0xFFEDEDF0),
+    sidebarBg: Color(0xFF1A1A1A),
+    sidebarHover: Color(0xFF2A2A2A),
+    sidebarSelected: Color(0xFF3A3A3A),
+    sidebarHeader: Color(0xFF8C8C8C),
+    contentBg: Color(0xFF1F1F1F),
+    divider: Color(0xFF2E2E2E),
+    headerBg: Color(0xFF242424),
+    subtleText: Color(0xFF9A9A9A),
+    text: Color(0xFFEDEDED),
     folderIcon: Color(0xFF4D9BF5),
     accent: Color(0xFF0A84FF),
-    chatUserBubble: Color(0xFF0F3D70),
-    chatAssistantBubble: Color(0xFF2C2C30),
+    // Bubbles are differentiated by lightness, not hue, to stay neutral.
+    chatUserBubble: Color(0xFF3A3A3A),
+    chatAssistantBubble: Color(0xFF262626),
     success: Color(0xFF32D74B),
     danger: Color(0xFFFF453A),
-    rowAlt: Color(0xFF202024),
-    cardBg: Color(0xFF26262A),
+    rowAlt: Color(0xFF232323),
+    cardBg: Color(0xFF262626),
     scaffoldBg: Color(0xFF000000),
     brightness: Brightness.dark,
   );

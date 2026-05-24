@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../theme.dart';
+import '../utils/responsive.dart';
+import 'file_list_view.dart' show openFilePreview;
 
 class FileIconGrid extends StatelessWidget {
   const FileIconGrid({super.key, required this.onSecondaryRowTap});
@@ -114,6 +116,7 @@ class _IconTileState extends State<_IconTile> {
   Widget build(BuildContext context) {
     final browser = context.read<BrowserProvider>();
     final palette = AppColors.of(context);
+    final compact = isCompact(context);
     final iconSize = 52.0 * widget.density;
 
     final hl = widget.selected
@@ -129,12 +132,27 @@ class _IconTileState extends State<_IconTile> {
         onTap: () {
           final additive = HardwareKeyboard.instance.isMetaPressed ||
               HardwareKeyboard.instance.isControlPressed;
+          if (compact) {
+            if (widget.entry.isDirectory) {
+              browser.navigateTo(widget.entry.path);
+            } else {
+              openFilePreview(context, browser, widget.entry);
+            }
+            return;
+          }
+          Focus.maybeOf(context)?.requestFocus();
           browser.toggleSelect(widget.entry, additive: additive);
         },
         onDoubleTap: () {
           if (widget.entry.isDirectory) {
             browser.navigateTo(widget.entry.path);
           }
+        },
+        onLongPressStart: (d) {
+          if (!widget.selected) {
+            browser.toggleSelect(widget.entry, additive: false);
+          }
+          widget.onSecondaryTap(d.globalPosition);
         },
         onSecondaryTapDown: (d) {
           if (!widget.selected) {

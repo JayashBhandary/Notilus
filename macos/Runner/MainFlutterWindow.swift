@@ -18,6 +18,10 @@ class MainFlutterWindow: NSWindow {
     // (avoids a hard white seam when the app runs in dark mode).
     self.backgroundColor = NSColor.windowBackgroundColor
 
+    // Enforce a minimum size so the 3-pane Finder-style layout always has
+    // enough room (sidebar + file area + right panel).
+    self.contentMinSize = NSSize(width: 900, height: 600)
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()

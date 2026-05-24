@@ -1,4 +1,7 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart'
+    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+import 'package:flutter/material.dart' show Icons;
 import 'package:provider/provider.dart';
 
 import '../providers/browser_provider.dart';
@@ -7,7 +10,15 @@ import '../services/file_service.dart';
 import '../theme.dart';
 
 class Sidebar extends StatelessWidget {
-  const Sidebar({super.key});
+  const Sidebar({super.key, this.width = 210, this.onNavigate});
+
+  /// Fixed width when shown inline. The drawer version sizes itself via
+  /// constraints from the surrounding overlay.
+  final double width;
+
+  /// Called after the user picks any navigation target. Use this to close
+  /// the drawer in compact mode. Inline (wide) usage leaves this null.
+  final VoidCallback? onNavigate;
 
   @override
   Widget build(BuildContext context) {
@@ -18,86 +29,101 @@ class Sidebar extends StatelessWidget {
         .toList();
     final drives = browser.drives;
 
+    void after(VoidCallback action) {
+      action();
+      onNavigate?.call();
+    }
+
+    // On macOS the traffic lights sit at the window's top-left, which is
+    // now over the sidebar. Push the first item down so it doesn't overlap.
+    final isDesktopMac =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
+    final topPadding = isDesktopMac ? 36.0 : 14.0;
+
     return Container(
-      width: 210,
+      width: width,
       color: palette.sidebarBg,
-      child: ListView(
-        padding: const EdgeInsets.only(top: 14, bottom: 16),
-        children: [
-          const _SectionHeader(label: 'System'),
-          _SidebarItem(
-            label: 'System Overview',
-            icon: CupertinoIcons.gauge,
-            selected: false,
-            onTap: () {
-              Navigator.of(context).push(
-                CupertinoPageRoute(
-                  builder: (_) => const SystemOverviewScreen(),
-                ),
+      child: SafeArea(
+        right: false,
+        bottom: false,
+        child: ListView(
+          padding: EdgeInsets.only(top: topPadding, bottom: 16),
+          children: [
+            const _SectionHeader(label: 'System'),
+            _SidebarItem(
+              label: 'System Overview',
+              icon: CupertinoIcons.gauge,
+              selected: false,
+              onTap: () => after(() {
+                Navigator.of(context).push(
+                  CupertinoPageRoute(
+                    builder: (_) => const SystemOverviewScreen(),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 14),
+            const _SectionHeader(label: 'Favorites'),
+            ...shortcuts.map((e) {
+              final selected = browser.currentPath == e.value;
+              return _SidebarItem(
+                label: e.key,
+                icon: _iconForShortcut(e.key),
+                selected: selected,
+                onTap: () => after(() => browser.navigateTo(e.value!)),
               );
-            },
-          ),
-          const SizedBox(height: 14),
-          const _SectionHeader(label: 'Favorites'),
-          ...shortcuts.map((e) {
-            final selected = browser.currentPath == e.value;
-            return _SidebarItem(
-              label: e.key,
-              icon: _iconForShortcut(e.key),
-              selected: selected,
-              onTap: () => browser.navigateTo(e.value!),
-            );
-          }),
-          const SizedBox(height: 14),
-          _SectionHeader(
-            label: 'Locations',
-            trailing: GestureDetector(
-              onTap: browser.refreshDrives,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 4,
-                  vertical: 2,
-                ),
-                child: Icon(
-                  CupertinoIcons.arrow_clockwise,
-                  size: 12,
-                  color: palette.sidebarHeader,
+            }),
+            const SizedBox(height: 14),
+            _SectionHeader(
+              label: 'Locations',
+              trailing: GestureDetector(
+                onTap: browser.refreshDrives,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 2,
+                  ),
+                  child: Icon(
+                    CupertinoIcons.arrow_clockwise,
+                    size: 12,
+                    color: palette.sidebarHeader,
+                  ),
                 ),
               ),
             ),
-          ),
-          if (drives.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 4,
-              ),
-              child: Text(
-                'No drives detected',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: palette.subtleText,
+            if (drives.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 4,
                 ),
-              ),
-            )
-          else
-            ...drives.map((d) {
-              final selected = browser.currentPath == d.path;
-              return _SidebarItem(
-                label: d.name,
-                icon: _iconForDrive(d),
-                iconColor:
-                    d.isRoot ? palette.subtleText : palette.folderIcon,
-                selected: selected,
-                onTap: () => browser.navigateTo(d.path),
-              );
-            }),
-          const SizedBox(height: 14),
-          const _SectionHeader(label: 'Tags'),
-          ..._kTags.map(
-            (t) => _TagItem(label: t.name, color: t.color),
-          ),
-        ],
+                child: Text(
+                  'No drives detected',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: palette.subtleText,
+                  ),
+                ),
+              )
+            else
+              ...drives.map((d) {
+                final selected = browser.currentPath == d.path;
+                return _SidebarItem(
+                  label: d.name,
+                  icon: _iconForDrive(d),
+                  iconColor:
+                      d.isRoot ? palette.subtleText : palette.folderIcon,
+                  selected: selected,
+                  onTap: () => after(() => browser.navigateTo(d.path)),
+                );
+              }),
+            const SizedBox(height: 14),
+            const _SectionHeader(label: 'Tags'),
+            ..._kTags.map(
+              (t) => _TagItem(label: t.name, color: t.color),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -119,7 +145,9 @@ class Sidebar extends StatelessWidget {
 
   IconData _iconForDrive(DriveEntry d) {
     if (d.isRoot) return CupertinoIcons.device_laptop;
-    return CupertinoIcons.archivebox_fill;
+    // Material's storage icon reads as a stack of drives — closer to how
+    // Finder draws mounted volumes than the archivebox glyph.
+    return Icons.storage;
   }
 }
 

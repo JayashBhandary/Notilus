@@ -199,44 +199,45 @@ class _ChatComposer extends StatelessWidget {
         children: [
           Row(
             children: [
-              GestureDetector(
-                onTap: onToggleAttach == null
-                    ? null
-                    : () => onToggleAttach!(!attached),
-                child: MouseRegion(
-                  cursor: onToggleAttach == null
-                      ? SystemMouseCursors.basic
-                      : SystemMouseCursors.click,
-                  child: Row(
-                    children: [
-                      Icon(
-                        attached
-                            ? CupertinoIcons.checkmark_square_fill
-                            : CupertinoIcons.square,
-                        size: 16,
-                        color: attached
-                            ? palette.accent
-                            : palette.subtleText,
-                      ),
-                      const SizedBox(width: 6),
-                      ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 240),
-                        child: Text(
-                          hasSelection
-                              ? 'Include: ${selection.name}'
-                              : 'No selection',
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: palette.subtleText,
+              Flexible(
+                child: GestureDetector(
+                  onTap: onToggleAttach == null
+                      ? null
+                      : () => onToggleAttach!(!attached),
+                  child: MouseRegion(
+                    cursor: onToggleAttach == null
+                        ? SystemMouseCursors.basic
+                        : SystemMouseCursors.click,
+                    child: Row(
+                      children: [
+                        Icon(
+                          attached
+                              ? CupertinoIcons.checkmark_square_fill
+                              : CupertinoIcons.square,
+                          size: 16,
+                          color: attached
+                              ? palette.accent
+                              : palette.subtleText,
+                        ),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            hasSelection
+                                ? 'Include: ${selection.name}'
+                                : 'No selection',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: palette.subtleText,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               CupertinoButton(
                 padding: const EdgeInsets.all(4),
                 onPressed: onClear,
@@ -308,29 +309,36 @@ class _Bubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
     final isUser = message.role == ChatRole.user;
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        constraints: const BoxConstraints(maxWidth: 320),
-        decoration: BoxDecoration(
-          color: isUser
-              ? palette.chatUserBubble
-              : palette.chatAssistantBubble,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: SelectionArea(
-          child: Text(
-            message.content + (message.streaming ? ' ▌' : ''),
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.35,
-              color: palette.text,
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final maxBubble = constraints.maxWidth.isFinite
+            ? constraints.maxWidth * 0.82
+            : 320.0;
+        return Align(
+          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            constraints: BoxConstraints(maxWidth: maxBubble),
+            decoration: BoxDecoration(
+              color: isUser
+                  ? palette.chatUserBubble
+                  : palette.chatAssistantBubble,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: SelectionArea(
+              child: Text(
+                message.content + (message.streaming ? ' ▌' : ''),
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.35,
+                  color: palette.text,
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

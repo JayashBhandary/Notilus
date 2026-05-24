@@ -53,12 +53,35 @@ class FileService {
   }
 
   Future<String?> homePath() async {
+    if (Platform.isIOS) {
+      // iOS apps are sandboxed; $HOME points to the container. The user-
+      // visible folder shown in the Files app is the Documents directory.
+      try {
+        return (await getApplicationDocumentsDirectory()).path;
+      } catch (_) {
+        return null;
+      }
+    }
     final env = Platform.environment;
     if (Platform.isWindows) return env['USERPROFILE'];
     return env['HOME'];
   }
 
   Future<Map<String, String?>> shortcuts() async {
+    if (Platform.isIOS) {
+      String? docs, tmp;
+      try {
+        docs = (await getApplicationDocumentsDirectory()).path;
+      } catch (_) {}
+      try {
+        tmp = (await getTemporaryDirectory()).path;
+      } catch (_) {}
+      return {
+        'Home': docs,
+        'Documents': docs,
+        'Temporary': tmp,
+      };
+    }
     final home = await homePath();
     String? docs, downloads, desktop;
     if (home != null) {
@@ -87,6 +110,16 @@ class FileService {
   /// Linux: lists `/media/<user>/*` and `/mnt/*` and adds `/`.
   /// Windows: probes drive letters A:..Z: and returns the ones that exist.
   Future<List<DriveEntry>> drives() async {
+    if (Platform.isIOS) {
+      try {
+        final docs = (await getApplicationDocumentsDirectory()).path;
+        return [
+          DriveEntry(name: 'On My iPhone', path: docs, isRoot: true),
+        ];
+      } catch (_) {
+        return const [];
+      }
+    }
     if (Platform.isMacOS) {
       return _listDir('/Volumes', isMac: true);
     }

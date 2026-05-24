@@ -16,12 +16,24 @@ dependencies:
   shared_preferences: ^2.2.2
   path: ^1.9.0
   path_provider: ^2.1.2
+  video_player: ^2.9.1
+  just_audio: ^0.9.40
+  pdfx: ^2.6.0
+  share_plus: ^10.0.2
 
 dev_dependencies:
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
   flutter_test:
     sdk: flutter
+
+# video_player_avfoundation 2.8.x+ split the Apple plugin into a modular
+# Objective-C subtarget that imports <Flutter/Flutter.h> unconditionally,
+# which breaks the macOS build (macOS provides FlutterMacOS, not Flutter).
+# Pinning to the last pre-split version restores macOS support; iOS is
+# unaffected.
+dependency_overrides:
+  video_player_avfoundation: 2.6.5
 
 flutter:
   uses-material-design: true

@@ -1,11 +1,11 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
+import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../providers/browser_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme.dart';
-import '../widgets/breadcrumb_bar.dart';
+import '../utils/responsive.dart';
 import '../widgets/chat_panel.dart';
 import '../widgets/file_list_view.dart';
 import '../widgets/info_panel.dart';
@@ -22,7 +22,12 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // Right-pane tab (wide layout: 0=Info, 1=Chat, 2=Workflows).
   int _rightTab = 0;
+  // Compact-layout main tab (0=Files, 1=Info, 2=Chat, 3=Workflows).
+  int _compactTab = 0;
+  // Slide-in drawer state for compact.
+  bool _drawerOpen = false;
 
   void _openSettings() {
     Navigator.of(context).push(
@@ -30,64 +35,221 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _toggleDrawer() => setState(() => _drawerOpen = !_drawerOpen);
+  void _closeDrawer() {
+    if (_drawerOpen) setState(() => _drawerOpen = false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = isCompactWidth(width);
+
+    // Snap drawer shut if user resizes back to wide layout.
+    if (!compact && _drawerOpen) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _drawerOpen = false);
+      });
+    }
 
     return CupertinoPageScaffold(
       backgroundColor: palette.contentBg,
-      child: Column(
-        children: [
-          _TopBar(onSettings: _openSettings),
-          Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Sidebar(),
-                _Divider(color: palette.divider),
-                const Expanded(flex: 3, child: FileListView()),
-                _Divider(color: palette.divider),
-                SizedBox(
-                  width: 400,
-                  child: Column(
-                    children: [
-                      _SegmentedHeader(
-                        index: _rightTab,
-                        onChanged: (v) => setState(() => _rightTab = v),
-                      ),
-                      Expanded(
-                        child: IndexedStack(
-                          index: _rightTab,
-                          children: const [
-                            InfoPanel(),
-                            ChatPanel(),
-                            WorkflowTab(),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+      child: compact
+          ? _CompactLayout(
+              tab: _compactTab,
+              onTabChanged: (i) => setState(() => _compactTab = i),
+              drawerOpen: _drawerOpen,
+              onToggleDrawer: _toggleDrawer,
+              onCloseDrawer: _closeDrawer,
+              onSettings: _openSettings,
+            )
+          : _WideLayout(
+              rightTab: _rightTab,
+              onRightTabChanged: (i) => setState(() => _rightTab = i),
+              onSettings: _openSettings,
             ),
-          ),
-          const PathStatusBar(),
-        ],
-      ),
     );
   }
 }
 
-class _Divider extends StatelessWidget {
-  const _Divider({required this.color});
-  final Color color;
+// ──────────────────────────────────────────────────────────────────────────
+// Wide (desktop / iPad-landscape) layout — fluid 3-pane.
+// ──────────────────────────────────────────────────────────────────────────
+
+class _WideLayout extends StatelessWidget {
+  const _WideLayout({
+    required this.rightTab,
+    required this.onRightTabChanged,
+    required this.onSettings,
+  });
+
+  final int rightTab;
+  final ValueChanged<int> onRightTabChanged;
+  final VoidCallback onSettings;
+
   @override
-  Widget build(BuildContext context) =>
-      Container(width: 1, color: color);
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    final width = MediaQuery.sizeOf(context).width;
+
+    // Shrink panels gracefully on narrow desktop windows.
+    final sidebarWidth = width < 1000 ? 180.0 : 210.0;
+    final rightPanelWidth = width < 1100 ? 320.0 : 400.0;
+
+    // Sidebar now extends edge-to-edge (Finder-style). The top bar lives
+    // inside the main column so the sidebar can run beneath/around the
+    // macOS traffic lights.
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Sidebar(width: sidebarWidth),
+              _VDivider(color: palette.divider),
+              Expanded(
+                flex: 3,
+                child: Column(
+                  children: [
+                    _WideTopBar(onSettings: onSettings),
+                    const Expanded(child: FileListView()),
+                  ],
+                ),
+              ),
+              _VDivider(color: palette.divider),
+              SizedBox(
+                width: rightPanelWidth,
+                child: Column(
+                  children: [
+                    _SegmentedHeader(
+                      index: rightTab,
+                      onChanged: onRightTabChanged,
+                    ),
+                    Expanded(
+                      child: IndexedStack(
+                        index: rightTab,
+                        children: const [
+                          InfoPanel(),
+                          ChatPanel(),
+                          WorkflowTab(),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const PathStatusBar(),
+      ],
+    );
+  }
 }
 
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onSettings});
+// ──────────────────────────────────────────────────────────────────────────
+// Compact (phone / iPad-portrait split-view) layout.
+// Bottom tab bar with Files/Info/Chat/Workflows + slide-in sidebar drawer.
+// ──────────────────────────────────────────────────────────────────────────
+
+class _CompactLayout extends StatelessWidget {
+  const _CompactLayout({
+    required this.tab,
+    required this.onTabChanged,
+    required this.drawerOpen,
+    required this.onToggleDrawer,
+    required this.onCloseDrawer,
+    required this.onSettings,
+  });
+
+  final int tab;
+  final ValueChanged<int> onTabChanged;
+  final bool drawerOpen;
+  final VoidCallback onToggleDrawer;
+  final VoidCallback onCloseDrawer;
+  final VoidCallback onSettings;
+
+  static const _drawerWidth = 260.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+
+    return Stack(
+      children: [
+        SafeArea(
+          bottom: false,
+          child: Column(
+            children: [
+              _CompactTopBar(
+                onMenu: onToggleDrawer,
+                onSettings: onSettings,
+              ),
+              Expanded(
+                child: IndexedStack(
+                  index: tab,
+                  children: const [
+                    FileListView(),
+                    InfoPanel(),
+                    ChatPanel(),
+                    WorkflowTab(),
+                  ],
+                ),
+              ),
+              const PathStatusBar(),
+              SafeArea(
+                top: false,
+                child: _CompactTabBar(
+                  index: tab,
+                  onChanged: onTabChanged,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Scrim + drawer.
+        IgnorePointer(
+          ignoring: !drawerOpen,
+          child: AnimatedOpacity(
+            opacity: drawerOpen ? 1 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onCloseDrawer,
+              child: Container(color: const Color(0x66000000)),
+            ),
+          ),
+        ),
+        AnimatedPositioned(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          top: 0,
+          bottom: 0,
+          left: drawerOpen ? 0 : -_drawerWidth,
+          width: _drawerWidth,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: palette.sidebarBg,
+              border: Border(right: BorderSide(color: palette.divider)),
+            ),
+            child: Sidebar(
+              width: _drawerWidth,
+              onNavigate: onCloseDrawer,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Top bars
+// ──────────────────────────────────────────────────────────────────────────
+
+class _WideTopBar extends StatelessWidget {
+  const _WideTopBar({required this.onSettings});
   final VoidCallback onSettings;
 
   @override
@@ -95,34 +257,100 @@ class _TopBar extends StatelessWidget {
     final settings = context.watch<SettingsProvider>();
     final browser = context.watch<BrowserProvider>();
     final palette = AppColors.of(context);
-    final isMac = defaultTargetPlatform == TargetPlatform.macOS;
-    final leadingInset = isMac ? 78.0 : 12.0;
 
     return Container(
-      height: 56,
+      height: 48,
       decoration: BoxDecoration(
         color: palette.headerBg,
         border: Border(bottom: BorderSide(color: palette.divider)),
       ),
-      padding: EdgeInsets.only(left: leadingInset, right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: LayoutBuilder(
+        builder: (ctx, c) {
+          // Collapse the model pill into a dot at very narrow widths so the
+          // grid/list toggle + settings still fit at the right end.
+          final w = c.maxWidth;
+          final showFullPill = w >= 440;
+          return Row(
+            children: [
+              _ToolbarIconButton(
+                icon: CupertinoIcons.chevron_left,
+                tooltip: 'Back',
+                onPressed: browser.canGoBack ? browser.goBack : null,
+                size: 30,
+              ),
+              _ToolbarIconButton(
+                icon: CupertinoIcons.chevron_right,
+                tooltip: 'Forward',
+                onPressed: browser.canGoForward ? browser.goForward : null,
+                size: 30,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _CurrentFolderLabel(path: browser.currentPath),
+              ),
+              const SizedBox(width: 8),
+              // Tail group: grid/list, ollama model, settings.
+              _ViewModeToggle(browser: browser),
+              const SizedBox(width: 8),
+              Flexible(
+                child: showFullPill
+                    ? _ConnectionPill(
+                        connected: settings.connected,
+                        model: settings.model,
+                        onTap: onSettings,
+                      )
+                    : _ConnectionDot(
+                        connected: settings.connected,
+                        onTap: onSettings,
+                      ),
+              ),
+              const SizedBox(width: 4),
+              _ToolbarIconButton(
+                icon: CupertinoIcons.settings,
+                tooltip: 'Settings',
+                onPressed: onSettings,
+                size: 30,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CompactTopBar extends StatelessWidget {
+  const _CompactTopBar({required this.onMenu, required this.onSettings});
+  final VoidCallback onMenu;
+  final VoidCallback onSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = context.watch<SettingsProvider>();
+    final browser = context.watch<BrowserProvider>();
+    final palette = AppColors.of(context);
+
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: palette.headerBg,
+        border: Border(bottom: BorderSide(color: palette.divider)),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
         children: [
           _ToolbarIconButton(
-            icon: CupertinoIcons.arrow_clockwise,
-            tooltip: 'Refresh',
-            onPressed: browser.currentPath.isEmpty ? null : browser.refresh,
-          ),
-          const SizedBox(width: 6),
-          _ViewModeToggle(browser: browser),
-          const SizedBox(width: 10),
-          const Expanded(child: BreadcrumbBar()),
-          const SizedBox(width: 8),
-          _ConnectionPill(
-            connected: settings.connected,
-            model: settings.model,
-            onTap: onSettings,
+            icon: CupertinoIcons.sidebar_left,
+            tooltip: 'Menu',
+            onPressed: onMenu,
           ),
           const SizedBox(width: 4),
+          Expanded(
+            child: _CurrentFolderLabel(path: browser.currentPath),
+          ),
+          const SizedBox(width: 4),
+          _ConnectionDot(connected: settings.connected, onTap: onSettings),
           _ToolbarIconButton(
             icon: CupertinoIcons.settings,
             tooltip: 'Settings',
@@ -132,6 +360,135 @@ class _TopBar extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CurrentFolderLabel extends StatelessWidget {
+  const _CurrentFolderLabel({required this.path});
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    final name = _displayName(path);
+    return Text(
+      name,
+      overflow: TextOverflow.ellipsis,
+      maxLines: 1,
+      style: TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.w600,
+        color: palette.text,
+      ),
+    );
+  }
+
+  String _displayName(String path) {
+    if (path.isEmpty) return '';
+    if (path == '/' || path == r'\') return '/';
+    final base = p.basename(path);
+    return base.isEmpty ? path : base;
+  }
+}
+
+class _ConnectionDot extends StatelessWidget {
+  const _ConnectionDot({required this.connected, required this.onTap});
+  final bool connected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: connected ? palette.success : palette.danger,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Compact bottom tab bar
+// ──────────────────────────────────────────────────────────────────────────
+
+class _CompactTabBar extends StatelessWidget {
+  const _CompactTabBar({required this.index, required this.onChanged});
+  final int index;
+  final ValueChanged<int> onChanged;
+
+  static const _items = [
+    (CupertinoIcons.folder, 'Files'),
+    (CupertinoIcons.info_circle, 'Info'),
+    (CupertinoIcons.bubble_left, 'Chat'),
+    (CupertinoIcons.bolt, 'Flows'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: palette.headerBg,
+        border: Border(top: BorderSide(color: palette.divider)),
+      ),
+      child: SizedBox(
+        height: 52,
+        child: Row(
+          children: List.generate(_items.length, (i) {
+            final selected = i == index;
+            final item = _items[i];
+            return Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onChanged(i),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      item.$1,
+                      size: 22,
+                      color: selected ? palette.accent : palette.subtleText,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      item.$2,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight:
+                            selected ? FontWeight.w600 : FontWeight.w400,
+                        color: selected ? palette.accent : palette.subtleText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Shared chrome helpers (kept private; identical to old _Divider /
+// _ViewModeToggle / _ToolbarIconButton / _ConnectionPill / _SegmentedHeader).
+// ──────────────────────────────────────────────────────────────────────────
+
+class _VDivider extends StatelessWidget {
+  const _VDivider({required this.color});
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Container(width: 1, color: color);
 }
 
 class _ViewModeToggle extends StatelessWidget {
@@ -239,11 +596,13 @@ class _ToolbarIconButton extends StatefulWidget {
     required this.icon,
     required this.onPressed,
     this.tooltip,
+    this.size = 36,
   });
 
   final IconData icon;
   final VoidCallback? onPressed;
   final String? tooltip;
+  final double size;
 
   @override
   State<_ToolbarIconButton> createState() => _ToolbarIconButtonState();
@@ -256,6 +615,7 @@ class _ToolbarIconButtonState extends State<_ToolbarIconButton> {
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
     final enabled = widget.onPressed != null;
+    final iconSize = (widget.size * 0.5).clamp(14.0, 22.0);
     return MouseRegion(
       cursor: enabled
           ? SystemMouseCursors.click
@@ -266,15 +626,15 @@ class _ToolbarIconButtonState extends State<_ToolbarIconButton> {
         onTap: widget.onPressed,
         behavior: HitTestBehavior.opaque,
         child: Container(
-          width: 30,
-          height: 30,
+          width: widget.size,
+          height: widget.size,
           decoration: BoxDecoration(
             color: _hover && enabled ? palette.sidebarHover : null,
             borderRadius: BorderRadius.circular(6),
           ),
           child: Icon(
             widget.icon,
-            size: 16,
+            size: iconSize,
             color: enabled
                 ? palette.subtleText
                 : palette.subtleText.withValues(alpha: 0.4),
