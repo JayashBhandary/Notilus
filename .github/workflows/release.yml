@@ -32,7 +32,12 @@ jobs:
       - name: Resolve version
         id: ver
         run: |
-          REF="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          # Prefer the manual input (workflow_dispatch); fall back to the
+          # ref name (which is the tag for `push: tags`). GITHUB_REF_NAME is
+          # always set on workflow_dispatch — to the branch — so a plain
+          # ${VAR:-default} would never reach the input.
+          INPUT="${{ github.event.inputs.tag }}"
+          REF="${INPUT:-$GITHUB_REF_NAME}"
           echo "tag=${REF}" >> "$GITHUB_OUTPUT"
           echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
 
@@ -115,7 +120,12 @@ jobs:
         id: ver
         shell: bash
         run: |
-          REF="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          # Prefer the manual input (workflow_dispatch); fall back to the
+          # ref name (which is the tag for `push: tags`). GITHUB_REF_NAME is
+          # always set on workflow_dispatch — to the branch — so a plain
+          # ${VAR:-default} would never reach the input.
+          INPUT="${{ github.event.inputs.tag }}"
+          REF="${INPUT:-$GITHUB_REF_NAME}"
           echo "tag=${REF}" >> "$GITHUB_OUTPUT"
           echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
 
@@ -158,7 +168,12 @@ jobs:
       - name: Resolve version
         id: ver
         run: |
-          REF="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          # Prefer the manual input (workflow_dispatch); fall back to the
+          # ref name (which is the tag for `push: tags`). GITHUB_REF_NAME is
+          # always set on workflow_dispatch — to the branch — so a plain
+          # ${VAR:-default} would never reach the input.
+          INPUT="${{ github.event.inputs.tag }}"
+          REF="${INPUT:-$GITHUB_REF_NAME}"
           echo "tag=${REF}" >> "$GITHUB_OUTPUT"
           echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
 
@@ -190,7 +205,12 @@ jobs:
       - name: Resolve tag
         id: ver
         run: |
-          REF="${GITHUB_REF_NAME:-${{ github.event.inputs.tag }}}"
+          # Prefer the manual input (workflow_dispatch); fall back to the
+          # ref name (which is the tag for `push: tags`). GITHUB_REF_NAME is
+          # always set on workflow_dispatch — to the branch — so a plain
+          # ${VAR:-default} would never reach the input.
+          INPUT="${{ github.event.inputs.tag }}"
+          REF="${INPUT:-$GITHUB_REF_NAME}"
           echo "tag=${REF}" >> "$GITHUB_OUTPUT"
 
       - uses: softprops/action-gh-release@v2
