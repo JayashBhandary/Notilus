@@ -238,7 +238,7 @@ ollama pull llama3.2
 In Settings, hit **Save & Test** after editing the Host URL. The
 "Default Model" picker is populated from `/api/tags`.
 
-### Reaching Ollama from an iPhone.
+### Reaching Ollama from an iPhone
 
 `localhost` on iOS means the phone itself, not your Mac. Set Host URL
 to your Mac's LAN IP (e.g. `http://192.168.1.42:11434`) and run
