@@ -8,7 +8,7 @@ Notilus is a single-developer, local-first project. It runs on macOS, Windows,
 Linux, iPad, and iPhone from one Flutter codebase, and talks to a local
 [Ollama](https://ollama.com) instance — no cloud, no account, no telemetry.
 
-**Current version:** `0.1.2+3` (see `pubspec.yaml`).
+**Current version:** `0.1.5` (see `pubspec.yaml`).
 
 ---
 
@@ -18,15 +18,23 @@ Linux, iPad, and iPhone from one Flutter codebase, and talks to a local
   Info / Chat / Workflows panel — with a fluid wide layout and a
   bottom-tab compact layout below 750-px width (iPhone, iPad portrait
   split-view, narrow desktop windows).
-- **Quick-Look-style preview** for images, text/source code, PDF, video,
-  and audio. Sibling files in the same folder are navigable via swipe
-  (touch) or arrow keys + space (desktop).
+- **Quick-Look-style preview** for images, text/source code, rendered
+  Markdown, PDF, video, and audio. Sibling files in the same folder are
+  navigable via swipe (touch) or arrow keys + space (desktop).
+- **Integrated terminal** (desktop) — bottom-docked PTY-backed panel
+  with VSCode-style tabs, toggled by **⌘J** (macOS) / **Ctrl+J**
+  (Windows / Linux). New sessions inherit the current folder as their
+  working directory; switching folders sends `cd` to the active tab.
+- **Disk-cached thumbnails** for PDFs (first page), SVGs, and text
+  files (first-lines snippet). Cache keys include path + mtime + size,
+  so an external edit invalidates the entry automatically.
 - **Live filesystem updates** — the current folder is watched with
   `Directory.watch()` and re-listed automatically on create / rename /
   delete (debounced ~180 ms). No manual refresh button needed.
 - **Ollama chat panel** with token-by-token streaming over
-  `/api/generate`. Optional "include selection" to pipe the selected
-  file's contents into the prompt.
+  `/api/generate`. Attach the selected file to send its extracted text
+  (PDF via `pdftotext`, Office docs via LibreOffice) or pass images
+  straight through as base64 to a vision-capable model.
 - **Multi-step workflows** — chain prompts (each with its own template
   and optional model override) and run them against the selected file.
 - **System Overview** screen — disk usage per drive, shallow folder
@@ -153,8 +161,10 @@ A `CupertinoSlidingSegmentedControl` switches between:
 
 - **Info** — preview, name, kind, size, modified, location of the
   current selection (Finder's "Get Info"-style panel).
-- **Chat** — Ollama chat with optional "include selection" to attach
-  the file's contents (text capped at 200 KB).
+- **Chat** — Ollama chat with an attach toggle on the selected file:
+  text is extracted (text capped at 200 KB; PDFs and Office docs use
+  external tools if available) and images are passed as base64 to a
+  vision-capable model.
 - **Workflows** — list, edit, and run saved prompt chains.
 
 On compact widths these become tabs in the bottom tab bar
@@ -172,7 +182,8 @@ Per-type viewers:
 | Type | Extensions | Viewer |
 |---|---|---|
 | Image | `png` `jpg` `jpeg` `gif` `bmp` `webp` `heic` `tif` | `InteractiveViewer` + `Image.file` (pinch / drag zoom) |
-| Text / code | `txt` `md` `json` `yaml` `xml` `csv` `html` `css` `js` `ts` `dart` `py` `go` `rs` `c` `cpp` `java` `kt` `swift` `sh` `toml` `ini` `conf` `log` `+more` | Monospaced, selectable, capped at 1 MB |
+| Markdown | `md` `markdown` `mdown` | `flutter_markdown` rendered, with a toggle to view raw source |
+| Text / code | `txt` `json` `yaml` `xml` `csv` `html` `css` `js` `ts` `dart` `py` `go` `rs` `c` `cpp` `java` `kt` `swift` `sh` `toml` `ini` `conf` `log` `+more` | Monospaced, selectable, capped at 1 MB |
 | PDF | `pdf` | `pdfx` (PDFKit on Apple, PDFium elsewhere) |
 | Video | `mp4` `mov` `m4v` `mkv` `webm` | `video_player` with play / pause / seek overlay |
 | Audio | `mp3` `wav` `m4a` `aac` `flac` `ogg` | `just_audio` with scrubber |
@@ -214,6 +225,7 @@ Show View Options
 | Context menu | Right-click | Long-press |
 | Cycle preview siblings | **←** / **→** / Space | Swipe |
 | Close preview | **Esc** | Back / swipe down |
+| Toggle integrated terminal | **⌘J** (macOS) / **Ctrl+J** | — |
 
 Filesystem changes (files created, renamed, or deleted by another app)
 appear automatically — no refresh shortcut needed.
@@ -299,6 +311,8 @@ lib/
 │   ├── file_service.dart             # list, drives, shortcuts (per-OS)
 │   ├── file_actions_service.dart     # open, open-with, rename, trash, …
 │   ├── ollama_service.dart           # /api/tags + /api/generate stream
+│   ├── attachment_service.dart       # text/PDF/Office → text; images → base64
+│   ├── thumbnail_service.dart        # disk-cached PDF/SVG/text thumbnails
 │   ├── settings_store.dart           # shared_preferences wrapper
 │   ├── system_info_service.dart      # disk usage + folder breakdown
 │   └── workflow_runner.dart
@@ -307,14 +321,15 @@ lib/
 │   ├── settings_screen.dart
 │   ├── system_overview_screen.dart
 │   ├── workflow_editor_screen.dart
-│   └── file_preview_screen.dart      # Quick-Look-style viewer
+│   └── file_preview_screen.dart      # Quick-Look-style viewer (incl. Markdown)
 └── widgets/
     ├── sidebar.dart                  # full-height; drawer in compact
     ├── breadcrumb_bar.dart           # (legacy — currently unused)
     ├── path_status_bar.dart          # Finder-style bottom status bar
     ├── file_list_view.dart           # list view + context menu wiring
-    ├── file_icon_grid.dart           # icon view
+    ├── file_icon_grid.dart           # icon view with cached thumbnails
     ├── desk_context_menu.dart        # overlay menu with submenus
+    ├── terminal_panel.dart           # PTY-backed terminal with VSCode tabs
     ├── chat_panel.dart
     ├── workflow_tab.dart
     ├── workflow_run_view.dart
@@ -419,14 +434,14 @@ Releases are produced by
 Typical flow:
 
 ```sh
-# 1. Bump version in pubspec.yaml (e.g. 0.1.2+3 → 0.1.3+4)
+# 1. Bump version in pubspec.yaml (e.g. 0.1.5 → 0.1.6)
 # 2. Commit + push
-git commit -am "Bump version to 0.1.3"
+git commit -am "Bump version to 0.1.6"
 git push
 
 # 3. Tag and push the tag
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.6
+git push origin v0.1.6
 ```
 
 > The workflow resolves the tag from `workflow_dispatch` input
@@ -443,9 +458,13 @@ git push origin v0.1.3
 | `http`                 | Ollama REST calls |
 | `shared_preferences`   | Local settings + saved workflows |
 | `path`, `path_provider`| OS-specific path helpers |
-| `pdfx`                 | PDF preview |
+| `pdfx`                 | PDF preview + first-page thumbnails |
 | `video_player`         | Video preview |
 | `just_audio`           | Audio preview |
+| `flutter_markdown`     | Rendered Markdown preview |
+| `flutter_svg`          | SVG thumbnails + icons |
+| `xterm`, `flutter_pty` | Integrated PTY-backed terminal |
+| `archive`              | Reading zip/tar contents (e.g. legacy `.docx` text extraction fallback) |
 | `share_plus`           | iOS share-sheet for "Open With" |
 | `cupertino_icons`      | Icon font |
 
@@ -465,7 +484,8 @@ Things on the short list:
 - Notarized macOS builds (currently ad-hoc signed)
 - Tag support in the sidebar (UI is there; persistence isn't)
 - File search inside the current folder
-- Better thumbnail caching for large image grids
+- Disk-cached raster thumbnails for raw images (PDFs / SVGs / text are
+  already cached)
 - Optional: bundle pinning for `share_plus` 11.x once it stabilises
 
 PRs and issues welcome at
