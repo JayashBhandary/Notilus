@@ -1,8 +1,14 @@
-# Notilus
+<p align="center">
+  <img src="assets/icon/icon.png" alt="Notilus icon" width="128" height="128">
+</p>
 
-> A Finder-style file manager built in Flutter, with a built-in Ollama chat
-> panel, a Quick-Look-style preview viewer, and a workflow editor for running
-> custom prompt chains against your local files.
+<h1 align="center">Notilus</h1>
+
+<p align="center">
+  A Finder-style file manager built in Flutter, with a built-in Ollama chat
+  panel, a Quick-Look-style preview viewer, and a workflow editor for running
+  custom prompt chains against your local files.
+</p>
 
 Notilus is a single-developer, local-first project. It runs on macOS, Windows,
 Linux, iPad, and iPhone from one Flutter codebase, and talks to a local
