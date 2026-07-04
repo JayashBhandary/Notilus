@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:provider/provider.dart';
 
 import '../providers/browser_provider.dart';
+import '../screens/duplicate_finder_screen.dart';
 import '../screens/system_overview_screen.dart';
 import '../services/file_service.dart';
 import '../theme.dart';
@@ -58,6 +59,18 @@ class Sidebar extends StatelessWidget {
                 Navigator.of(context).push(
                   CupertinoPageRoute(
                     builder: (_) => const SystemOverviewScreen(),
+                  ),
+                );
+              }),
+            ),
+            _SidebarItem(
+              label: 'Duplicate Finder',
+              icon: CupertinoIcons.doc_on_doc,
+              selected: false,
+              onTap: () => after(() {
+                Navigator.of(context).push(
+                  CupertinoPageRoute(
+                    builder: (_) => const DuplicateFinderScreen(),
                   ),
                 );
               }),

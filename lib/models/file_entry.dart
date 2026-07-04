@@ -17,6 +17,24 @@ class FileEntry {
   final int size;
   final DateTime modified;
 
+  Map<String, dynamic> toJson() => {
+        'path': path,
+        'name': name,
+        'isDirectory': isDirectory,
+        'size': size,
+        'modified': modified.millisecondsSinceEpoch,
+      };
+
+  factory FileEntry.fromJson(Map<String, dynamic> json) => FileEntry(
+        path: json['path'] as String,
+        name: json['name'] as String,
+        isDirectory: json['isDirectory'] as bool? ?? false,
+        size: (json['size'] as num?)?.toInt() ?? 0,
+        modified: DateTime.fromMillisecondsSinceEpoch(
+          (json['modified'] as num?)?.toInt() ?? 0,
+        ),
+      );
+
   String get extension => isDirectory ? '' : p.extension(name).toLowerCase();
 
   bool get isImage {

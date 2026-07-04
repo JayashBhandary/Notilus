@@ -123,11 +123,25 @@ class AppTheme {
           fontSize: 13,
           color: palette.text,
         ),
+        // These two must use inherit:false to match Cupertino's built-in nav
+        // text styles. During a nav-bar→nav-bar push transition Flutter lerps
+        // the title into the back-button label; mixing inherit:true here with
+        // the framework's inherit:false defaults throws "Failed to interpolate
+        // TextStyles with different inherit values."
         navTitleTextStyle: TextStyle(
+          inherit: false,
           fontFamily: '.SF Pro Text',
           fontSize: 15,
           fontWeight: FontWeight.w600,
           color: palette.text,
+          decoration: TextDecoration.none,
+        ),
+        navActionTextStyle: TextStyle(
+          inherit: false,
+          fontFamily: '.SF Pro Text',
+          fontSize: 15,
+          color: palette.accent,
+          decoration: TextDecoration.none,
         ),
       ),
     );

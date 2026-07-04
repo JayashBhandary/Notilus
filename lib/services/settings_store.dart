@@ -10,6 +10,7 @@ class SettingsStore {
   static const _kTemperature = 'temperature';
   static const _kWorkflows = 'workflows_json';
   static const _kThemeMode = 'theme_mode';
+  static const _kDupFinderPrefs = 'duplicate_finder_prefs';
 
   static const String defaultHost = 'http://localhost:11434';
 
@@ -75,5 +76,22 @@ class SettingsStore {
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(workflows.map((w) => w.toJson()).toList());
     await prefs.setString(_kWorkflows, encoded);
+  }
+
+  /// Duplicate Finder filter preferences, stored as a single JSON blob.
+  Future<Map<String, dynamic>> getDuplicateFinderPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kDupFinderPrefs);
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      return const {};
+    }
+  }
+
+  Future<void> setDuplicateFinderPrefs(Map<String, dynamic> prefs) async {
+    final store = await SharedPreferences.getInstance();
+    await store.setString(_kDupFinderPrefs, jsonEncode(prefs));
   }
 }
