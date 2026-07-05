@@ -11,6 +11,7 @@ import '../services/file_actions_service.dart';
 import '../services/settings_store.dart';
 import '../services/system_info_service.dart' show formatBytes;
 import '../theme.dart';
+import '../widgets/skeleton.dart';
 import 'file_preview_screen.dart';
 
 /// File-type categories the scan can be narrowed to.
@@ -62,14 +63,16 @@ class _ScanTarget {
   bool selected;
 }
 
-class DuplicateFinderScreen extends StatefulWidget {
-  const DuplicateFinderScreen({super.key});
+/// Embeddable Duplicate Finder page. Rendered inside the app's central
+/// content pane (not a full-screen route).
+class DuplicateFinderView extends StatefulWidget {
+  const DuplicateFinderView({super.key});
 
   @override
-  State<DuplicateFinderScreen> createState() => _DuplicateFinderScreenState();
+  State<DuplicateFinderView> createState() => _DuplicateFinderViewState();
 }
 
-class _DuplicateFinderScreenState extends State<DuplicateFinderScreen> {
+class _DuplicateFinderViewState extends State<DuplicateFinderView> {
   final _actions = FileActionsService();
   final _store = SettingsStore();
   final _scanStore = DuplicateScanStore();
@@ -497,14 +500,10 @@ class _DuplicateFinderScreenState extends State<DuplicateFinderScreen> {
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
 
-    return CupertinoPageScaffold(
-      backgroundColor: palette.scaffoldBg,
-      navigationBar: CupertinoNavigationBar(
-        backgroundColor: palette.headerBg,
-        border: Border(bottom: BorderSide(color: palette.divider)),
-        middle: const Text('Duplicate Finder'),
-      ),
+    return ColoredBox(
+      color: palette.scaffoldBg,
       child: SafeArea(
+        top: false,
         child: LayoutBuilder(
           builder: (context, constraints) {
             // Responsive column count for the group grid.
@@ -568,6 +567,15 @@ class _DuplicateFinderScreenState extends State<DuplicateFinderScreen> {
                   palette: palette,
                 ),
               const SizedBox(height: 16),
+              // While scanning, sketch a few result cards so the area below the
+              // progress bar reads as "results loading" instead of empty.
+              if (_scanning) ...[
+                _SkeletonGroupCard(palette: palette),
+                const SizedBox(height: 12),
+                _SkeletonGroupCard(palette: palette),
+                const SizedBox(height: 12),
+                _SkeletonGroupCard(palette: palette),
+              ],
               if (!_scanning && _hasScanned) ...[
                 _ResultsHeader(groups: _groups, palette: palette),
                 if (_lastScanAt != null) ...[
@@ -1309,6 +1317,41 @@ class _CleanupBar extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Placeholder duplicate-group card shown while a scan is in progress. Static
+/// (no shimmer) to avoid adding paint cost during the scan.
+class _SkeletonGroupCard extends StatelessWidget {
+  const _SkeletonGroupCard({required this.palette});
+  final AppPalette palette;
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      palette: palette,
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              SkeletonBlock(width: 70, height: 12),
+              Spacer(),
+              SkeletonBlock(width: 120, height: 11),
+            ],
+          ),
+          SizedBox(height: 12),
+          Row(
+            children: [
+              SkeletonBlock(width: 72, height: 72, radius: 8),
+              SizedBox(width: 8),
+              SkeletonBlock(width: 72, height: 72, radius: 8),
+              SizedBox(width: 8),
+              SkeletonBlock(width: 72, height: 72, radius: 8),
+            ],
           ),
         ],
       ),

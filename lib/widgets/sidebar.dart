@@ -5,13 +5,16 @@ import 'package:flutter/material.dart' show Icons;
 import 'package:provider/provider.dart';
 
 import '../providers/browser_provider.dart';
-import '../screens/duplicate_finder_screen.dart';
-import '../screens/system_overview_screen.dart';
 import '../services/file_service.dart';
 import '../theme.dart';
 
 class Sidebar extends StatelessWidget {
-  const Sidebar({super.key, this.width = 210, this.onNavigate});
+  const Sidebar({
+    super.key,
+    this.width = 210,
+    this.onNavigate,
+    this.onFocusCenter,
+  });
 
   /// Fixed width when shown inline. The drawer version sizes itself via
   /// constraints from the surrounding overlay.
@@ -20,6 +23,11 @@ class Sidebar extends StatelessWidget {
   /// Called after the user picks any navigation target. Use this to close
   /// the drawer in compact mode. Inline (wide) usage leaves this null.
   final VoidCallback? onNavigate;
+
+  /// Called when the user selects anything that changes the central content
+  /// pane (a folder or a page). Compact layout uses this to focus the center
+  /// tab; wide layout leaves it null.
+  final VoidCallback? onFocusCenter;
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +40,7 @@ class Sidebar extends StatelessWidget {
 
     void after(VoidCallback action) {
       action();
+      onFocusCenter?.call();
       onNavigate?.call();
     }
 
@@ -54,31 +63,24 @@ class Sidebar extends StatelessWidget {
             _SidebarItem(
               label: 'System Overview',
               icon: CupertinoIcons.gauge,
-              selected: false,
-              onTap: () => after(() {
-                Navigator.of(context).push(
-                  CupertinoPageRoute(
-                    builder: (_) => const SystemOverviewScreen(),
-                  ),
-                );
-              }),
+              selected: browser.centerView == CenterView.systemOverview,
+              onTap: () => after(
+                () => browser.showCenterView(CenterView.systemOverview),
+              ),
             ),
             _SidebarItem(
               label: 'Duplicate Finder',
               icon: CupertinoIcons.doc_on_doc,
-              selected: false,
-              onTap: () => after(() {
-                Navigator.of(context).push(
-                  CupertinoPageRoute(
-                    builder: (_) => const DuplicateFinderScreen(),
-                  ),
-                );
-              }),
+              selected: browser.centerView == CenterView.duplicates,
+              onTap: () => after(
+                () => browser.showCenterView(CenterView.duplicates),
+              ),
             ),
             const SizedBox(height: 14),
             const _SectionHeader(label: 'Favorites'),
             ...shortcuts.map((e) {
-              final selected = browser.currentPath == e.value;
+              final selected = browser.centerView == CenterView.files &&
+                  browser.currentPath == e.value;
               return _SidebarItem(
                 label: e.key,
                 icon: _iconForShortcut(e.key),
@@ -120,7 +122,8 @@ class Sidebar extends StatelessWidget {
               )
             else
               ...drives.map((d) {
-                final selected = browser.currentPath == d.path;
+                final selected = browser.centerView == CenterView.files &&
+                    browser.currentPath == d.path;
                 return _SidebarItem(
                   label: d.name,
                   icon: _iconForDrive(d),

@@ -16,7 +16,38 @@ import '../widgets/path_status_bar.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/terminal_panel.dart';
 import '../widgets/workflow_tab.dart';
+import 'duplicate_finder_screen.dart';
 import 'settings_screen.dart';
+import 'system_overview_screen.dart';
+
+/// Builds the widget that fills the app's central content pane for [view].
+/// The System Overview view is keyed so the toolbar's refresh action can
+/// reach its state.
+Widget _centerBody(
+  CenterView view,
+  GlobalKey<SystemOverviewViewState> overviewKey,
+) {
+  switch (view) {
+    case CenterView.files:
+      return const FileListView();
+    case CenterView.systemOverview:
+      return SystemOverviewView(key: overviewKey);
+    case CenterView.duplicates:
+      return const DuplicateFinderView();
+  }
+}
+
+/// Human-readable title for a non-file center view (used in the header).
+String _centerTitle(CenterView view) {
+  switch (view) {
+    case CenterView.files:
+      return '';
+    case CenterView.systemOverview:
+      return 'System Overview';
+    case CenterView.duplicates:
+      return 'Duplicate Finder';
+  }
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -37,6 +68,9 @@ class _HomeScreenState extends State<HomeScreen> {
   double _terminalHeight = 280;
   static const double _terminalMin = 120;
   static const double _terminalMax = 600;
+
+  // Keyed so the toolbar's refresh button can re-run the System Overview scan.
+  final GlobalKey<SystemOverviewViewState> _overviewKey = GlobalKey();
 
   @override
   void initState() {
@@ -64,11 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return true;
   }
 
-  void _openSettings() {
-    Navigator.of(context).push(
-      CupertinoPageRoute(builder: (_) => const SettingsScreen()),
-    );
-  }
+  void _openSettings() => showSettingsDialog(context);
 
   void _toggleDrawer() => setState(() => _drawerOpen = !_drawerOpen);
   void _closeDrawer() {
@@ -117,6 +147,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onToggleTerminal: _toggleTerminal,
               onCloseTerminal: _closeTerminal,
               onResizeTerminal: _resizeTerminal,
+              overviewKey: _overviewKey,
             )
           : _WideLayout(
               rightTab: _rightTab,
@@ -127,6 +158,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onToggleTerminal: _toggleTerminal,
               onCloseTerminal: _closeTerminal,
               onResizeTerminal: _resizeTerminal,
+              overviewKey: _overviewKey,
             ),
     );
   }
@@ -146,6 +178,7 @@ class _WideLayout extends StatelessWidget {
     required this.onToggleTerminal,
     required this.onCloseTerminal,
     required this.onResizeTerminal,
+    required this.overviewKey,
   });
 
   final int rightTab;
@@ -156,12 +189,19 @@ class _WideLayout extends StatelessWidget {
   final VoidCallback onToggleTerminal;
   final VoidCallback onCloseTerminal;
   final ValueChanged<double> onResizeTerminal;
+  final GlobalKey<SystemOverviewViewState> overviewKey;
 
   @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
+    final settings = context.watch<SettingsProvider>();
     final width = MediaQuery.sizeOf(context).width;
-    final cwd = context.watch<BrowserProvider>().currentPath;
+    final browser = context.watch<BrowserProvider>();
+    final cwd = browser.currentPath;
+    final centerView = browser.centerView;
+
+    final sidebarCollapsed = settings.sidebarCollapsed;
+    final rightCollapsed = settings.rightPanelCollapsed;
 
     // Shrink panels gracefully on narrow desktop windows.
     final sidebarWidth = width < 1000 ? 180.0 : 210.0;
@@ -176,8 +216,19 @@ class _WideLayout extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Sidebar(width: sidebarWidth),
-              _VDivider(color: palette.divider),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                child: sidebarCollapsed
+                    ? const SizedBox(height: double.infinity)
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Sidebar(width: sidebarWidth),
+                          _VDivider(color: palette.divider),
+                        ],
+                      ),
+              ),
               Expanded(
                 flex: 3,
                 child: Column(
@@ -186,8 +237,15 @@ class _WideLayout extends StatelessWidget {
                       onSettings: onSettings,
                       onToggleTerminal: onToggleTerminal,
                       terminalOpen: terminalOpen,
+                      sidebarCollapsed: sidebarCollapsed,
+                      rightPanelCollapsed: rightCollapsed,
+                      onToggleSidebar: settings.toggleSidebar,
+                      onToggleRightPanel: settings.toggleRightPanel,
+                      centerView: centerView,
+                      onRefreshOverview: () =>
+                          overviewKey.currentState?.refresh(),
                     ),
-                    const Expanded(child: FileListView()),
+                    Expanded(child: _centerBody(centerView, overviewKey)),
                     if (terminalOpen)
                       TerminalPanel(
                         cwd: cwd,
@@ -198,27 +256,38 @@ class _WideLayout extends StatelessWidget {
                   ],
                 ),
               ),
-              _VDivider(color: palette.divider),
-              SizedBox(
-                width: rightPanelWidth,
-                child: Column(
-                  children: [
-                    _SegmentedHeader(
-                      index: rightTab,
-                      onChanged: onRightTabChanged,
-                    ),
-                    Expanded(
-                      child: IndexedStack(
-                        index: rightTab,
-                        children: const [
-                          InfoPanel(),
-                          ChatPanel(),
-                          WorkflowTab(),
+              AnimatedSize(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                child: rightCollapsed
+                    ? const SizedBox(height: double.infinity)
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _VDivider(color: palette.divider),
+                          SizedBox(
+                            width: rightPanelWidth,
+                            child: Column(
+                              children: [
+                                _SegmentedHeader(
+                                  index: rightTab,
+                                  onChanged: onRightTabChanged,
+                                ),
+                                Expanded(
+                                  child: IndexedStack(
+                                    index: rightTab,
+                                    children: const [
+                                      InfoPanel(),
+                                      ChatPanel(),
+                                      WorkflowTab(),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
               ),
             ],
           ),
@@ -247,6 +316,7 @@ class _CompactLayout extends StatelessWidget {
     required this.onToggleTerminal,
     required this.onCloseTerminal,
     required this.onResizeTerminal,
+    required this.overviewKey,
   });
 
   final int tab;
@@ -260,13 +330,16 @@ class _CompactLayout extends StatelessWidget {
   final VoidCallback onToggleTerminal;
   final VoidCallback onCloseTerminal;
   final ValueChanged<double> onResizeTerminal;
+  final GlobalKey<SystemOverviewViewState> overviewKey;
 
   static const _drawerWidth = 260.0;
 
   @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
-    final cwd = context.watch<BrowserProvider>().currentPath;
+    final browser = context.watch<BrowserProvider>();
+    final cwd = browser.currentPath;
+    final centerView = browser.centerView;
 
     return Stack(
       children: [
@@ -279,15 +352,16 @@ class _CompactLayout extends StatelessWidget {
                 onSettings: onSettings,
                 onToggleTerminal: onToggleTerminal,
                 terminalOpen: terminalOpen,
+                title: tab == 0 ? _centerTitle(centerView) : '',
               ),
               Expanded(
                 child: IndexedStack(
                   index: tab,
-                  children: const [
-                    FileListView(),
-                    InfoPanel(),
-                    ChatPanel(),
-                    WorkflowTab(),
+                  children: [
+                    _centerBody(centerView, overviewKey),
+                    const InfoPanel(),
+                    const ChatPanel(),
+                    const WorkflowTab(),
                   ],
                 ),
               ),
@@ -337,6 +411,7 @@ class _CompactLayout extends StatelessWidget {
             child: Sidebar(
               width: _drawerWidth,
               onNavigate: onCloseDrawer,
+              onFocusCenter: () => onTabChanged(0),
             ),
           ),
         ),
@@ -354,10 +429,22 @@ class _WideTopBar extends StatelessWidget {
     required this.onSettings,
     required this.onToggleTerminal,
     required this.terminalOpen,
+    required this.sidebarCollapsed,
+    required this.rightPanelCollapsed,
+    required this.onToggleSidebar,
+    required this.onToggleRightPanel,
+    required this.centerView,
+    required this.onRefreshOverview,
   });
   final VoidCallback onSettings;
   final VoidCallback onToggleTerminal;
   final bool terminalOpen;
+  final bool sidebarCollapsed;
+  final bool rightPanelCollapsed;
+  final VoidCallback onToggleSidebar;
+  final VoidCallback onToggleRightPanel;
+  final CenterView centerView;
+  final VoidCallback onRefreshOverview;
 
   @override
   Widget build(BuildContext context) {
@@ -365,13 +452,17 @@ class _WideTopBar extends StatelessWidget {
     final browser = context.watch<BrowserProvider>();
     final palette = AppColors.of(context);
 
+    // When the sidebar is hidden this bar sits at the window's left edge,
+    // under the macOS traffic lights — pad it clear of them.
+    final leadPad = (sidebarCollapsed && Platform.isMacOS) ? 72.0 : 0.0;
+
     return Container(
       height: 48,
       decoration: BoxDecoration(
         color: palette.headerBg,
         border: Border(bottom: BorderSide(color: palette.divider)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 6),
+      padding: EdgeInsets.only(left: 6 + leadPad, right: 6),
       child: LayoutBuilder(
         builder: (ctx, c) {
           // Collapse the model pill into a dot at very narrow widths so the
@@ -381,25 +472,59 @@ class _WideTopBar extends StatelessWidget {
           return Row(
             children: [
               _ToolbarIconButton(
-                icon: CupertinoIcons.chevron_left,
-                tooltip: 'Back',
-                onPressed: browser.canGoBack ? browser.goBack : null,
+                icon: CupertinoIcons.sidebar_left,
+                tooltip: sidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar',
+                onPressed: onToggleSidebar,
                 size: 30,
+                highlighted: !sidebarCollapsed,
               ),
-              _ToolbarIconButton(
-                icon: CupertinoIcons.chevron_right,
-                tooltip: 'Forward',
-                onPressed: browser.canGoForward ? browser.goForward : null,
-                size: 30,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _CurrentFolderLabel(path: browser.currentPath),
-              ),
-              const SizedBox(width: 8),
-              // Tail group: grid/list, ollama model, settings.
-              _ViewModeToggle(browser: browser),
               const SizedBox(width: 4),
+              // Middle section: file controls when browsing files, otherwise a
+              // contextual page header (title + page actions).
+              if (centerView == CenterView.files) ...[
+                _ToolbarIconButton(
+                  icon: CupertinoIcons.chevron_left,
+                  tooltip: 'Back',
+                  onPressed: browser.canGoBack ? browser.goBack : null,
+                  size: 30,
+                ),
+                _ToolbarIconButton(
+                  icon: CupertinoIcons.chevron_right,
+                  tooltip: 'Forward',
+                  onPressed: browser.canGoForward ? browser.goForward : null,
+                  size: 30,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _CurrentFolderLabel(path: browser.currentPath),
+                ),
+                const SizedBox(width: 8),
+                _ViewModeToggle(browser: browser),
+                const SizedBox(width: 4),
+              ] else ...[
+                Expanded(
+                  child: Text(
+                    _centerTitle(centerView),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: palette.text,
+                    ),
+                  ),
+                ),
+                if (centerView == CenterView.systemOverview) ...[
+                  _ToolbarIconButton(
+                    icon: CupertinoIcons.arrow_clockwise,
+                    tooltip: 'Refresh',
+                    onPressed: onRefreshOverview,
+                    size: 30,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+              ],
+              // Tail group: terminal, ollama model, settings, panel toggle.
               _ToolbarIconButton(
                 icon: CupertinoIcons.chevron_left_slash_chevron_right,
                 tooltip:
@@ -409,24 +534,36 @@ class _WideTopBar extends StatelessWidget {
                 highlighted: terminalOpen,
               ),
               const SizedBox(width: 4),
-              Flexible(
-                child: showFullPill
-                    ? _ConnectionPill(
-                        connected: settings.connected,
-                        model: settings.model,
-                        onTap: onSettings,
-                      )
-                    : _ConnectionDot(
-                        connected: settings.connected,
-                        onTap: onSettings,
-                      ),
-              ),
+              // Not wrapped in Flexible: a second flex child would split the
+              // free space with the title/label Expanded and leave dead space
+              // at the far right. The pill self-limits (maxWidth + ellipsis)
+              // and collapses to a dot on narrow windows.
+              if (showFullPill)
+                _ConnectionPill(
+                  connected: settings.connected,
+                  model: settings.model,
+                  onTap: onSettings,
+                )
+              else
+                _ConnectionDot(
+                  connected: settings.connected,
+                  onTap: onSettings,
+                ),
               const SizedBox(width: 4),
               _ToolbarIconButton(
                 icon: CupertinoIcons.settings,
                 tooltip: 'Settings',
                 onPressed: onSettings,
                 size: 30,
+              ),
+              const SizedBox(width: 4),
+              _ToolbarIconButton(
+                icon: CupertinoIcons.sidebar_right,
+                tooltip:
+                    rightPanelCollapsed ? 'Show Panel' : 'Hide Panel',
+                onPressed: onToggleRightPanel,
+                size: 30,
+                highlighted: !rightPanelCollapsed,
               ),
             ],
           );
@@ -442,11 +579,16 @@ class _CompactTopBar extends StatelessWidget {
     required this.onSettings,
     required this.onToggleTerminal,
     required this.terminalOpen,
+    this.title = '',
   });
   final VoidCallback onMenu;
   final VoidCallback onSettings;
   final VoidCallback onToggleTerminal;
   final bool terminalOpen;
+
+  /// When non-empty, shown in place of the current-folder label (used when a
+  /// non-file page occupies the center pane).
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -470,7 +612,18 @@ class _CompactTopBar extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           Expanded(
-            child: _CurrentFolderLabel(path: browser.currentPath),
+            child: title.isNotEmpty
+                ? Text(
+                    title,
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: palette.text,
+                    ),
+                  )
+                : _CurrentFolderLabel(path: browser.currentPath),
           ),
           const SizedBox(width: 4),
           _ToolbarIconButton(

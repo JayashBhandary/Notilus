@@ -9,15 +9,18 @@ import '../services/file_service.dart';
 import '../services/ollama_service.dart';
 import '../services/system_info_service.dart';
 import '../theme.dart';
+import '../widgets/skeleton.dart';
 
-class SystemOverviewScreen extends StatefulWidget {
-  const SystemOverviewScreen({super.key});
+/// Embeddable System Overview page. Rendered inside the app's central content
+/// pane (not a full-screen route). Hold a [GlobalKey] to call [refresh].
+class SystemOverviewView extends StatefulWidget {
+  const SystemOverviewView({super.key});
 
   @override
-  State<SystemOverviewScreen> createState() => _SystemOverviewScreenState();
+  State<SystemOverviewView> createState() => SystemOverviewViewState();
 }
 
-class _SystemOverviewScreenState extends State<SystemOverviewScreen> {
+class SystemOverviewViewState extends State<SystemOverviewView> {
   late final SystemInfoService _svc;
   late Future<List<DiskUsage>> _disksFuture;
   late Future<List<CategoryBreakdown>> _breakdownsFuture;
@@ -28,10 +31,10 @@ class _SystemOverviewScreenState extends State<SystemOverviewScreen> {
   void initState() {
     super.initState();
     _svc = SystemInfoService(FileService());
-    _refresh();
+    refresh();
   }
 
-  void _refresh() {
+  void refresh() {
     setState(() {
       _disksFuture = _svc.diskUsages();
       _breakdownsFuture = _loadBreakdowns();
@@ -128,28 +131,15 @@ class _SystemOverviewScreenState extends State<SystemOverviewScreen> {
     final palette = AppColors.of(context);
     final settings = context.watch<SettingsProvider>();
 
-    return CupertinoPageScaffold(
-      backgroundColor: palette.scaffoldBg,
-      navigationBar: CupertinoNavigationBar(
-        backgroundColor: palette.headerBg,
-        border: Border(bottom: BorderSide(color: palette.divider)),
-        middle: const Text('System Overview'),
-        trailing: CupertinoButton(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
-          onPressed: _refresh,
-          child: Icon(
-            CupertinoIcons.arrow_clockwise,
-            size: 18,
-            color: palette.accent,
-          ),
-        ),
-      ),
+    return ColoredBox(
+      color: palette.scaffoldBg,
       child: SafeArea(
+        top: false,
         child: FutureBuilder<List<DiskUsage>>(
           future: _disksFuture,
           builder: (ctx, snap) {
             if (!snap.hasData) {
-              return const Center(child: CupertinoActivityIndicator());
+              return _SystemOverviewSkeleton(palette: palette);
             }
             final disks = snap.data!;
             return FutureBuilder<List<CategoryBreakdown>>(
@@ -182,9 +172,11 @@ class _SystemOverviewScreenState extends State<SystemOverviewScreen> {
                     const SizedBox(height: 16),
                     _SectionLabel('Quick Folder Scan', palette: palette),
                     const SizedBox(height: 8),
-                    if (snap2.connectionState == ConnectionState.waiting)
-                      const Center(child: CupertinoActivityIndicator())
-                    else if (breakdowns.isEmpty)
+                    if (snap2.connectionState == ConnectionState.waiting) ...[
+                      _SkeletonBreakdownCard(palette: palette),
+                      const SizedBox(height: 8),
+                      _SkeletonBreakdownCard(palette: palette),
+                    ] else if (breakdowns.isEmpty)
                       Text(
                         'No shortcut folders available.',
                         style: TextStyle(
@@ -237,6 +229,139 @@ class _SectionLabel extends StatelessWidget {
           fontWeight: FontWeight.w600,
           color: palette.subtleText,
         ),
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Loading skeleton — mirrors the real layout so content swaps in without a
+// jump. Static (no shimmer) to keep it cheap.
+// ──────────────────────────────────────────────────────────────────────────
+
+class _SystemOverviewSkeleton extends StatelessWidget {
+  const _SystemOverviewSkeleton({required this.palette});
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      // No point scrolling a placeholder; also avoids a scroll-position jump
+      // when the real (scrollable) list replaces it.
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        _SkeletonSummaryCard(palette: palette),
+        const SizedBox(height: 16),
+        _SectionLabel('Drives', palette: palette),
+        const SizedBox(height: 8),
+        _SkeletonDriveCard(palette: palette),
+        const SizedBox(height: 8),
+        _SkeletonDriveCard(palette: palette),
+        const SizedBox(height: 16),
+        _SectionLabel('Quick Folder Scan', palette: palette),
+        const SizedBox(height: 8),
+        _SkeletonBreakdownCard(palette: palette),
+        const SizedBox(height: 8),
+        _SkeletonBreakdownCard(palette: palette),
+        const SizedBox(height: 8),
+        _SkeletonBreakdownCard(palette: palette),
+      ],
+    );
+  }
+}
+
+class _SkeletonSummaryCard extends StatelessWidget {
+  const _SkeletonSummaryCard({required this.palette});
+  final AppPalette palette;
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      palette: palette,
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              SkeletonBlock(width: 22, height: 22, radius: 6),
+              SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SkeletonBlock(width: 150, height: 13),
+                    SizedBox(height: 6),
+                    SkeletonBlock(width: 90, height: 11),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 16),
+          SkeletonBlock(height: 10, radius: 5),
+          SizedBox(height: 16),
+          Row(
+            children: [
+              Expanded(child: SkeletonBlock(height: 11)),
+              SizedBox(width: 14),
+              Expanded(child: SkeletonBlock(height: 11)),
+              SizedBox(width: 14),
+              Expanded(child: SkeletonBlock(height: 11)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkeletonDriveCard extends StatelessWidget {
+  const _SkeletonDriveCard({required this.palette});
+  final AppPalette palette;
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      palette: palette,
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              SkeletonBlock(width: 110, height: 12),
+              Spacer(),
+              SkeletonBlock(width: 64, height: 12),
+            ],
+          ),
+          SizedBox(height: 12),
+          SkeletonBlock(height: 8, radius: 4),
+        ],
+      ),
+    );
+  }
+}
+
+class _SkeletonBreakdownCard extends StatelessWidget {
+  const _SkeletonBreakdownCard({required this.palette});
+  final AppPalette palette;
+  @override
+  Widget build(BuildContext context) {
+    return _Card(
+      palette: palette,
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SkeletonBlock(width: 120, height: 12),
+          SizedBox(height: 12),
+          SkeletonBlock(height: 8, radius: 4),
+          SizedBox(height: 12),
+          Row(
+            children: [
+              SkeletonBlock(width: 80, height: 10),
+              Spacer(),
+              SkeletonBlock(width: 44, height: 10),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -792,9 +917,9 @@ class _AISection extends StatelessWidget {
                       color: CupertinoColors.white,
                       radius: 8,
                     )
-                  : Row(
+                  : const Row(
                       mainAxisSize: MainAxisSize.min,
-                      children: const [
+                      children: [
                         Icon(
                           CupertinoIcons.sparkles,
                           size: 14,

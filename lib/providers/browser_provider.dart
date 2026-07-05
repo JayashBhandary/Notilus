@@ -11,6 +11,11 @@ enum SortField { name, kind, modified, size }
 
 enum ViewMode { icons, list }
 
+/// Which page occupies the app's central content pane. Non-file pages
+/// (System Overview, Duplicate Finder) render here instead of pushing a
+/// full-screen route; navigating to any folder returns to [files].
+enum CenterView { files, systemOverview, duplicates }
+
 class BrowserProvider extends ChangeNotifier {
   BrowserProvider(this._fileService);
 
@@ -42,6 +47,7 @@ class BrowserProvider extends ChangeNotifier {
   bool _useGroups = false;
   double _rowDensity = 1.0; // 0.85=compact, 1.0=normal, 1.2=spacious
   ViewMode _viewMode = ViewMode.icons;
+  CenterView _centerView = CenterView.files;
 
   String get currentPath => _currentPath;
   List<FileEntry> get entries => _sortedEntries();
@@ -55,6 +61,15 @@ class BrowserProvider extends ChangeNotifier {
   bool get useGroups => _useGroups;
   double get rowDensity => _rowDensity;
   ViewMode get viewMode => _viewMode;
+  CenterView get centerView => _centerView;
+
+  /// Switches the central content pane to a non-file page. File navigation
+  /// implicitly returns to [CenterView.files] via [_load].
+  void showCenterView(CenterView view) {
+    if (_centerView == view) return;
+    _centerView = view;
+    notifyListeners();
+  }
 
   FileEntry? get primarySelection {
     if (_selectedPaths.isEmpty) return null;
@@ -108,6 +123,8 @@ class BrowserProvider extends ChangeNotifier {
   }
 
   Future<void> _load(String path) async {
+    // Any folder navigation brings the file browser back to the center pane.
+    _centerView = CenterView.files;
     _currentPath = path;
     _selectedPaths.clear();
     _loading = true;

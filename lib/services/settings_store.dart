@@ -11,8 +11,30 @@ class SettingsStore {
   static const _kWorkflows = 'workflows_json';
   static const _kThemeMode = 'theme_mode';
   static const _kDupFinderPrefs = 'duplicate_finder_prefs';
+  static const _kSidebarCollapsed = 'sidebar_collapsed';
+  static const _kRightPanelCollapsed = 'right_panel_collapsed';
 
   static const String defaultHost = 'http://localhost:11434';
+
+  Future<bool> getSidebarCollapsed() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kSidebarCollapsed) ?? false;
+  }
+
+  Future<void> setSidebarCollapsed(bool collapsed) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kSidebarCollapsed, collapsed);
+  }
+
+  Future<bool> getRightPanelCollapsed() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kRightPanelCollapsed) ?? false;
+  }
+
+  Future<void> setRightPanelCollapsed(bool collapsed) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kRightPanelCollapsed, collapsed);
+  }
 
   Future<String> getThemeMode() async {
     final prefs = await SharedPreferences.getInstance();

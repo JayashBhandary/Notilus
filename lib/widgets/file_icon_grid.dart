@@ -10,7 +10,7 @@ import '../providers/browser_provider.dart';
 import '../services/thumbnail_service.dart';
 import '../theme.dart';
 import '../utils/responsive.dart';
-import 'file_list_view.dart' show openFilePreview;
+import 'file_list_view.dart' show openFilePreview, openFileInDefaultApp;
 
 class FileIconGrid extends StatelessWidget {
   const FileIconGrid({super.key, required this.onSecondaryRowTap});
@@ -146,8 +146,12 @@ class _IconTileState extends State<_IconTile> {
           browser.toggleSelect(widget.entry, additive: additive);
         },
         onDoubleTap: () {
+          // Double-click opens: folders navigate, files open in the OS
+          // default app.
           if (widget.entry.isDirectory) {
             browser.navigateTo(widget.entry.path);
+          } else {
+            openFileInDefaultApp(context, browser, widget.entry);
           }
         },
         onLongPressStart: (d) {

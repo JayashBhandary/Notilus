@@ -41,6 +41,8 @@ class SettingsProvider extends ChangeNotifier {
   bool _connected = false;
   bool _loaded = false;
   AppThemeMode _themeMode = AppThemeMode.system;
+  bool _sidebarCollapsed = false;
+  bool _rightPanelCollapsed = false;
 
   String get host => _host;
   String? get model => _model;
@@ -49,6 +51,8 @@ class SettingsProvider extends ChangeNotifier {
   bool get connected => _connected;
   bool get loaded => _loaded;
   AppThemeMode get themeMode => _themeMode;
+  bool get sidebarCollapsed => _sidebarCollapsed;
+  bool get rightPanelCollapsed => _rightPanelCollapsed;
 
   /// Resolves [themeMode] (which may be `system`) to a concrete brightness
   /// using the platform's current brightness.
@@ -68,10 +72,28 @@ class SettingsProvider extends ChangeNotifier {
     _model = await _store.getModel();
     _temperature = await _store.getTemperature();
     _themeMode = AppThemeModeStorage.fromId(await _store.getThemeMode());
+    _sidebarCollapsed = await _store.getSidebarCollapsed();
+    _rightPanelCollapsed = await _store.getRightPanelCollapsed();
     _loaded = true;
     notifyListeners();
     await refreshModels();
   }
+
+  Future<void> setSidebarCollapsed(bool collapsed) async {
+    _sidebarCollapsed = collapsed;
+    await _store.setSidebarCollapsed(collapsed);
+    notifyListeners();
+  }
+
+  void toggleSidebar() => setSidebarCollapsed(!_sidebarCollapsed);
+
+  Future<void> setRightPanelCollapsed(bool collapsed) async {
+    _rightPanelCollapsed = collapsed;
+    await _store.setRightPanelCollapsed(collapsed);
+    notifyListeners();
+  }
+
+  void toggleRightPanel() => setRightPanelCollapsed(!_rightPanelCollapsed);
 
   Future<void> setHost(String host) async {
     _host = host;

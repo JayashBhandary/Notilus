@@ -38,16 +38,26 @@ const double _menuWidth = 220;
 const double _itemHeight = 28;
 const double _dividerHeight = 9;
 
+// The one context menu allowed on screen at a time. Opening a new one closes
+// any existing one, so overlapping triggers can never stack two menus.
+OverlayEntry? _activeMenu;
+
 Future<void> showDeskContextMenu(
   BuildContext context, {
   required Offset globalPosition,
   required List<DeskMenuItem> items,
 }) async {
+  // Tear down any menu that's still open before showing the new one.
+  final previous = _activeMenu;
+  if (previous != null && previous.mounted) previous.remove();
+  _activeMenu = null;
+
   final overlay = Overlay.of(context, rootOverlay: true);
   late OverlayEntry entry;
 
   void dismiss() {
     if (entry.mounted) entry.remove();
+    if (identical(_activeMenu, entry)) _activeMenu = null;
   }
 
   entry = OverlayEntry(
@@ -57,6 +67,7 @@ Future<void> showDeskContextMenu(
       onDismiss: dismiss,
     ),
   );
+  _activeMenu = entry;
   overlay.insert(entry);
 }
 

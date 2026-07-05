@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
@@ -19,6 +20,15 @@ final FileActionsService _actions = FileActionsService();
 bool get _isMacOS => !kIsWeb && Platform.isMacOS;
 bool get _isIOS => !kIsWeb && Platform.isIOS;
 
+// Coordinates the row-vs-background right-click menus. A single right-click can
+// reach both a file row and the background catcher that wraps the list (a
+// selection-change rebuild lets both fire). These let the row menu win: a row
+// cancels any pending background menu for the same gesture, and the background
+// menu is scheduled on a microtask so a row handler (whenever it runs) can veto
+// it first.
+Offset? _pendingBackgroundMenu;
+DateTime? _lastRowMenuAt;
+
 /// Opens the FilePreviewScreen for [entry], using the current folder's
 /// other files as siblings for swipe / arrow-key navigation.
 void openFilePreview(
@@ -38,6 +48,24 @@ void openFilePreview(
       ),
     ),
   );
+}
+
+/// Opens [entry] in the OS default application (double-click behaviour).
+/// On platforms without a default-app hook (Linux/Windows) it falls back to
+/// the in-app preview so double-click still does something useful.
+Future<void> openFileInDefaultApp(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry entry,
+) async {
+  if (_isMacOS || _isIOS) {
+    final ok = await _actions.openInDefaultApp(entry);
+    if (!ok && context.mounted) {
+      await _showError(context, 'Couldn\'t open "${entry.name}".');
+    }
+    return;
+  }
+  openFilePreview(context, browser, entry);
 }
 
 class FileListView extends StatefulWidget {
@@ -87,7 +115,7 @@ class _FileListViewState extends State<FileListView> {
               child: _BackgroundCatcher(
                 onTap: () => _focusNode.requestFocus(),
                 onSecondaryTap: (pos) =>
-                    showBackgroundContextMenu(context, browser, pos),
+                    _requestBackgroundContextMenu(context, browser, pos),
                 child: isList
                     ? _body(browser, palette)
                     : FileIconGrid(
@@ -397,10 +425,12 @@ class _FileRowState extends State<_FileRow> {
           browser.toggleSelect(widget.entry, additive: additive);
         },
         onDoubleTap: () {
-          // Desktop: double-click navigates folders. For files, use the
-          // space-bar Quick Look shortcut or right-click → Open.
+          // Desktop: double-click opens — folders navigate, files open in the
+          // OS default app. (Space-bar still triggers in-app Quick Look.)
           if (widget.entry.isDirectory) {
             browser.navigateTo(widget.entry.path);
+          } else {
+            openFileInDefaultApp(context, browser, widget.entry);
           }
         },
         onLongPressStart: (d) {
@@ -518,6 +548,32 @@ class _FileRowState extends State<_FileRow> {
 // Context menu helpers
 // ──────────────────────────────────────────────────────────────────────
 
+/// Requests the background (empty-space) context menu, but defers it to a
+/// microtask so a file row handling the *same* right-click can veto it first
+/// (rows call [showRowContextMenu], which clears the pending request). On
+/// genuinely empty space no row fires, so the menu opens on the microtask.
+void _requestBackgroundContextMenu(
+  BuildContext context,
+  BrowserProvider browser,
+  Offset position,
+) {
+  _pendingBackgroundMenu = position;
+  scheduleMicrotask(() {
+    final pos = _pendingBackgroundMenu;
+    _pendingBackgroundMenu = null;
+    if (pos == null) return; // a row claimed this gesture
+    // Belt-and-suspenders: if a row menu opened moments ago (e.g. the two
+    // handlers ran in different frames), don't also open the background menu.
+    if (_lastRowMenuAt != null &&
+        DateTime.now().difference(_lastRowMenuAt!) <
+            const Duration(milliseconds: 300)) {
+      return;
+    }
+    if (!context.mounted) return;
+    showBackgroundContextMenu(context, browser, pos);
+  });
+}
+
 void showBackgroundContextMenu(
   BuildContext context,
   BrowserProvider browser,
@@ -536,6 +592,10 @@ void showRowContextMenu(
   FileEntry entry,
   Offset position,
 ) {
+  // Claim this right-click so the surrounding background catcher's pending
+  // (deferred) menu is cancelled and can't also open.
+  _pendingBackgroundMenu = null;
+  _lastRowMenuAt = DateTime.now();
   showDeskContextMenu(
     context,
     globalPosition: position,
