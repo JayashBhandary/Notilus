@@ -132,6 +132,14 @@ jobs:
       - run: flutter pub get
 
       - name: Build Windows app
+        # CMake 4.x on windows-latest removed support for
+        # cmake_minimum_required(VERSION < 3.5). The pdfx plugin downloads
+        # pdfium at configure time, whose bundled CMakeLists declares a
+        # pre-3.5 minimum. The nested cmake sub-process inherits this env var
+        # (CMAKE_POLICY_VERSION_MINIMUM, honored since CMake 3.31), so it
+        # reaches the pdfium configure that a command-line -D flag would miss.
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: '3.5'
         run: flutter build windows --release
 
       - name: Package zip
