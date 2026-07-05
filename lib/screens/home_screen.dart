@@ -465,10 +465,15 @@ class _WideTopBar extends StatelessWidget {
       padding: EdgeInsets.only(left: 6 + leadPad, right: 6),
       child: LayoutBuilder(
         builder: (ctx, c) {
-          // Collapse the model pill into a dot at very narrow widths so the
-          // grid/list toggle + settings still fit at the right end.
+          // Progressively shed non-essential controls as the center pane
+          // narrows (both side panels open on a small window), so the row
+          // never overflows. Priority, widest-first: full model pill →
+          // grid/list toggle → back/forward nav. The sidebar/panel toggles,
+          // terminal, connection dot and settings always stay.
           final w = c.maxWidth;
           final showFullPill = w >= 440;
+          final showViewToggle = w >= 360;
+          final showNav = w >= 290;
           return Row(
             children: [
               _ToolbarIconButton(
@@ -482,25 +487,30 @@ class _WideTopBar extends StatelessWidget {
               // Middle section: file controls when browsing files, otherwise a
               // contextual page header (title + page actions).
               if (centerView == CenterView.files) ...[
-                _ToolbarIconButton(
-                  icon: CupertinoIcons.chevron_left,
-                  tooltip: 'Back',
-                  onPressed: browser.canGoBack ? browser.goBack : null,
-                  size: 30,
-                ),
-                _ToolbarIconButton(
-                  icon: CupertinoIcons.chevron_right,
-                  tooltip: 'Forward',
-                  onPressed: browser.canGoForward ? browser.goForward : null,
-                  size: 30,
-                ),
-                const SizedBox(width: 8),
+                if (showNav) ...[
+                  _ToolbarIconButton(
+                    icon: CupertinoIcons.chevron_left,
+                    tooltip: 'Back',
+                    onPressed: browser.canGoBack ? browser.goBack : null,
+                    size: 30,
+                  ),
+                  _ToolbarIconButton(
+                    icon: CupertinoIcons.chevron_right,
+                    tooltip: 'Forward',
+                    onPressed:
+                        browser.canGoForward ? browser.goForward : null,
+                    size: 30,
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 Expanded(
                   child: _CurrentFolderLabel(path: browser.currentPath),
                 ),
                 const SizedBox(width: 8),
-                _ViewModeToggle(browser: browser),
-                const SizedBox(width: 4),
+                if (showViewToggle) ...[
+                  _ViewModeToggle(browser: browser),
+                  const SizedBox(width: 4),
+                ],
               ] else ...[
                 Expanded(
                   child: Text(

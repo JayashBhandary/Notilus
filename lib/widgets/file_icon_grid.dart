@@ -11,6 +11,7 @@ import '../services/thumbnail_service.dart';
 import '../theme.dart';
 import '../utils/responsive.dart';
 import 'file_list_view.dart' show openFilePreview, openFileInDefaultApp;
+import 'marquee_selection.dart';
 
 class FileIconGrid extends StatelessWidget {
   const FileIconGrid({super.key, required this.onSecondaryRowTap});
@@ -22,6 +23,7 @@ class FileIconGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final browser = context.watch<BrowserProvider>();
     final palette = AppColors.of(context);
+    final marquee = context.read<MarqueeController>();
     final groups = browser.groupedEntries();
     final tile = 110.0 * browser.rowDensity;
 
@@ -66,6 +68,10 @@ class FileIconGrid extends StatelessWidget {
     }
 
     return ListView(
+      controller: marquee.scroll,
+      // Desktop: disable drag-to-scroll so a marquee drag doesn't fight the
+      // scroll gesture; the layer scrolls via wheel + auto-scroll instead.
+      physics: marquee.enabled ? const NeverScrollableScrollPhysics() : null,
       padding: const EdgeInsets.only(bottom: 16),
       children: flat,
     );
@@ -111,8 +117,18 @@ class _IconTile extends StatefulWidget {
   State<_IconTile> createState() => _IconTileState();
 }
 
-class _IconTileState extends State<_IconTile> {
+class _IconTileState extends State<_IconTile>
+    with MarqueeItemRegistration<_IconTile> {
   bool _hover = false;
+
+  @override
+  String get marqueePath => widget.entry.path;
+
+  @override
+  void dispose() {
+    marqueeUnregister();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -120,6 +136,7 @@ class _IconTileState extends State<_IconTile> {
     final palette = AppColors.of(context);
     final compact = isCompact(context);
     final iconSize = 52.0 * widget.density;
+    marqueeRegister();
 
     final hl = widget.selected
         ? palette.accent.withValues(alpha: 0.18)
@@ -134,6 +151,7 @@ class _IconTileState extends State<_IconTile> {
         onTap: () {
           final additive = HardwareKeyboard.instance.isMetaPressed ||
               HardwareKeyboard.instance.isControlPressed;
+          final range = HardwareKeyboard.instance.isShiftPressed;
           if (compact) {
             if (widget.entry.isDirectory) {
               browser.navigateTo(widget.entry.path);
@@ -143,7 +161,11 @@ class _IconTileState extends State<_IconTile> {
             return;
           }
           Focus.maybeOf(context)?.requestFocus();
-          browser.toggleSelect(widget.entry, additive: additive);
+          if (range) {
+            browser.selectRange(widget.entry);
+          } else {
+            browser.toggleSelect(widget.entry, additive: additive);
+          }
         },
         onDoubleTap: () {
           // Double-click opens: folders navigate, files open in the OS

@@ -24,6 +24,9 @@ class BrowserProvider extends ChangeNotifier {
   String _currentPath = '';
   List<FileEntry> _entries = [];
   final Set<String> _selectedPaths = {};
+  // Anchor for Shift range-selection: the item a range extends *from*. Set by
+  // a plain/Cmd click, held steady across successive Shift-clicks.
+  String? _anchorPath;
   Map<String, String?> _shortcuts = {};
   List<DriveEntry> _drives = const [];
   bool _loading = false;
@@ -127,6 +130,7 @@ class BrowserProvider extends ChangeNotifier {
     _centerView = CenterView.files;
     _currentPath = path;
     _selectedPaths.clear();
+    _anchorPath = null;
     _loading = true;
     _error = null;
     notifyListeners();
@@ -193,12 +197,74 @@ class BrowserProvider extends ChangeNotifier {
     } else {
       _selectedPaths.add(entry.path);
     }
+    _anchorPath = entry.path;
+    notifyListeners();
+  }
+
+  /// Shift-click range selection: replaces the selection with the contiguous
+  /// run — in the currently displayed order — between the anchor and [entry].
+  /// The anchor is left untouched so repeated Shift-clicks pivot from the same
+  /// origin. With no prior anchor, [entry] becomes both anchor and selection.
+  void selectRange(FileEntry entry) {
+    final order = _flatVisibleOrder();
+    final bi = order.indexWhere((e) => e.path == entry.path);
+    if (bi < 0) return;
+    var ai =
+        _anchorPath == null ? -1 : order.indexWhere((e) => e.path == _anchorPath);
+    if (ai < 0) {
+      _anchorPath = entry.path;
+      ai = bi;
+    }
+    final lo = ai <= bi ? ai : bi;
+    final hi = ai <= bi ? bi : ai;
+    _selectedPaths
+      ..clear()
+      ..addAll([for (var i = lo; i <= hi; i++) order[i].path]);
+    notifyListeners();
+  }
+
+  /// Selects every entry in the current folder (Cmd/Ctrl+A). Anchors on the
+  /// first visible item so a following Shift-click extends from the top.
+  void selectAll() {
+    final order = _flatVisibleOrder();
+    if (order.isEmpty) return;
+    _selectedPaths
+      ..clear()
+      ..addAll(order.map((e) => e.path));
+    _anchorPath = order.first.path;
+    notifyListeners();
+  }
+
+  /// Replaces the selection wholesale (used by rubber-band / marquee drags).
+  /// No-ops when the set is unchanged so live drags don't spam rebuilds. The
+  /// anchor is intentionally preserved.
+  void replaceSelection(Set<String> paths) {
+    if (_selectedPaths.length == paths.length &&
+        _selectedPaths.containsAll(paths)) {
+      return;
+    }
+    _selectedPaths
+      ..clear()
+      ..addAll(paths);
     notifyListeners();
   }
 
   void clearSelection() {
+    if (_selectedPaths.isEmpty && _anchorPath == null) return;
     _selectedPaths.clear();
+    _anchorPath = null;
     notifyListeners();
+  }
+
+  /// The entries in the exact order they appear on screen (grouping applied,
+  /// each group sorted). Range selection walks this so Shift-select matches
+  /// what the user sees.
+  List<FileEntry> _flatVisibleOrder() {
+    final out = <FileEntry>[];
+    for (final g in groupedEntries()) {
+      out.addAll(g.entries);
+    }
+    return out;
   }
 
   Future<void> refresh() async {
@@ -213,6 +279,7 @@ class BrowserProvider extends ChangeNotifier {
       _selectedPaths
         ..clear()
         ..add(created);
+      _anchorPath = created;
       notifyListeners();
     }
     return created;

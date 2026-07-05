@@ -15,6 +15,7 @@ import '../theme.dart';
 import '../utils/responsive.dart';
 import 'desk_context_menu.dart';
 import 'file_icon_grid.dart';
+import 'marquee_selection.dart';
 
 final FileActionsService _actions = FileActionsService();
 bool get _isMacOS => !kIsWeb && Platform.isMacOS;
@@ -77,19 +78,31 @@ class FileListView extends StatefulWidget {
 
 class _FileListViewState extends State<FileListView> {
   final FocusNode _focusNode = FocusNode(debugLabel: 'FileList');
+  final MarqueeController _marquee = MarqueeController();
 
   @override
   void dispose() {
     _focusNode.dispose();
+    _marquee.dispose();
     super.dispose();
   }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final browser = context.read<BrowserProvider>();
+
+    // Cmd/Ctrl+A: select everything in the current folder.
+    if (event.logicalKey == LogicalKeyboardKey.keyA &&
+        (HardwareKeyboard.instance.isMetaPressed ||
+            HardwareKeyboard.instance.isControlPressed)) {
+      if (browser.centerView != CenterView.files) return KeyEventResult.ignored;
+      browser.selectAll();
+      return KeyEventResult.handled;
+    }
+
     if (event.logicalKey != LogicalKeyboardKey.space) {
       return KeyEventResult.ignored;
     }
-    final browser = context.read<BrowserProvider>();
     final sel = browser.primarySelection;
     if (sel == null || sel.isDirectory) return KeyEventResult.ignored;
     openFilePreview(context, browser, sel);
@@ -101,6 +114,8 @@ class _FileListViewState extends State<FileListView> {
     final browser = context.watch<BrowserProvider>();
     final palette = AppColors.of(context);
     final isList = browser.viewMode == ViewMode.list;
+    // Marquee + Shift selection are desktop-only; touch layouts tap-to-open.
+    _marquee.enabled = !isCompact(context);
 
     return Focus(
       focusNode: _focusNode,
@@ -113,15 +128,25 @@ class _FileListViewState extends State<FileListView> {
             if (isList) _Header(palette: palette, browser: browser),
             Expanded(
               child: _BackgroundCatcher(
-                onTap: () => _focusNode.requestFocus(),
+                onTap: () {
+                  _focusNode.requestFocus();
+                  // Clicking empty space clears the selection (Finder-style).
+                  if (_marquee.enabled) browser.clearSelection();
+                },
                 onSecondaryTap: (pos) =>
                     _requestBackgroundContextMenu(context, browser, pos),
-                child: isList
-                    ? _body(browser, palette)
-                    : FileIconGrid(
-                        onSecondaryRowTap: (entry, pos) =>
-                            showRowContextMenu(context, browser, entry, pos),
-                      ),
+                child: Provider<MarqueeController>.value(
+                  value: _marquee,
+                  child: MarqueeSelectionLayer(
+                    controller: _marquee,
+                    child: isList
+                        ? _body(browser, palette)
+                        : FileIconGrid(
+                            onSecondaryRowTap: (entry, pos) => showRowContextMenu(
+                                context, browser, entry, pos),
+                          ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -187,6 +212,10 @@ class _FileListViewState extends State<FileListView> {
     }
 
     return ListView.builder(
+      controller: _marquee.scroll,
+      // Desktop: disable drag-to-scroll so a marquee drag doesn't fight the
+      // scroll gesture; the layer scrolls via wheel + auto-scroll instead.
+      physics: _marquee.enabled ? const NeverScrollableScrollPhysics() : null,
       itemCount: flat.length,
       itemBuilder: (context, i) {
         final item = flat[i];
@@ -379,14 +408,25 @@ class _FileRow extends StatefulWidget {
   State<_FileRow> createState() => _FileRowState();
 }
 
-class _FileRowState extends State<_FileRow> {
+class _FileRowState extends State<_FileRow>
+    with MarqueeItemRegistration<_FileRow> {
   bool _hover = false;
+
+  @override
+  String get marqueePath => widget.entry.path;
+
+  @override
+  void dispose() {
+    marqueeUnregister();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final browser = context.read<BrowserProvider>();
     final palette = AppColors.of(context);
     final compact = isCompact(context);
+    marqueeRegister();
     Color? bg;
     if (widget.selected) {
       bg = palette.accent.withValues(alpha: 0.18);
@@ -410,6 +450,7 @@ class _FileRowState extends State<_FileRow> {
         onTap: () {
           final additive = HardwareKeyboard.instance.isMetaPressed ||
               HardwareKeyboard.instance.isControlPressed;
+          final range = HardwareKeyboard.instance.isShiftPressed;
           if (compact) {
             // Touch: tap opens — folders navigate, files preview.
             if (widget.entry.isDirectory) {
@@ -422,7 +463,11 @@ class _FileRowState extends State<_FileRow> {
           // Desktop: select, and reclaim keyboard focus so space-bar
           // Quick Look fires after typing in (e.g.) the chat composer.
           Focus.maybeOf(context)?.requestFocus();
-          browser.toggleSelect(widget.entry, additive: additive);
+          if (range) {
+            browser.selectRange(widget.entry);
+          } else {
+            browser.toggleSelect(widget.entry, additive: additive);
+          }
         },
         onDoubleTap: () {
           // Desktop: double-click opens — folders navigate, files open in the

@@ -147,4 +147,62 @@ class FileActionsService {
       return false;
     }
   }
+
+  /// Moves every entry in [entries] to the Trash in as few operations as
+  /// possible, so a bulk cleanup doesn't replay the Trash sound once per file.
+  /// Returns the set of paths that could NOT be trashed (empty on full
+  /// success).
+  ///
+  /// macOS: a single Finder `delete` handles the whole list — one sound for
+  /// the batch. The list is chunked so a huge selection can't blow past the
+  /// command-line length limit; each chunk is still one sound. Other platforms
+  /// have no batch Trash API here, so they reuse the per-file [trash] path
+  /// (which involves no system sound anyway).
+  Future<Set<String>> trashAll(List<FileEntry> entries) async {
+    if (entries.isEmpty) return <String>{};
+
+    if (_isMacOS) {
+      // A path that no longer exists makes `... as alias` throw and aborts the
+      // whole batch, so drop anything already gone (treat it as trashed).
+      final present = <FileEntry>[];
+      for (final e in entries) {
+        if (await FileSystemEntity.type(e.path) !=
+            FileSystemEntityType.notFound) {
+          present.add(e);
+        }
+      }
+      if (present.isEmpty) return <String>{};
+
+      final failed = <String>{};
+      const chunkSize = 100;
+      for (var start = 0; start < present.length; start += chunkSize) {
+        final end = (start + chunkSize < present.length)
+            ? start + chunkSize
+            : present.length;
+        final chunk = present.sublist(start, end);
+        final aliases = chunk
+            .map((e) =>
+                'POSIX file "${e.path.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}" as alias')
+            .join(', ');
+        final script = 'tell application "Finder" to delete {$aliases}';
+        final r = await Process.run('osascript', ['-e', script]);
+        if (r.exitCode != 0) {
+          // Batch failed (e.g. one item wasn't deletable). Retry this chunk
+          // per file so we can report exactly which paths failed and still
+          // trash the rest.
+          for (final e in chunk) {
+            if (!await trash(e)) failed.add(e.path);
+          }
+        }
+      }
+      return failed;
+    }
+
+    // No batch Trash on other platforms — fall back to per-file delete.
+    final failed = <String>{};
+    for (final e in entries) {
+      if (!await trash(e)) failed.add(e.path);
+    }
+    return failed;
+  }
 }

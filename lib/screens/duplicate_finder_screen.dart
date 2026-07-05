@@ -356,18 +356,19 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
     );
     if (confirmed != true) return;
 
-    var failures = 0;
+    // Trash the whole selection in one batch so macOS plays the Trash sound
+    // once for the cleanup instead of once per file.
+    final allVictims = victims.values.expand((l) => l).toList();
+    final failedPaths = await _actions.trashAll(allVictims);
     for (final entry in victims.entries) {
       final group = entry.key;
       for (final file in entry.value) {
-        final ok = await _actions.trash(file);
-        if (ok) {
+        if (!failedPaths.contains(file.path)) {
           group.files.removeWhere((f) => f.path == file.path);
-        } else {
-          failures++;
         }
       }
     }
+    final failures = failedPaths.length;
     if (!mounted) return;
     setState(() {
       _groups.removeWhere((g) => g.files.length < 2);
