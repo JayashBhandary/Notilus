@@ -4,11 +4,7 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to release (e.g. v0.1.0). Used as the release name when triggered manually.'
-        required: true
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -31,15 +27,13 @@ jobs:
 
       - name: Resolve version
         id: ver
+        shell: bash
         run: |
-          # Prefer the manual input (workflow_dispatch); fall back to the
-          # ref name (which is the tag for `push: tags`). GITHUB_REF_NAME is
-          # always set on workflow_dispatch — to the branch — so a plain
-          # ${VAR:-default} would never reach the input.
-          INPUT="${{ github.event.inputs.tag }}"
-          REF="${INPUT:-$GITHUB_REF_NAME}"
-          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
-          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+          # Single source of truth: the `version` field in pubspec.yaml.
+          # Strip any +build suffix; the release tag is v<version>.
+          VERSION=$(grep '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*//; s/\+.*//' | tr -d '[:space:]')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - run: flutter pub get
 
@@ -120,14 +114,11 @@ jobs:
         id: ver
         shell: bash
         run: |
-          # Prefer the manual input (workflow_dispatch); fall back to the
-          # ref name (which is the tag for `push: tags`). GITHUB_REF_NAME is
-          # always set on workflow_dispatch — to the branch — so a plain
-          # ${VAR:-default} would never reach the input.
-          INPUT="${{ github.event.inputs.tag }}"
-          REF="${INPUT:-$GITHUB_REF_NAME}"
-          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
-          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+          # Single source of truth: the `version` field in pubspec.yaml.
+          # Strip any +build suffix; the release tag is v<version>.
+          VERSION=$(grep '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*//; s/\+.*//' | tr -d '[:space:]')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - run: flutter pub get
 
@@ -175,15 +166,13 @@ jobs:
 
       - name: Resolve version
         id: ver
+        shell: bash
         run: |
-          # Prefer the manual input (workflow_dispatch); fall back to the
-          # ref name (which is the tag for `push: tags`). GITHUB_REF_NAME is
-          # always set on workflow_dispatch — to the branch — so a plain
-          # ${VAR:-default} would never reach the input.
-          INPUT="${{ github.event.inputs.tag }}"
-          REF="${INPUT:-$GITHUB_REF_NAME}"
-          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
-          echo "version=${REF#v}" >> "$GITHUB_OUTPUT"
+          # Single source of truth: the `version` field in pubspec.yaml.
+          # Strip any +build suffix; the release tag is v<version>.
+          VERSION=$(grep '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*//; s/\+.*//' | tr -d '[:space:]')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - run: flutter pub get
 
@@ -212,6 +201,8 @@ jobs:
     needs: [build-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -219,13 +210,10 @@ jobs:
       - name: Resolve tag
         id: ver
         run: |
-          # Prefer the manual input (workflow_dispatch); fall back to the
-          # ref name (which is the tag for `push: tags`). GITHUB_REF_NAME is
-          # always set on workflow_dispatch — to the branch — so a plain
-          # ${VAR:-default} would never reach the input.
-          INPUT="${{ github.event.inputs.tag }}"
-          REF="${INPUT:-$GITHUB_REF_NAME}"
-          echo "tag=${REF}" >> "$GITHUB_OUTPUT"
+          # Single source of truth: the `version` field in pubspec.yaml.
+          # Strip any +build suffix; the release tag is v<version>.
+          VERSION=$(grep '^version:' pubspec.yaml | sed -E 's/^version:[[:space:]]*//; s/\+.*//' | tr -d '[:space:]')
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - uses: softprops/action-gh-release@v2
         with:
