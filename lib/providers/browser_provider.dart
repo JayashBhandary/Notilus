@@ -14,7 +14,7 @@ enum ViewMode { icons, list }
 /// Which page occupies the app's central content pane. Non-file pages
 /// (System Overview, Duplicate Finder) render here instead of pushing a
 /// full-screen route; navigating to any folder returns to [files].
-enum CenterView { files, systemOverview, duplicates }
+enum CenterView { files, systemOverview, duplicates, transfers }
 
 class BrowserProvider extends ChangeNotifier {
   BrowserProvider(this._fileService);

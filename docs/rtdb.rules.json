@@ -1,0 +1,18 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        "profile": {
+          ".read": true,
+          ".write": "auth != null && auth.uid === $uid"
+        },
+        "inbox": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$msg": {
+            ".write": "auth != null"
+          }
+        }
+      }
+    }
+  }
+}

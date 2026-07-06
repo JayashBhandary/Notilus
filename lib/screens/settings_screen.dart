@@ -27,18 +27,21 @@ class SettingsDialog extends StatefulWidget {
 
 class _SettingsDialogState extends State<SettingsDialog> {
   late TextEditingController _hostCtrl;
+  late TextEditingController _destCtrl;
   bool _testing = false;
 
   @override
   void initState() {
     super.initState();
-    _hostCtrl =
-        TextEditingController(text: context.read<SettingsProvider>().host);
+    final settings = context.read<SettingsProvider>();
+    _hostCtrl = TextEditingController(text: settings.host);
+    _destCtrl = TextEditingController(text: settings.transferDestination);
   }
 
   @override
   void dispose() {
     _hostCtrl.dispose();
+    _destCtrl.dispose();
     super.dispose();
   }
 
@@ -135,6 +138,103 @@ class _SettingsDialogState extends State<SettingsDialog> {
                         _ThemeSelector(
                           current: settings.themeMode,
                           onChanged: settings.setThemeMode,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _Section(
+                      title: 'File Transfer',
+                      palette: palette,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Receive in the background',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: palette.text,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Closing the window keeps Notilus in the '
+                                    'tray so friends can still send you files.',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: palette.subtleText,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            CupertinoSwitch(
+                              value: settings.backgroundReception,
+                              onChanged: settings.setBackgroundReception,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Prefer local network',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: palette.text,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'When a contact is on the same network, send '
+                                    'directly over the LAN (faster, no server). '
+                                    'Falls back automatically otherwise.',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: palette.subtleText,
+                                      height: 1.3,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            CupertinoSwitch(
+                              value: settings.preferLocalNetwork,
+                              onChanged: settings.setPreferLocalNetwork,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _LabeledField(
+                          label: 'Save received files to',
+                          palette: palette,
+                          child: CupertinoTextField(
+                            controller: _destCtrl,
+                            placeholder: '~/Downloads/Notilus (default)',
+                            onSubmitted: settings.setTransferDestination,
+                            onTapOutside: (_) =>
+                                settings.setTransferDestination(_destCtrl.text),
+                            decoration: BoxDecoration(
+                              color: palette.cardBg,
+                              border: Border.all(color: palette.divider),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 10,
+                            ),
+                            style: TextStyle(fontSize: 13, color: palette.text),
+                          ),
                         ),
                       ],
                     ),

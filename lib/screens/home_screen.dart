@@ -19,6 +19,7 @@ import '../widgets/workflow_tab.dart';
 import 'duplicate_finder_screen.dart';
 import 'settings_screen.dart';
 import 'system_overview_screen.dart';
+import 'transfer/transfer_screen.dart';
 
 /// Builds the widget that fills the app's central content pane for [view].
 /// The System Overview view is keyed so the toolbar's refresh action can
@@ -34,6 +35,8 @@ Widget _centerBody(
       return SystemOverviewView(key: overviewKey);
     case CenterView.duplicates:
       return const DuplicateFinderView();
+    case CenterView.transfers:
+      return const TransferScreen();
   }
 }
 
@@ -46,6 +49,8 @@ String _centerTitle(CenterView view) {
       return 'System Overview';
     case CenterView.duplicates:
       return 'Duplicate Finder';
+    case CenterView.transfers:
+      return 'File Transfer';
   }
 }
 

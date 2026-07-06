@@ -5,11 +5,13 @@ import 'package:provider/provider.dart';
 import 'providers/browser_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/settings_provider.dart';
+import 'providers/transfer_controller.dart';
 import 'providers/workflow_provider.dart';
 import 'screens/home_screen.dart';
 import 'services/file_service.dart';
 import 'services/settings_store.dart';
 import 'theme.dart';
+import 'widgets/transfer_request_gate.dart';
 
 class NotilusApp extends StatelessWidget {
   const NotilusApp({super.key});
@@ -32,6 +34,9 @@ class NotilusApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => WorkflowProvider(settingsStore, fileService)..load(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => TransferController(),
         ),
       ],
       child: const _ThemedApp(),
@@ -58,7 +63,7 @@ class _ThemedApp extends StatelessWidget {
         DefaultCupertinoLocalizations.delegate,
         DefaultWidgetsLocalizations.delegate,
       ],
-      home: const HomeScreen(),
+      home: const TransferRequestGate(child: HomeScreen()),
     );
   }
 }

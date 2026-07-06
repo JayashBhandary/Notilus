@@ -76,6 +76,14 @@ class Sidebar extends StatelessWidget {
                 () => browser.showCenterView(CenterView.duplicates),
               ),
             ),
+            _SidebarItem(
+              label: 'File Transfer',
+              icon: CupertinoIcons.arrow_up_arrow_down_circle,
+              selected: browser.centerView == CenterView.transfers,
+              onTap: () => after(
+                () => browser.showCenterView(CenterView.transfers),
+              ),
+            ),
             const SizedBox(height: 14),
             const _SectionHeader(label: 'Favorites'),
             ...shortcuts.map((e) {

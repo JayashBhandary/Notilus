@@ -13,8 +13,51 @@ class SettingsStore {
   static const _kDupFinderPrefs = 'duplicate_finder_prefs';
   static const _kSidebarCollapsed = 'sidebar_collapsed';
   static const _kRightPanelCollapsed = 'right_panel_collapsed';
+  static const _kBackgroundReception = 'background_reception';
+  static const _kTransferDestination = 'transfer_destination';
+  static const _kPreferLocalNetwork = 'prefer_local_network';
 
   static const String defaultHost = 'http://localhost:11434';
+
+  /// Whether Notilus keeps running in the tray to receive transfers when the
+  /// window is closed. Defaults on — it's the point of the feature.
+  Future<bool> getBackgroundReception() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kBackgroundReception) ?? true;
+  }
+
+  Future<void> setBackgroundReception(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kBackgroundReception, enabled);
+  }
+
+  /// Folder for received files. Empty string means "use the default"
+  /// (`~/Downloads/Notilus`, resolved in `TransferController`).
+  Future<String> getTransferDestination() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kTransferDestination) ?? '';
+  }
+
+  Future<void> setTransferDestination(String path) async {
+    final prefs = await SharedPreferences.getInstance();
+    final trimmed = path.trim();
+    if (trimmed.isEmpty) {
+      await prefs.remove(_kTransferDestination);
+    } else {
+      await prefs.setString(_kTransferDestination, trimmed);
+    }
+  }
+
+  /// Whether to try the LAN-direct path before Firebase. Defaults on.
+  Future<bool> getPreferLocalNetwork() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kPreferLocalNetwork) ?? true;
+  }
+
+  Future<void> setPreferLocalNetwork(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPreferLocalNetwork, enabled);
+  }
 
   Future<bool> getSidebarCollapsed() async {
     final prefs = await SharedPreferences.getInstance();

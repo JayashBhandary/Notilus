@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../services/ollama_service.dart';
 import '../services/settings_store.dart';
+import '../services/tray_service.dart';
 
 enum AppThemeMode { system, light, dark }
 
@@ -43,6 +44,9 @@ class SettingsProvider extends ChangeNotifier {
   AppThemeMode _themeMode = AppThemeMode.system;
   bool _sidebarCollapsed = false;
   bool _rightPanelCollapsed = false;
+  bool _backgroundReception = true;
+  String _transferDestination = '';
+  bool _preferLocalNetwork = true;
 
   String get host => _host;
   String? get model => _model;
@@ -53,6 +57,13 @@ class SettingsProvider extends ChangeNotifier {
   AppThemeMode get themeMode => _themeMode;
   bool get sidebarCollapsed => _sidebarCollapsed;
   bool get rightPanelCollapsed => _rightPanelCollapsed;
+  bool get backgroundReception => _backgroundReception;
+
+  /// Folder for received files; empty means the default (`~/Downloads/Notilus`).
+  String get transferDestination => _transferDestination;
+
+  /// Whether to try the LAN-direct path before falling back to Firebase.
+  bool get preferLocalNetwork => _preferLocalNetwork;
 
   /// Resolves [themeMode] (which may be `system`) to a concrete brightness
   /// using the platform's current brightness.
@@ -74,9 +85,32 @@ class SettingsProvider extends ChangeNotifier {
     _themeMode = AppThemeModeStorage.fromId(await _store.getThemeMode());
     _sidebarCollapsed = await _store.getSidebarCollapsed();
     _rightPanelCollapsed = await _store.getRightPanelCollapsed();
+    _backgroundReception = await _store.getBackgroundReception();
+    TrayService.instance.backgroundEnabled = _backgroundReception;
+    _transferDestination = await _store.getTransferDestination();
+    _preferLocalNetwork = await _store.getPreferLocalNetwork();
     _loaded = true;
     notifyListeners();
     await refreshModels();
+  }
+
+  Future<void> setBackgroundReception(bool enabled) async {
+    _backgroundReception = enabled;
+    await _store.setBackgroundReception(enabled);
+    TrayService.instance.backgroundEnabled = enabled;
+    notifyListeners();
+  }
+
+  Future<void> setTransferDestination(String path) async {
+    _transferDestination = path.trim();
+    await _store.setTransferDestination(_transferDestination);
+    notifyListeners();
+  }
+
+  Future<void> setPreferLocalNetwork(bool enabled) async {
+    _preferLocalNetwork = enabled;
+    await _store.setPreferLocalNetwork(enabled);
+    notifyListeners();
   }
 
   Future<void> setSidebarCollapsed(bool collapsed) async {

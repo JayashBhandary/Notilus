@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../screens/file_preview_screen.dart';
+import '../screens/transfer/send_to.dart';
 import '../services/file_actions_service.dart';
 import '../theme.dart';
 import '../utils/responsive.dart';
@@ -677,6 +678,12 @@ List<DeskMenuItem> _baseMenuItems(
               ? () async => _actions.openWithChooser(target)
               : null,
         ),
+      if (!isDir)
+        DeskMenuItem(
+          label: 'Send to…',
+          icon: CupertinoIcons.paperplane,
+          onTap: () => showSendToSheet(context, _sendPaths(browser, target)),
+        ),
       DeskMenuItem.divider(),
       DeskMenuItem(
         label: 'Get Info',
@@ -739,6 +746,15 @@ List<DeskMenuItem> _baseMenuItems(
       onTap: () => _showViewOptions(context, browser),
     ),
   ];
+}
+
+/// Files to send when "Send to…" is chosen: the whole selection if [target] is
+/// part of a multi-selection, otherwise just [target]. (Folders are filtered
+/// out downstream by the send sheet.)
+List<String> _sendPaths(BrowserProvider browser, FileEntry target) {
+  final sel = browser.selectedPaths;
+  if (sel.length > 1 && sel.contains(target.path)) return sel.toList();
+  return [target.path];
 }
 
 List<DeskMenuItem> _openWithSubmenu(BuildContext context, FileEntry target) {
