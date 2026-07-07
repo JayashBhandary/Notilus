@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../config/transfer_config.dart';
+import '../utils/device_code.dart';
 import '../models/transfer/contact.dart';
 import '../models/transfer/inbox_message.dart';
 import '../models/transfer/transfer_request.dart';
@@ -98,10 +99,21 @@ class TransferController extends ChangeNotifier {
 
   String get myName => _identity?.displayName ?? '';
   String? get myDeviceId => _identity?.deviceId;
-  String? get myShareCode => _identity?.asShareableContact()?.toShareCode();
+
+  /// This machine's short code (`a2:b1:c4:ff:07`) — the friendly identity shown
+  /// in the UI, used for LAN discovery, and available offline.
+  String? get myCode => _identity?.myCode;
+
+  /// The full share payload (name + code anchor + online address) for QR/paste.
+  String? get myShareCode => _identity?.asShareableContact().toShareCode();
+
+  /// True once online signaling is up; false while offline / before sign-in.
+  bool get onlineAvailable => _signaling != null;
 
   List<Contact> get contacts => _contacts?.contacts ?? const [];
-  bool isOnline(String deviceId) => _online[deviceId] ?? false;
+
+  /// Whether a saved peer (keyed by machine [code]) is currently online.
+  bool isOnline(String code) => _online[code] ?? false;
 
   /// The next incoming request awaiting a decision, if any (UI shows a dialog).
   IncomingTransferRequest? get incomingRequest =>
@@ -129,17 +141,10 @@ class TransferController extends ChangeNotifier {
 
       _contacts = ContactsStore(store)..addListener(notifyListeners);
 
-      final auth = FirebaseAuthClient(store);
-      _signaling = SignalingService(
-        auth: auth,
-        rtdb: RtdbClient(auth),
-        identity: _identity!,
-      );
-      await _signaling!.start();
-      _msgSub = _signaling!.messages.listen(_onMessage);
-
-      // LAN-direct path: listen for local connections + answer discovery. Best
-      // effort — if it can't bind, we simply fall back to the Firebase path.
+      // LAN-direct path comes up first and independently of Firebase, so
+      // transfers work on a local network with no internet at all. Best effort —
+      // if it can't bind, we simply lean on the Firebase path. Our machine code
+      // is derived from the keypair, so discovery is ready without sign-in.
       try {
         _localServer = LocalTransferServer(_onLocalSocket);
         await _localServer!.start();
@@ -149,15 +154,39 @@ class TransferController extends ChangeNotifier {
         debugPrint('LAN transfer path unavailable: $e');
       }
 
+      // The feature is usable now (identity + LAN ready) even if we never reach
+      // Firebase. Online signaling is layered on best-effort below.
       _ready = true;
+      notifyListeners();
+
+      unawaited(_startSignaling(store));
+    } catch (e) {
+      _error = 'Couldn\'t connect: $e';
+      notifyListeners();
+    }
+  }
+
+  /// Brings up online signaling (Firebase sign-in + inbox + presence). Failure
+  /// is non-fatal: with no internet, LAN transfers keep working and the online
+  /// path just stays unavailable until the next launch reconnects.
+  Future<void> _startSignaling(PrefsKvStore store) async {
+    try {
+      final auth = FirebaseAuthClient(store);
+      final sig = SignalingService(
+        auth: auth,
+        rtdb: RtdbClient(auth),
+        identity: _identity!,
+      );
+      await sig.start();
+      _signaling = sig;
+      _msgSub = sig.messages.listen(_onMessage);
       notifyListeners();
 
       unawaited(_refreshPresence());
       _presenceTimer =
           Timer.periodic(_presenceEvery, (_) => _refreshPresence());
     } catch (e) {
-      _error = 'Couldn\'t connect: $e';
-      notifyListeners();
+      debugPrint('Online signaling unavailable (LAN still works): $e');
     }
   }
 
@@ -178,19 +207,76 @@ class TransferController extends ChangeNotifier {
   Future<String?> addContactFromCode(String code, {String? name}) async {
     final contact = Contact.fromShareCode(code, overrideName: name);
     if (contact == null) return 'That code doesn\'t look valid.';
-    if (contact.deviceId == myDeviceId) return 'That\'s your own code.';
+    if (contact.code == myCode) return 'That\'s your own code.';
     await _contacts?.upsert(contact);
-    unawaited(_refreshPresenceFor(contact.deviceId));
+    unawaited(_refreshPresenceFor(contact));
     return null;
   }
 
-  Future<void> renameContact(String deviceId, String name) async =>
-      _contacts?.rename(deviceId, name);
+  /// Adds a contact by their machine [input] code (falling back to a legacy full
+  /// share code if [input] isn't a machine code). Resolves the code's public key
+  /// over the LAN first, then Firebase; the key is trusted only if it re-derives
+  /// the code (so a resolver can't hand back an impostor). Returns an error
+  /// message to show, or null on success.
+  Future<String?> addByCode(String input, {String? name}) async {
+    final code = normalizeDeviceCode(input);
+    if (code == null) return addContactFromCode(input, name: name);
+    if (code == myCode) return 'That\'s your own code.';
 
-  Future<void> removeContact(String deviceId) async {
-    await _contacts?.remove(deviceId);
-    _online.remove(deviceId);
+    final resolved =
+        await _resolveByCode(code, name) ?? await _resolveByCodeOnline(code, name);
+    if (resolved == null) {
+      return 'Couldn\'t find a device with that code. Make sure it\'s on and '
+          'reachable — on the same network, or both signed in.';
+    }
+    await _contacts?.upsert(resolved);
+    unawaited(_refreshPresenceFor(resolved));
+    return null;
+  }
+
+  /// Resolves [code] over the LAN into a trusted contact, or null.
+  Future<Contact?> _resolveByCode(String code, String? name) async {
+    final prof = await _discovery?.resolveProfile(code);
+    if (prof == null || deviceCodeFromPublicKey(prof.publicKey) != code) {
+      return null;
+    }
+    return Contact(
+      name: _pickName(name, prof.name),
+      deviceId: prof.uid,
+      publicKey: prof.publicKey,
+    );
+  }
+
+  /// Resolves [code] via the Firebase code index into a trusted contact, or null.
+  Future<Contact?> _resolveByCodeOnline(String code, String? name) async {
+    final m = await _signaling?.resolveCode(code);
+    if (m == null) return null;
+    final pk = (m['publicKey'] ?? '') as String;
+    if (pk.isEmpty || deviceCodeFromPublicKey(pk) != code) return null;
+    return Contact(
+      name: _pickName(name, (m['name'] ?? '') as String),
+      deviceId: (m['uid'] ?? '') as String,
+      publicKey: pk,
+    );
+  }
+
+  static String _pickName(String? preferred, String fallback) =>
+      (preferred?.trim().isNotEmpty ?? false) ? preferred!.trim() : fallback;
+
+  Future<void> renameContact(String code, String name) async =>
+      _contacts?.rename(code, name);
+
+  Future<void> removeContact(String code) async {
+    await _contacts?.remove(code);
+    _online.remove(code);
     notifyListeners();
+  }
+
+  /// The Firebase routing uid for a peer identified by machine [code], or null
+  /// if we don't have them saved or they have no online address yet.
+  String? _uidForCode(String code) {
+    final uid = _contacts?.byCode(code)?.deviceId;
+    return (uid == null || uid.isEmpty) ? null : uid;
   }
 
   // ── Transfer request / consent ────────────────────────────────────────
@@ -201,10 +287,10 @@ class TransferController extends ChangeNotifier {
   /// true if the peer accepted, false if declined or timed out.
   Future<bool> sendFiles(Contact to, List<OutgoingFile> files) async {
     final id = _identity;
-    if (id == null || id.deviceId == null || files.isEmpty) return false;
+    if (id == null || files.isEmpty) return false;
 
     if (await _preferLocalNetwork()) {
-      final peer = await _discovery?.locate(to.deviceId, to.publicKey);
+      final peer = await _discovery?.locate(to.code, to.publicKey);
       if (peer != null) {
         final outcome = await _sendOverLan(to, files, peer);
         if (outcome != _LanOutcome.unreachable) {
@@ -231,12 +317,16 @@ class TransferController extends ChangeNotifier {
   Future<bool> _sendOverFirebase(Contact to, List<OutgoingFile> files) async {
     final id = _identity;
     final sig = _signaling;
-    if (id == null || sig == null || id.deviceId == null) return false;
+    // Online path needs our uid, an active signaling channel, and the peer's
+    // routable Firebase address (empty for LAN-only contacts).
+    if (id == null || sig == null || id.deviceId == null || to.deviceId.isEmpty) {
+      return false;
+    }
 
     final requestId = _uuid.v4();
     final msg = await buildSignedMessage(
       id,
-      to: to.deviceId,
+      to: to.code,
       type: InboxMessage.typeTransferRequest,
       ts: DateTime.now().millisecondsSinceEpoch,
       payload: {
@@ -314,7 +404,7 @@ class TransferController extends ChangeNotifier {
     final decision = Completer<bool>();
     conduit.onText = (text) async {
       final resp =
-          await _parseVerified(text, from: to.deviceId, key: to.publicKey);
+          await _parseVerified(text, from: to.code, key: to.publicKey);
       if (resp != null &&
           resp.type == InboxMessage.typeTransferResponse &&
           resp.payload['requestId'] == requestId &&
@@ -325,7 +415,7 @@ class TransferController extends ChangeNotifier {
 
     final reqMsg = await buildSignedMessage(
       id,
-      to: to.deviceId,
+      to: to.code,
       type: InboxMessage.typeTransferRequest,
       ts: DateTime.now().millisecondsSinceEpoch,
       payload: {
@@ -470,7 +560,7 @@ class TransferController extends ChangeNotifier {
   /// [key], addressed to us, fresh), or null.
   Future<InboxMessage?> _parseVerified(String text,
       {required String from, required String key}) async {
-    final me = myDeviceId;
+    final me = myCode;
     final id = _identity;
     if (me == null || id == null) return null;
     try {
@@ -479,7 +569,7 @@ class TransferController extends ChangeNotifier {
       final m = InboxMessage.fromMap('lan', decoded.cast<String, dynamic>());
       if (m.from != from) return null;
       final ok = await verifySignedMessage(id, m,
-          myDeviceId: me, senderPublicKey: key);
+          myId: me, senderPublicKey: key);
       return ok ? m : null;
     } catch (_) {
       return null;
@@ -553,9 +643,12 @@ class TransferController extends ChangeNotifier {
       ts: DateTime.now().millisecondsSinceEpoch,
       payload: {'requestId': req.requestId, 'accepted': accept},
     );
-    try {
-      await sig.send(req.fromDeviceId, msg);
-    } catch (_) {}
+    final uid = _uidForCode(req.fromDeviceId);
+    if (uid != null) {
+      try {
+        await sig.send(uid, msg);
+      } catch (_) {}
+    }
   }
 
   Future<void> _onMessage(InboxMessage m) async {
@@ -580,12 +673,12 @@ class TransferController extends ChangeNotifier {
   /// Returns the sending contact iff [m] is from a saved contact, addressed to
   /// us, and correctly signed by their key; otherwise null.
   Future<Contact?> _verifiedSender(InboxMessage m) async {
-    final contact = _contacts?.byDeviceId(m.from);
-    if (contact == null || _identity == null || myDeviceId == null) return null;
+    final contact = _contacts?.byCode(m.from);
+    if (contact == null || _identity == null || myCode == null) return null;
     final ok = await verifySignedMessage(
       _identity!,
       m,
-      myDeviceId: myDeviceId!,
+      myId: myCode!,
       senderPublicKey: contact.publicKey,
     );
     return ok ? contact : null;
@@ -674,12 +767,14 @@ class TransferController extends ChangeNotifier {
     }
   }
 
+  /// [peerCode] is the peer's machine code; signals are routed to their Firebase
+  /// address, looked up per-send in [_sendSignal].
   Future<void> _startSession(
-      String peerId, String sessionId, RtcRole role) async {
+      String peerCode, String sessionId, RtcRole role) async {
     final session = WebRtcSession(
       sessionId: sessionId,
       role: role,
-      sendSignal: (type, payload) => _sendSignal(peerId, type, payload),
+      sendSignal: (type, payload) => _sendSignal(peerCode, type, payload),
     );
     _sessions[sessionId] = session;
     // Show the attempt in the UI right away, so a slow handshake or a dead
@@ -793,19 +888,21 @@ class TransferController extends ChangeNotifier {
   }
 
   Future<void> _sendSignal(
-      String peerId, String type, Map<String, dynamic> payload) async {
+      String peerCode, String type, Map<String, dynamic> payload) async {
     final id = _identity;
     final sig = _signaling;
     if (id == null || sig == null) return;
+    final uid = _uidForCode(peerCode);
+    if (uid == null) return; // no online address for this peer
     final msg = await buildSignedMessage(
       id,
-      to: peerId,
+      to: peerCode,
       type: type,
       ts: DateTime.now().millisecondsSinceEpoch,
       payload: payload,
     );
     try {
-      await sig.send(peerId, msg);
+      await sig.send(uid, msg);
     } catch (_) {}
   }
 
@@ -827,16 +924,18 @@ class TransferController extends ChangeNotifier {
 
   Future<void> _refreshPresence() async {
     for (final c in contacts) {
-      await _refreshPresenceFor(c.deviceId);
+      await _refreshPresenceFor(c);
     }
   }
 
-  Future<void> _refreshPresenceFor(String deviceId) async {
+  /// Refreshes online status for one [contact]. Queried by their Firebase uid
+  /// (online routing) but tracked by their machine code, matching the UI.
+  Future<void> _refreshPresenceFor(Contact contact) async {
     final s = _signaling;
-    if (s == null) return;
-    final on = await s.isOnline(deviceId);
-    if (_online[deviceId] != on) {
-      _online[deviceId] = on;
+    if (s == null || contact.deviceId.isEmpty) return;
+    final on = await s.isOnline(contact.deviceId);
+    if (_online[contact.code] != on) {
+      _online[contact.code] = on;
       notifyListeners();
     }
   }

@@ -24,8 +24,8 @@ class InboxMessage {
 
   final String? id;
   final String type;
-  final String from; // sender deviceId
-  final String? to; // recipient deviceId (signed in, guards against replay)
+  final String from; // sender's short machine code
+  final String? to; // recipient's machine code (signed, guards against replay)
   final int ts; // epoch ms
   final Map<String, dynamic> payload;
   final String? signature; // base64 Ed25519 sig over the canonical form

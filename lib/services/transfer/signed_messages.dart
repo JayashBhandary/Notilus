@@ -25,7 +25,8 @@ List<int> canonicalBytes(InboxMessage m) => utf8.encode(
       'v1|${m.type}|${m.from}|${m.to ?? ''}|${m.ts}|${stableEncode(m.payload)}',
     );
 
-/// Builds a signed message from us to [to]. Requires our deviceId to be known.
+/// Builds a signed message from us to [to]. Both [from] and [to] are short
+/// machine codes (not Firebase uids), so this works offline — no sign-in needed.
 Future<InboxMessage> buildSignedMessage(
   IdentityService identity, {
   required String to,
@@ -35,7 +36,7 @@ Future<InboxMessage> buildSignedMessage(
 }) async {
   final base = InboxMessage(
     type: type,
-    from: identity.deviceId!,
+    from: identity.myCode,
     to: to,
     ts: ts,
     payload: payload,
@@ -49,19 +50,20 @@ Future<InboxMessage> buildSignedMessage(
 /// every real signal is minted with the current time just before sending.
 const Duration kMessageFreshness = Duration(minutes: 5);
 
-/// Verifies [m] was signed by [senderPublicKey], addressed to us, and is fresh.
-/// Returns false on any mismatch (wrong recipient, missing/forged signature, or
-/// a timestamp too far in the past/future — a replay guard). [nowMs] is
-/// injectable for tests; it defaults to the wall clock.
+/// Verifies [m] was signed by [senderPublicKey], addressed to us ([myId] is our
+/// short machine code), and is fresh. Returns false on any mismatch (wrong
+/// recipient, missing/forged signature, or a timestamp too far in the
+/// past/future — a replay guard). [nowMs] is injectable for tests; it defaults
+/// to the wall clock.
 Future<bool> verifySignedMessage(
   IdentityService identity,
   InboxMessage m, {
-  required String myDeviceId,
+  required String myId,
   required String senderPublicKey,
   Duration freshness = kMessageFreshness,
   int? nowMs,
 }) async {
-  if (m.to != myDeviceId) return false;
+  if (m.to != myId) return false;
   final now = nowMs ?? DateTime.now().millisecondsSinceEpoch;
   if ((now - m.ts).abs() > freshness.inMilliseconds) return false;
   final sig = m.signature;

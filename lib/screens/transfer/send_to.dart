@@ -81,7 +81,7 @@ Future<Contact?> _pickContact(
                   height: 8,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: ctrl.isOnline(c.deviceId)
+                    color: ctrl.isOnline(c.code)
                         ? palette.success
                         : palette.subtleText.withValues(alpha: 0.4),
                   ),

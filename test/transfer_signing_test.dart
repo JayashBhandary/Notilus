@@ -48,7 +48,7 @@ void main() {
       // Bob verifies with Alice's public key, addressed to Bob → ok.
       expect(
         await verifySignedMessage(bob, msg,
-            myDeviceId: 'bob',
+            myId: 'bob',
             senderPublicKey: alice.publicKeyBase64,
             nowMs: 1720000000000),
         isTrue,
@@ -80,7 +80,7 @@ void main() {
 
       expect(
         await verifySignedMessage(bob, parsed,
-            myDeviceId: 'bob',
+            myId: 'bob',
             senderPublicKey: alice.publicKeyBase64,
             nowMs: 1),
         isTrue,
@@ -109,7 +109,7 @@ void main() {
       );
       expect(
         await verifySignedMessage(bob, tampered,
-            myDeviceId: 'bob',
+            myId: 'bob',
             senderPublicKey: alice.publicKeyBase64,
             nowMs: 1),
         isFalse,
@@ -118,7 +118,7 @@ void main() {
       // Wrong sender key (impersonation attempt).
       expect(
         await verifySignedMessage(bob, msg,
-            myDeviceId: 'bob',
+            myId: 'bob',
             senderPublicKey: bob.publicKeyBase64,
             nowMs: 1),
         isFalse,
@@ -127,7 +127,7 @@ void main() {
       // Addressed to someone else (replay to a different recipient).
       expect(
         await verifySignedMessage(bob, msg,
-            myDeviceId: 'carol',
+            myId: 'carol',
             senderPublicKey: alice.publicKeyBase64,
             nowMs: 1),
         isFalse,
@@ -143,7 +143,7 @@ void main() {
       );
       expect(
         await verifySignedMessage(bob, unsigned,
-            myDeviceId: 'bob',
+            myId: 'bob',
             senderPublicKey: alice.publicKeyBase64,
             nowMs: 1),
         isFalse,
@@ -165,7 +165,7 @@ void main() {
       Future<bool> verifyAt(int nowMs) => verifySignedMessage(
             bob,
             msg,
-            myDeviceId: 'bob',
+            myId: 'bob',
             senderPublicKey: alice.publicKeyBase64,
             nowMs: nowMs,
           );

@@ -42,8 +42,13 @@ class SocketConduit implements TransferConduit {
   // reassigns handlers); delivered in order once a handler exists.
   final List<(int, Uint8List)> _inbound = [];
 
+  // Bytes queued to write but not yet flushed to the OS — our backpressure
+  // signal. Writes run one at a time through [_writeChain]: a raw Socket rejects
+  // an add() that overlaps a pending flush() ("StreamSink is bound to a
+  // stream"), which would otherwise silently drop frames mid-transfer.
   int _pending = 0;
-  bool _flushing = false;
+  int _lowThreshold = 0;
+  Future<void> _writeChain = Future<void>.value();
   bool _closed = false;
   final Completer<void> _done = Completer<void>();
 
@@ -70,9 +75,7 @@ class SocketConduit implements TransferConduit {
   int get bufferedAmount => _pending;
 
   @override
-  set bufferedAmountLowThreshold(int bytes) {
-    // No native threshold event on a socket; _scheduleFlush drives onBufferedLow.
-  }
+  set bufferedAmountLowThreshold(int bytes) => _lowThreshold = bytes;
 
   @override
   Future<void> sendText(String text) => _send(_typeText, utf8.encode(text));
@@ -93,36 +96,33 @@ class SocketConduit implements TransferConduit {
   }
 
   // ── framing ────────────────────────────────────────────────────────────
-  Future<void> _send(int type, List<int> payload) async {
-    if (_closed) return;
+  /// Frames [payload] and queues it on [_writeChain]. The returned future
+  /// resolves once this frame is flushed, so callers awaiting it get real
+  /// ordering — and the next frame's add() can't race an in-flight flush().
+  Future<void> _send(int type, List<int> payload) {
+    if (_closed) return Future<void>.value();
     final frame = Uint8List(5 + payload.length);
     frame[0] = type;
     ByteData.sublistView(frame).setUint32(1, payload.length, Endian.big);
     frame.setRange(5, 5 + payload.length, payload);
     _pending += frame.length;
-    try {
-      _socket.add(frame);
-    } catch (_) {
-      return;
-    }
-    _scheduleFlush();
-  }
 
-  void _scheduleFlush() {
-    if (_flushing || _closed) return;
-    _flushing = true;
-    _socket.flush().then((_) {
-      _pending = 0;
-      _flushing = false;
-      _onBufferedLow?.call();
-    }).catchError((_) {
-      _flushing = false;
+    final done = _writeChain.then((_) async {
+      if (_closed) return;
+      _socket.add(frame);
+      await _socket.flush();
+    }).whenComplete(() {
+      _pending -= frame.length;
+      if (_pending <= _lowThreshold) _onBufferedLow?.call();
+      if (_pending < 0) _pending = 0;
     });
+    // Keep the chain flowing even if this write fails — a dropped socket is
+    // surfaced via [done]/onDone, not by wedging every later frame.
+    _writeChain = done.catchError((_) {});
+    return done;
   }
 
   void _onData(Uint8List data) {
-    // ignore: avoid_print
-    print('DBG _onData ${data.length} bytes, rx now ${_rx.length + data.length}');
     _rx.add(data);
     if (_rx.length < 5) return;
     var bytes = _rx.takeBytes();

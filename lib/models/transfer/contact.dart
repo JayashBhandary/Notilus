@@ -1,9 +1,15 @@
 import 'dart:convert';
 
+import '../../utils/device_code.dart';
+
 /// A saved peer for P2P file transfer. Exchanged once (QR / copy-paste) and
-/// stored locally. [deviceId] is the peer's Firebase anonymous uid (their
-/// routing address / inbox key); [publicKey] is their base64 Ed25519 public
-/// key, used to verify that inbox messages really came from them.
+/// stored locally.
+///
+/// [publicKey] is the peer's base64 Ed25519 key — the identity anchor: it
+/// verifies their signed messages and derives their short [code]. [code] is how
+/// they're found on the LAN and shown in the UI. [deviceId] is their Firebase
+/// anonymous uid, used *only* to route online transfers through RTDB (empty if
+/// they hadn't signed in when the code was shared).
 class Contact {
   const Contact({
     required this.name,
@@ -14,6 +20,10 @@ class Contact {
   final String name;
   final String deviceId;
   final String publicKey; // base64 Ed25519 public key
+
+  /// Short machine code, derived from [publicKey] — never stored or transmitted
+  /// separately, so it can't drift from the key it identifies.
+  String get code => deviceCodeFromPublicKey(publicKey);
 
   Contact copyWith({String? name, String? deviceId, String? publicKey}) =>
       Contact(
@@ -52,7 +62,9 @@ class Contact {
           jsonDecode(utf8.decode(base64Url.decode(code.trim()))) as Map;
       final id = (decoded['id'] ?? '') as String;
       final pk = (decoded['pk'] ?? '') as String;
-      if (id.isEmpty || pk.isEmpty) return null;
+      // The public key is the identity anchor and is mandatory; the Firebase
+      // uid may be empty (peer hadn't signed in — LAN transfer still works).
+      if (pk.isEmpty) return null;
       final name =
           (overrideName?.trim().isNotEmpty ?? false)
               ? overrideName!.trim()

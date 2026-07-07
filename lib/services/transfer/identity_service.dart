@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart';
 
 import '../../models/transfer/contact.dart';
+import '../../utils/device_code.dart';
 import 'kv_store.dart';
 
 /// This machine's identity for P2P transfer.
@@ -37,6 +38,11 @@ class IdentityService {
 
   /// Our base64 Ed25519 public key — the value friends save to verify us.
   String get publicKeyBase64 => base64.encode(_publicKey.bytes);
+
+  /// Our short machine code (`a2:b1:c4:ff:07`) — the identity bound into signed
+  /// messages and used for LAN discovery. Derived from the public key, so it's
+  /// available immediately, offline, before any Firebase sign-in.
+  String get myCode => deviceCodeFromPublicKey(publicKeyBase64);
 
   /// Loads the keypair + settings, generating the keypair on first run.
   Future<void> init() async {
@@ -94,16 +100,14 @@ class IdentityService {
     }
   }
 
-  /// Our shareable identity (once [deviceId] exists), for QR / copy-paste.
-  Contact? asShareableContact() {
-    final id = _deviceId;
-    if (id == null) return null;
-    return Contact(
-      name: _displayName,
-      deviceId: id,
-      publicKey: publicKeyBase64,
-    );
-  }
+  /// Our shareable identity, for QR / copy-paste. The public key anchors our
+  /// identity (and derives our [myCode]); the Firebase uid — empty until sign-in
+  /// — is carried only so peers can reach us over the online path.
+  Contact asShareableContact() => Contact(
+        name: _displayName,
+        deviceId: _deviceId ?? '',
+        publicKey: publicKeyBase64,
+      );
 
   String _defaultName() {
     try {

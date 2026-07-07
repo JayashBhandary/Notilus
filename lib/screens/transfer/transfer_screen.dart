@@ -273,7 +273,7 @@ class _MyDeviceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.watch<TransferController>();
-    final code = t.myShareCode ?? '';
+    final code = t.myCode ?? '';
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -339,7 +339,7 @@ class _MyDeviceCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Your code — share it once so friends can add you:',
+                  'Your machine code — share it so friends can add you:',
                   style: TextStyle(fontSize: 11, color: palette.subtleText),
                 ),
                 const SizedBox(height: 6),
@@ -372,12 +372,13 @@ class _CodeBox extends StatelessWidget {
           Expanded(
             child: Text(
               code,
-              maxLines: 2,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 13,
                 fontFamily: 'Menlo',
-                color: palette.subtleText,
+                fontWeight: FontWeight.w600,
+                color: palette.text,
               ),
             ),
           ),
@@ -402,7 +403,7 @@ class _ContactTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.watch<TransferController>();
-    final online = t.isOnline(contact.deviceId);
+    final online = t.isOnline(contact.code);
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -428,9 +429,10 @@ class _ContactTile extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  online ? 'Online' : 'Offline',
+                  '${online ? 'Online' : 'Offline'} · ${contact.code}',
                   style: TextStyle(
                     fontSize: 11,
+                    fontFamily: 'Menlo',
                     color: online ? palette.success : palette.subtleText,
                   ),
                 ),
@@ -596,8 +598,8 @@ Future<void> _showAddContact(BuildContext context) async {
             const SizedBox(height: 8),
             CupertinoTextField(
               controller: codeCtl,
-              placeholder: 'Paste their code',
-              maxLines: 3,
+              placeholder: 'Their machine code (a2:b1:c4:…)',
+              maxLines: 1,
             ),
           ],
         ),
@@ -616,10 +618,22 @@ Future<void> _showAddContact(BuildContext context) async {
     ),
   );
   if (result != true || !context.mounted) return;
-  final err = await context.read<TransferController>().addContactFromCode(
-        codeCtl.text,
-        name: nameCtl.text,
-      );
+
+  // Resolving a code hits the network (LAN broadcast, then Firebase), so show a
+  // brief spinner while we look the peer up.
+  final ctrl = context.read<TransferController>();
+  showCupertinoDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const CupertinoAlertDialog(
+      content: Padding(
+        padding: EdgeInsets.only(top: 8),
+        child: CupertinoActivityIndicator(),
+      ),
+    ),
+  );
+  final err = await ctrl.addByCode(codeCtl.text, name: nameCtl.text);
+  if (context.mounted) Navigator.of(context, rootNavigator: true).pop(); // spinner
   if (err != null && context.mounted) {
     await showCupertinoDialog<void>(
       context: context,
@@ -665,7 +679,7 @@ Future<void> _showContactActions(BuildContext context, Contact contact) async {
   if (!context.mounted) return;
   final ctrl = context.read<TransferController>();
   if (action == 'remove') {
-    await ctrl.removeContact(contact.deviceId);
+    await ctrl.removeContact(contact.code);
   } else if (action == 'rename') {
     final nameCtl = TextEditingController(text: contact.name);
     final name = await showCupertinoDialog<String>(
@@ -690,7 +704,7 @@ Future<void> _showContactActions(BuildContext context, Contact contact) async {
       ),
     );
     if (name != null && name.trim().isNotEmpty) {
-      await ctrl.renameContact(contact.deviceId, name);
+      await ctrl.renameContact(contact.code, name);
     }
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../config/transfer_config.dart';
@@ -52,12 +53,42 @@ class SignalingService {
     _heartbeat = Timer.periodic(_heartbeatEvery, (_) => _beat());
   }
 
-  /// (Re)publishes our profile — call after the display name changes.
-  Future<void> publishProfile() => rtdb.put('users/$_uid/profile', {
+  /// (Re)publishes our profile — call after the display name changes. Also
+  /// writes a `codes/{myCode}` index so peers can add us by machine code alone;
+  /// the entry carries our uid + key, and a reader only trusts it if the key
+  /// re-derives the code (see [resolveCode]).
+  Future<void> publishProfile() async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await rtdb.put('users/$_uid/profile', {
+      'name': identity.displayName,
+      'publicKey': identity.publicKeyBase64,
+      'lastSeen': now,
+    });
+    // Best-effort: the code index only powers online add-by-code. If the
+    // `codes` security rule isn't deployed yet it 401s — that must not take
+    // down inbox/presence/WebRTC, which are the essential online path.
+    try {
+      await rtdb.put('codes/${identity.myCode}', {
+        'uid': _uid,
         'name': identity.displayName,
         'publicKey': identity.publicKeyBase64,
-        'lastSeen': DateTime.now().millisecondsSinceEpoch,
+        'lastSeen': now,
       });
+    } catch (e) {
+      debugPrint('Code index publish skipped (deploy rtdb.rules.json?): $e');
+    }
+  }
+
+  /// Resolves a machine [code] to `{uid, name, publicKey}` via the `codes` index,
+  /// or null if unknown. The caller must still verify the key re-derives [code].
+  Future<Map<String, dynamic>?> resolveCode(String code) async {
+    try {
+      final p = await rtdb.get('codes/$code');
+      return p is Map ? p.cast<String, dynamic>() : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   Future<void> _beat() async {
     try {
