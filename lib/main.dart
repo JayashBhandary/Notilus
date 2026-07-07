@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
+import 'services/notification_service.dart';
 import 'services/settings_store.dart';
 import 'services/tray_service.dart';
 
@@ -17,6 +18,7 @@ Future<void> main() async {
     await windowManager.ensureInitialized();
     final backgroundEnabled = await SettingsStore().getBackgroundReception();
     await TrayService.instance.init(backgroundEnabled: backgroundEnabled);
+    await NotificationService.instance.init();
   }
 
   runApp(const NotilusApp());

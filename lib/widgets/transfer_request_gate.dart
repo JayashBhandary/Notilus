@@ -37,7 +37,48 @@ class _TransferRequestGateState extends State<TransferRequestGate> {
   void _check() {
     if (!mounted || _showing) return;
     final req = _ctrl?.incomingRequest;
-    if (req != null) _present(req);
+    if (req != null) {
+      _present(req);
+      return;
+    }
+    final contactReq = _ctrl?.incomingContactRequest;
+    if (contactReq != null) _presentContactRequest(contactReq);
+  }
+
+  Future<void> _presentContactRequest(IncomingContactRequest req) async {
+    _showing = true;
+    // Surface the window (off the tray) so the decision prompt is seen.
+    await TrayService.instance.showWindow();
+    if (!mounted) {
+      _showing = false;
+      return;
+    }
+    final accept = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (ctx) => CupertinoAlertDialog(
+        title: Text('${req.name} wants to connect'),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Text('Accept to add them as a contact so you can send '
+              'files to each other.'),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Decline'),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Accept'),
+          ),
+        ],
+      ),
+    );
+    await _ctrl?.respondToContactRequest(req, accept ?? false);
+    _showing = false;
+    // Another event may have queued while this dialog was open.
+    SchedulerBinding.instance.addPostFrameCallback((_) => _check());
   }
 
   Future<void> _present(IncomingTransferRequest req) async {

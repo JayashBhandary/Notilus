@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_webrtc
+  local_notifier
   pdfx
   screen_retriever_windows
   share_plus

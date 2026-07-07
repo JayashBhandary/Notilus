@@ -22,6 +22,12 @@ class InboxMessage {
   static const typeIce = 'ice-candidate';
   static const typeCancel = 'cancel';
 
+  /// Sent to a peer the moment we add them, so their device adds us back and
+  /// surfaces a notification. Its [payload] self-certifies the sender's identity
+  /// (`name`, `publicKey`, `uid`, `nonce`) since the receiver may not have us
+  /// saved yet — the key is trusted only if it re-derives [from].
+  static const typeContactAdded = 'contact-added';
+
   final String? id;
   final String type;
   final String from; // sender's short machine code

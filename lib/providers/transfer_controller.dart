@@ -27,10 +27,21 @@ import '../services/transfer/signaling_service.dart';
 import '../services/transfer/socket_conduit.dart';
 import '../services/transfer/signed_messages.dart';
 import '../services/transfer/webrtc_session.dart';
+import '../services/notification_service.dart';
 
 /// Outcome of a LAN-direct send attempt. `unreachable` means "couldn't connect —
 /// try Firebase instead"; the others are final answers from the peer.
 enum _LanOutcome { accepted, declined, unreachable }
+
+/// A "someone wants to connect" event awaiting the user's Accept/Decline. Raised
+/// when a verified `contact-added` message arrives from a peer we haven't saved;
+/// [contact] is the fully-verified peer, saved only if the user accepts.
+class IncomingContactRequest {
+  const IncomingContactRequest(this.contact);
+  final Contact contact;
+  String get name => contact.name;
+  String get code => contact.code;
+}
 
 /// App-facing facade over the transfer stack (identity + contacts + signaling).
 /// Self-initializes: signs in, connects the inbox stream, and polls presence
@@ -72,6 +83,8 @@ class TransferController extends ChangeNotifier {
   final Map<String, Completer<bool>> _pending = {};
   // Verified incoming requests awaiting the user's decision (FIFO).
   final List<IncomingTransferRequest> _incoming = [];
+  // Verified "someone wants to connect" events awaiting Accept/Decline (FIFO).
+  final List<IncomingContactRequest> _contactRequests = [];
   // Active WebRTC sessions keyed by requestId (== sessionId).
   final Map<String, WebRtcSession> _sessions = {};
 
@@ -118,6 +131,21 @@ class TransferController extends ChangeNotifier {
   /// The next incoming request awaiting a decision, if any (UI shows a dialog).
   IncomingTransferRequest? get incomingRequest =>
       _incoming.isNotEmpty ? _incoming.first : null;
+
+  /// The next "someone wants to connect" request awaiting a decision, if any.
+  IncomingContactRequest? get incomingContactRequest =>
+      _contactRequests.isNotEmpty ? _contactRequests.first : null;
+
+  /// Answers a contact request: saves the peer on [accept] (making the
+  /// relationship mutual so transfers work both ways), or drops it on decline.
+  Future<void> respondToContactRequest(
+      IncomingContactRequest req, bool accept) async {
+    _contactRequests.remove(req);
+    notifyListeners();
+    if (!accept) return;
+    await _contacts?.upsert(req.contact);
+    unawaited(_refreshPresenceFor(req.contact));
+  }
 
   /// Live + recently-finished transfers keyed by session id, for the activity
   /// UI (the key is what [cancelTransfer] takes).
@@ -210,6 +238,7 @@ class TransferController extends ChangeNotifier {
     if (contact.code == myCode) return 'That\'s your own code.';
     await _contacts?.upsert(contact);
     unawaited(_refreshPresenceFor(contact));
+    unawaited(_notifyPeerAdded(contact));
     return null;
   }
 
@@ -231,6 +260,7 @@ class TransferController extends ChangeNotifier {
     }
     await _contacts?.upsert(resolved);
     unawaited(_refreshPresenceFor(resolved));
+    unawaited(_notifyPeerAdded(resolved));
     return null;
   }
 
@@ -262,6 +292,67 @@ class TransferController extends ChangeNotifier {
 
   static String _pickName(String? preferred, String fallback) =>
       (preferred?.trim().isNotEmpty ?? false) ? preferred!.trim() : fallback;
+
+  /// Tells [peer] we just added them, so their device adds us back and shows a
+  /// notification (the add is otherwise invisible to them). The payload carries
+  /// our self-certifying identity — the peer trusts it only if our key derives
+  /// [our code]. Best-effort over the LAN-direct path first (works with no
+  /// internet), then the Firebase inbox; a failure here never fails the add.
+  Future<void> _notifyPeerAdded(Contact peer) async {
+    final id = _identity;
+    if (id == null) return;
+    final msg = await buildSignedMessage(
+      id,
+      to: peer.code,
+      type: InboxMessage.typeContactAdded,
+      ts: DateTime.now().millisecondsSinceEpoch,
+      payload: {
+        'nonce': _uuid.v4(),
+        'name': id.displayName,
+        'publicKey': id.publicKeyBase64,
+        'uid': id.deviceId ?? '',
+      },
+    );
+
+    // LAN-direct first, mirroring sendFiles — one path only, so the peer never
+    // gets a duplicate notice.
+    if (await _preferLocalNetwork()) {
+      final located = await _discovery?.locate(peer.code, peer.publicKey);
+      if (located != null && await _sendFrameOverLan(located, msg)) return;
+    }
+
+    // Firebase inbox: reaches the peer even if they're offline right now (the
+    // message waits in their inbox until they next connect).
+    final sig = _signaling;
+    if (sig != null && peer.deviceId.isNotEmpty) {
+      try {
+        await sig.send(peer.deviceId, msg);
+      } catch (_) {}
+    }
+  }
+
+  /// Opens a short-lived LAN socket to [peer] and sends a single signed [msg]
+  /// frame (the contact-added ping). Returns true if the frame was written.
+  Future<bool> _sendFrameOverLan(LanPeer peer, InboxMessage msg) async {
+    Socket socket;
+    try {
+      socket = await Socket.connect(peer.address, peer.port,
+          timeout: const Duration(seconds: 5));
+    } catch (_) {
+      return false;
+    }
+    final conduit = SocketConduit(socket);
+    try {
+      await conduit.sendText(jsonEncode(msg.toMap()));
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      // Let the frame flush to the peer before we tear the socket down.
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      await conduit.close();
+    }
+  }
 
   Future<void> renameContact(String code, String name) async =>
       _contacts?.rename(code, name);
@@ -492,6 +583,13 @@ class TransferController extends ChangeNotifier {
       await conduit.close();
       return;
     }
+    // A contact-added ping needs no consent flow or response — process it and
+    // drop the socket (the sender doesn't wait for a reply).
+    if (m.type == InboxMessage.typeContactAdded) {
+      await _handleContactAdded(m);
+      await conduit.close();
+      return;
+    }
     final contact = await _verifiedSender(m);
     final req = (contact == null || m.type != InboxMessage.typeTransferRequest)
         ? null
@@ -664,6 +762,10 @@ class TransferController extends ChangeNotifier {
       case InboxMessage.typeIce:
         await _handleRtcSignal(m);
         break;
+      case InboxMessage.typeContactAdded:
+        await _handleContactAdded(m);
+        await _deleteInbox(m.id);
+        break;
       default:
         await _deleteInbox(m.id);
         break;
@@ -682,6 +784,54 @@ class TransferController extends ChangeNotifier {
       senderPublicKey: contact.publicKey,
     );
     return ok ? contact : null;
+  }
+
+  /// Verifies a `contact-added` [m] whose sender we may not have saved yet. Trust
+  /// bootstraps exactly like add-by-code: the public key in the payload is
+  /// trusted only if it re-derives the sender's claimed code, and the message
+  /// must be signed by that key and addressed to us. Returns the peer as a
+  /// contact, or null if anything doesn't line up.
+  Future<Contact?> _verifiedNewContact(InboxMessage m) async {
+    final id = _identity;
+    final me = myCode;
+    if (id == null || me == null) return null;
+    final pk = (m.payload['publicKey'] ?? '') as String;
+    if (pk.isEmpty || deviceCodeFromPublicKey(pk) != m.from) return null;
+    final ok = await verifySignedMessage(id, m, myId: me, senderPublicKey: pk);
+    if (!ok) return null;
+    final name = (m.payload['name'] ?? '') as String;
+    final uid = (m.payload['uid'] ?? '') as String;
+    return Contact(
+      name: name.trim().isEmpty ? m.from : name.trim(),
+      deviceId: uid,
+      publicKey: pk,
+    );
+  }
+
+  /// Handles an incoming "someone added you". If they aren't already saved, it
+  /// surfaces an Accept/Decline prompt (in-app) and an OS banner; the peer is
+  /// saved back only if the user accepts (see [respondToContactRequest]).
+  Future<void> _handleContactAdded(InboxMessage m) async {
+    final contact = await _verifiedNewContact(m);
+    if (contact == null) return;
+    final nonce = m.payload['nonce'];
+    // Dedup: the same ping can re-arrive on an SSE reconnect snapshot, or via
+    // both transports. Namespaced so it can't collide with transfer requestIds.
+    if (nonce is String && !_markSeen('contact:$nonce')) return;
+    // Already mutual — just freshen their name/routing address, no prompt.
+    if (_contacts?.byCode(contact.code) != null) {
+      await _contacts?.upsert(contact);
+      unawaited(_refreshPresenceFor(contact));
+      return;
+    }
+    // Don't let an authenticated peer flood the decision queue.
+    if (_contactRequests.length >= maxQueuedRequests) return;
+    _contactRequests.add(IncomingContactRequest(contact));
+    notifyListeners();
+    unawaited(NotificationService.instance.show(
+      'Contact request',
+      '${contact.name} wants to connect on Notilus.',
+    ));
   }
 
   Future<void> _handleRequest(InboxMessage m) async {

@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   flutter_webrtc
+  local_notifier
   screen_retriever_linux
   tray_manager
   url_launcher_linux
