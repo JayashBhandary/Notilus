@@ -37,6 +37,14 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Write .env from secrets
+        shell: bash
+        run: |
+          cat > .env <<EOF
+          TRANSFER_RTDB_URL=${{ secrets.TRANSFER_RTDB_URL }}
+          TRANSFER_API_KEY=${{ secrets.TRANSFER_API_KEY }}
+          EOF
+
       - name: Build macOS app (universal)
         run: flutter build macos --release
 
@@ -122,6 +130,14 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Write .env from secrets
+        shell: bash
+        run: |
+          cat > .env <<EOF
+          TRANSFER_RTDB_URL=${{ secrets.TRANSFER_RTDB_URL }}
+          TRANSFER_API_KEY=${{ secrets.TRANSFER_API_KEY }}
+          EOF
+
       - name: Build Windows app
         # CMake 4.x on windows-latest removed support for
         # cmake_minimum_required(VERSION < 3.5). The pdfx plugin downloads
@@ -175,6 +191,14 @@ jobs:
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - run: flutter pub get
+
+      - name: Write .env from secrets
+        shell: bash
+        run: |
+          cat > .env <<EOF
+          TRANSFER_RTDB_URL=${{ secrets.TRANSFER_RTDB_URL }}
+          TRANSFER_API_KEY=${{ secrets.TRANSFER_API_KEY }}
+          EOF
 
       - name: Build Linux app
         run: flutter build linux --release

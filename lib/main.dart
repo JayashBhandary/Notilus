@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
@@ -11,6 +12,11 @@ import 'services/tray_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Load the P2P transfer backend secrets from the bundled .env asset. Optional
+  // so the app still launches (transfer just shows its "set up" hint) when the
+  // file is absent — e.g. a fresh checkout before .env is created.
+  await dotenv.load(fileName: '.env', isOptional: true);
 
   // Desktop: stand up the window + tray so the app can minimize-to-tray and
   // keep receiving transfers in the background (Phase 8).

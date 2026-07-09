@@ -22,9 +22,9 @@ migrate_working_dir/
 # Claude Code local state
 .claude/
 
-# P2P transfer backend secrets (git-ignored for now; GitHub secrets in CI later).
-# Committed template lives at lib/config/transfer_config.example.dart.
-/lib/config/transfer_config.dart
+# P2P transfer backend secrets. Real values live in a git-ignored `.env` at the
+# repo root (committed template: .env.example); GitHub secrets supply them in CI.
+.env
 
 # The .vscode folder contains launch configuration and tasks you configure in
 # VS Code which you may wish to be included in version control, so this line
