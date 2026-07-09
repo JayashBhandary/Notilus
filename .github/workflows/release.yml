@@ -138,6 +138,42 @@ jobs:
           TRANSFER_API_KEY=${{ secrets.TRANSFER_API_KEY }}
           EOF
 
+      - name: Pre-fetch libwebrtc (retry flaky GitHub release downloads)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # flutter_webrtc downloads a prebuilt libwebrtc zip at CMake-configure
+          # time with no retry, so a single GitHub 504 fails the whole build.
+          # Fetch it here with retries into the pub-cache path the plugin checks
+          # first (`if(NOT EXISTS ZIPFILE)`), so CMake reuses it and never hits
+          # its own retry-less download.
+          case "$(uname -s)" in
+            Linux*) ASSET="libwebrtc-linux-x64-release.zip" ;;
+            MINGW*|MSYS*|CYGWIN*) ASSET="libwebrtc-win-x64-release.zip" ;;
+            *) echo "unsupported OS: $(uname -s)"; exit 1 ;;
+          esac
+          ROOTS=("$HOME/.pub-cache")
+          [ -n "${PUB_CACHE:-}" ] && ROOTS+=("$PUB_CACHE")
+          [ -n "${LOCALAPPDATA:-}" ] && ROOTS+=("$(cygpath -u "$LOCALAPPDATA" 2>/dev/null || echo "$LOCALAPPDATA")/Pub/Cache")
+          TP=""
+          for r in "${ROOTS[@]}"; do
+            [ -d "$r" ] || continue
+            TP=$(find "$r" -type d -path "*/flutter_webrtc-*/third_party" 2>/dev/null | head -1)
+            [ -n "$TP" ] && break
+          done
+          if [ -z "$TP" ]; then echo "flutter_webrtc third_party dir not found"; exit 1; fi
+          INI="$TP/libwebrtc_version.ini"
+          VER=$(sed -nE 's/^[[:space:]]*binary_version[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' "$INI")
+          BASE=$(sed -nE 's/^[[:space:]]*download_url[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' "$INI" | sed 's:/*$::')
+          URL="$BASE/$VER/$ASSET"
+          mkdir -p "$TP/downloads"
+          ZIP="$TP/downloads/$ASSET"
+          echo "Fetching $URL"
+          curl -fL --retry 6 --retry-all-errors --retry-delay 10 --connect-timeout 30 -o "$ZIP" "$URL"
+          SIZE=$(wc -c < "$ZIP")
+          echo "downloaded $SIZE bytes"
+          if [ "$SIZE" -lt 1000000 ]; then echo "libwebrtc zip too small — likely an error page"; rm -f "$ZIP"; exit 1; fi
+
       - name: Build Windows app
         # CMake 4.x on windows-latest removed support for
         # cmake_minimum_required(VERSION < 3.5). The pdfx plugin downloads
@@ -200,6 +236,42 @@ jobs:
           TRANSFER_RTDB_URL=${{ secrets.TRANSFER_RTDB_URL }}
           TRANSFER_API_KEY=${{ secrets.TRANSFER_API_KEY }}
           EOF
+
+      - name: Pre-fetch libwebrtc (retry flaky GitHub release downloads)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # flutter_webrtc downloads a prebuilt libwebrtc zip at CMake-configure
+          # time with no retry, so a single GitHub 504 fails the whole build.
+          # Fetch it here with retries into the pub-cache path the plugin checks
+          # first (`if(NOT EXISTS ZIPFILE)`), so CMake reuses it and never hits
+          # its own retry-less download.
+          case "$(uname -s)" in
+            Linux*) ASSET="libwebrtc-linux-x64-release.zip" ;;
+            MINGW*|MSYS*|CYGWIN*) ASSET="libwebrtc-win-x64-release.zip" ;;
+            *) echo "unsupported OS: $(uname -s)"; exit 1 ;;
+          esac
+          ROOTS=("$HOME/.pub-cache")
+          [ -n "${PUB_CACHE:-}" ] && ROOTS+=("$PUB_CACHE")
+          [ -n "${LOCALAPPDATA:-}" ] && ROOTS+=("$(cygpath -u "$LOCALAPPDATA" 2>/dev/null || echo "$LOCALAPPDATA")/Pub/Cache")
+          TP=""
+          for r in "${ROOTS[@]}"; do
+            [ -d "$r" ] || continue
+            TP=$(find "$r" -type d -path "*/flutter_webrtc-*/third_party" 2>/dev/null | head -1)
+            [ -n "$TP" ] && break
+          done
+          if [ -z "$TP" ]; then echo "flutter_webrtc third_party dir not found"; exit 1; fi
+          INI="$TP/libwebrtc_version.ini"
+          VER=$(sed -nE 's/^[[:space:]]*binary_version[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' "$INI")
+          BASE=$(sed -nE 's/^[[:space:]]*download_url[[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' "$INI" | sed 's:/*$::')
+          URL="$BASE/$VER/$ASSET"
+          mkdir -p "$TP/downloads"
+          ZIP="$TP/downloads/$ASSET"
+          echo "Fetching $URL"
+          curl -fL --retry 6 --retry-all-errors --retry-delay 10 --connect-timeout 30 -o "$ZIP" "$URL"
+          SIZE=$(wc -c < "$ZIP")
+          echo "downloaded $SIZE bytes"
+          if [ "$SIZE" -lt 1000000 ]; then echo "libwebrtc zip too small — likely an error page"; rm -f "$ZIP"; exit 1; fi
 
       - name: Build Linux app
         run: flutter build linux --release
