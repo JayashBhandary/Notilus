@@ -6,7 +6,9 @@ import '../models/workflow.dart';
 
 class SettingsStore {
   static const _kHost = 'ollama_host';
-  static const _kModel = 'default_model';
+  static const _kModel = 'default_model'; // legacy: the Ollama model
+  static const _kLlmProvider = 'llm_provider';
+  static const _kCompatBaseUrl = 'openai_compat_base_url';
   static const _kTemperature = 'temperature';
   static const _kWorkflows = 'workflows_json';
   static const _kThemeMode = 'theme_mode';
@@ -99,17 +101,44 @@ class SettingsStore {
     await prefs.setString(_kHost, host);
   }
 
-  Future<String?> getModel() async {
+  /// Active LLM provider id (see `LlmProviderKind.id`).
+  Future<String> getLlmProvider() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_kModel);
+    return prefs.getString(_kLlmProvider) ?? 'ollama';
   }
 
-  Future<void> setModel(String? model) async {
+  Future<void> setLlmProvider(String id) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kLlmProvider, id);
+  }
+
+  /// Base URL of a custom OpenAI-compatible server (LM Studio, OpenRouter…).
+  Future<String> getCompatBaseUrl() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kCompatBaseUrl) ?? '';
+  }
+
+  Future<void> setCompatBaseUrl(String url) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kCompatBaseUrl, url.trim());
+  }
+
+  // Each provider remembers its own selected model. Ollama keeps the legacy
+  // 'default_model' key so existing installs don't lose their choice.
+  String _modelKey(String providerId) =>
+      providerId == 'ollama' ? _kModel : 'llm_model_$providerId';
+
+  Future<String?> getModelFor(String providerId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_modelKey(providerId));
+  }
+
+  Future<void> setModelFor(String providerId, String? model) async {
     final prefs = await SharedPreferences.getInstance();
     if (model == null) {
-      await prefs.remove(_kModel);
+      await prefs.remove(_modelKey(providerId));
     } else {
-      await prefs.setString(_kModel, model);
+      await prefs.setString(_modelKey(providerId), model);
     }
   }
 

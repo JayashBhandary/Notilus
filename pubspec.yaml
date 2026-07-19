@@ -1,5 +1,5 @@
 name: notilus
-description: Notilus — Finder-style file manager with Ollama AI assistant and custom prompt-chain workflows.
+description: Notilus — Finder-style file manager with an AI assistant (Ollama, Claude, Gemini, OpenAI) and custom prompt-chain workflows.
 publish_to: 'none'
 version: 0.2.1
 
@@ -34,6 +34,8 @@ dependencies:
   tray_manager: ^0.5.3
   local_notifier: ^0.1.6
   flutter_dotenv: ^6.0.1
+  flutter_secure_storage: ^9.2.2
+  file_selector: ^1.0.3
 
 dev_dependencies:
   flutter_lints: ^3.0.0

@@ -4,7 +4,7 @@ import '../models/file_entry.dart';
 import '../models/workflow.dart';
 import '../models/workflow_step.dart';
 import '../services/file_service.dart';
-import '../services/ollama_service.dart';
+import '../services/llm/llm_client.dart';
 import '../services/settings_store.dart';
 import '../services/workflow_runner.dart';
 
@@ -102,7 +102,7 @@ class WorkflowProvider extends ChangeNotifier {
 
   Future<void> run({
     required Workflow workflow,
-    required String host,
+    required LlmClient llm,
     required String model,
     required double temperature,
     FileEntry? selectedFile,
@@ -116,7 +116,7 @@ class WorkflowProvider extends ChangeNotifier {
     notifyListeners();
 
     final runner = WorkflowRunner(
-      ollama: OllamaService(host),
+      llm: llm,
       fileService: _fileService,
     );
 

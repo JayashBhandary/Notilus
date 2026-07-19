@@ -1,11 +1,16 @@
+import 'dart:io';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show SelectionArea;
 import 'package:provider/provider.dart';
 
 import '../models/chat_message.dart';
+import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../providers/chat_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/llm/llm_client.dart';
 import '../theme.dart';
 
 class ChatPanel extends StatefulWidget {
@@ -19,6 +24,7 @@ class _ChatPanelState extends State<ChatPanel> {
   final _controller = TextEditingController();
   final _scrollController = ScrollController();
   bool _attachSelection = true;
+  FileEntry? _pickedFile;
 
   @override
   void dispose() {
@@ -46,21 +52,36 @@ class _ChatPanelState extends State<ChatPanel> {
     final browser = context.read<BrowserProvider>();
     final chat = context.read<ChatProvider>();
 
-    if (settings.model == null) {
+    final provider = chat.providerOverride ?? settings.provider;
+    final model = chat.modelOverride ?? settings.modelFor(provider);
+    if (model == null) {
       _showNoModelDialog();
       return;
     }
 
-    final attached = _attachSelection ? browser.primarySelection : null;
+    // An explicitly picked file wins over the browser selection.
+    final attached =
+        _pickedFile ?? (_attachSelection ? browser.primarySelection : null);
     _controller.clear();
+    if (_pickedFile != null) {
+      setState(() => _pickedFile = null); // one-shot attachment
+    }
     await chat.send(
       userInput: text,
-      host: settings.host,
-      model: settings.model!,
+      llm: settings.clientFor(provider),
+      model: model,
       temperature: settings.temperature,
       attachedFile: attached,
     );
     _scrollToBottom();
+  }
+
+  Future<void> _pickFile() async {
+    final xfile = await openFile();
+    if (xfile == null) return;
+    final entry = await FileEntry.from(File(xfile.path));
+    if (entry == null || !mounted) return;
+    setState(() => _pickedFile = entry);
   }
 
   void _showNoModelDialog() {
@@ -68,7 +89,8 @@ class _ChatPanelState extends State<ChatPanel> {
       context: context,
       builder: (_) => CupertinoAlertDialog(
         title: const Text('No model selected'),
-        content: const Text('Open Settings and pick a model first.'),
+        content: const Text(
+            'Configure an AI provider and pick a model in Settings first.'),
         actions: [
           CupertinoDialogAction(
             isDefaultAction: true,
@@ -80,12 +102,128 @@ class _ChatPanelState extends State<ChatPanel> {
     );
   }
 
+  void _showLlmPicker() {
+    final settings = context.read<SettingsProvider>();
+    final chat = context.read<ChatProvider>();
+    final defaultModel = settings.modelFor(settings.provider);
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => CupertinoActionSheet(
+        title: const Text('Model for this chat'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              chat.setLlmOverride(null, null);
+            },
+            child: Text(
+              'App default (${settings.provider.label} · '
+              '${defaultModel ?? 'no model'})',
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+          for (final p in settings.configuredProviders)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                _pickModelFor(p);
+              },
+              child: Text('${p.label}…', style: const TextStyle(fontSize: 14)),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('Cancel'),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickModelFor(LlmProviderKind provider) async {
+    final settings = context.read<SettingsProvider>();
+    if (settings.modelsFor(provider).isEmpty) {
+      await settings.refreshModelsFor(provider);
+    }
+    if (!mounted) return;
+    final models = settings.modelsFor(provider);
+    if (models.isEmpty) {
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (ctx) => CupertinoAlertDialog(
+          title: Text('No ${provider.label} models'),
+          content: const Text(
+              'Could not load the model list. Check the provider '
+              'configuration in Settings.'),
+          actions: [
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    final chat = context.read<ChatProvider>();
+    final current = chat.providerOverride == provider
+        ? chat.modelOverride
+        : settings.modelFor(provider);
+    final initialIdx = models.indexOf(current ?? '');
+    int selected = initialIdx >= 0 ? initialIdx : 0;
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (ctx) => Container(
+        height: 280,
+        color: CupertinoColors.systemBackground.resolveFrom(ctx),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  CupertinoButton(
+                    onPressed: () => Navigator.of(ctx).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  CupertinoButton(
+                    onPressed: () {
+                      chat.setLlmOverride(provider, models[selected]);
+                      Navigator.of(ctx).pop();
+                    },
+                    child: const Text('Done'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CupertinoPicker(
+                itemExtent: 32,
+                scrollController:
+                    FixedExtentScrollController(initialItem: selected),
+                onSelectedItemChanged: (i) => selected = i,
+                children:
+                    models.map((m) => Center(child: Text(m))).toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final chat = context.watch<ChatProvider>();
     final browser = context.watch<BrowserProvider>();
+    final settings = context.watch<SettingsProvider>();
     final palette = AppColors.of(context);
     final selection = browser.primarySelection;
+
+    final provider = chat.providerOverride ?? settings.provider;
+    final model = chat.modelOverride ?? settings.modelFor(provider);
 
     if (chat.messages.isNotEmpty) _scrollToBottom();
 
@@ -106,7 +244,14 @@ class _ChatPanelState extends State<ChatPanel> {
           _ChatComposer(
             controller: _controller,
             selection: selection,
+            pickedFile: _pickedFile,
             attachSelection: _attachSelection,
+            llmLabel: '${provider.label} · ${model ?? 'pick a model'}',
+            onTapLlm: _showLlmPicker,
+            onPickFile: _pickFile,
+            onClearPickedFile: _pickedFile == null
+                ? null
+                : () => setState(() => _pickedFile = null),
             onToggleAttach: selection == null
                 ? null
                 : (v) => setState(() => _attachSelection = v),
@@ -140,7 +285,7 @@ class _ChatEmpty extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             Text(
-              'Ask Ollama anything',
+              'Ask AI anything',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -149,7 +294,8 @@ class _ChatEmpty extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Select a file and tick “Include selection” to send it as context.',
+              'Attach a file with the paperclip, or select one and tick '
+              '“Include selection” to send it as context.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 12,
@@ -168,7 +314,12 @@ class _ChatComposer extends StatelessWidget {
   const _ChatComposer({
     required this.controller,
     required this.selection,
+    required this.pickedFile,
     required this.attachSelection,
+    required this.llmLabel,
+    required this.onTapLlm,
+    required this.onPickFile,
+    required this.onClearPickedFile,
     required this.onToggleAttach,
     required this.onSend,
     required this.onStop,
@@ -178,17 +329,23 @@ class _ChatComposer extends StatelessWidget {
 
   final TextEditingController controller;
   final dynamic selection;
+  final FileEntry? pickedFile;
   final bool attachSelection;
+  final String llmLabel;
+  final VoidCallback onTapLlm;
+  final VoidCallback onPickFile;
+  final VoidCallback? onClearPickedFile;
   final ValueChanged<bool>? onToggleAttach;
   final VoidCallback onSend;
   final VoidCallback? onStop;
   final VoidCallback? onClear;
   final bool busy;
 
-  IconData _attachmentIcon(dynamic sel) {
-    if (sel == null) return CupertinoIcons.doc;
-    final name = (sel.name as String).toLowerCase();
-    final ext = name.contains('.') ? name.substring(name.lastIndexOf('.')) : '';
+  IconData _attachmentIcon(String? name) {
+    if (name == null) return CupertinoIcons.doc;
+    final lower = name.toLowerCase();
+    final ext =
+        lower.contains('.') ? lower.substring(lower.lastIndexOf('.')) : '';
     const img = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.heic'};
     const sheet = {'.xlsx', '.xls', '.ods', '.csv', '.tsv'};
     const slide = {'.pptx', '.ppt', '.odp'};
@@ -199,11 +356,12 @@ class _ChatComposer extends StatelessWidget {
     return CupertinoIcons.doc_text;
   }
 
-  bool _isImage(dynamic sel) {
-    if (sel == null) return false;
-    final name = (sel.name as String).toLowerCase();
+  bool _isImage(String? name) {
+    if (name == null) return false;
+    final lower = name.toLowerCase();
     const img = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.heic'};
-    final ext = name.contains('.') ? name.substring(name.lastIndexOf('.')) : '';
+    final ext =
+        lower.contains('.') ? lower.substring(lower.lastIndexOf('.')) : '';
     return img.contains(ext);
   }
 
@@ -212,6 +370,8 @@ class _ChatComposer extends StatelessWidget {
     final palette = AppColors.of(context);
     final hasSelection = selection != null;
     final attached = attachSelection && hasSelection;
+    final attachedName = pickedFile?.name ??
+        (attached ? selection.name as String : null);
 
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
@@ -226,51 +386,61 @@ class _ChatComposer extends StatelessWidget {
             children: [
               Flexible(
                 child: GestureDetector(
-                  onTap: onToggleAttach == null
-                      ? null
-                      : () => onToggleAttach!(!attached),
+                  onTap: onTapLlm,
                   child: MouseRegion(
-                    cursor: onToggleAttach == null
-                        ? SystemMouseCursors.basic
-                        : SystemMouseCursors.click,
-                    child: Row(
-                      children: [
-                        Icon(
-                          attached
-                              ? CupertinoIcons.checkmark_square_fill
-                              : CupertinoIcons.square,
-                          size: 16,
-                          color: attached
-                              ? palette.accent
-                              : palette.subtleText,
-                        ),
-                        const SizedBox(width: 6),
-                        if (hasSelection) ...[
+                    cursor: SystemMouseCursors.click,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 3,
+                      ),
+                      decoration: BoxDecoration(
+                        color: palette.cardBg,
+                        border: Border.all(color: palette.divider),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           Icon(
-                            _attachmentIcon(selection),
-                            size: 13,
-                            color: palette.subtleText,
+                            CupertinoIcons.sparkles,
+                            size: 12,
+                            color: palette.accent,
                           ),
-                          const SizedBox(width: 4),
-                        ],
-                        Flexible(
-                          child: Text(
-                            hasSelection
-                                ? 'Include: ${selection.name}'
-                                : 'No selection',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: palette.subtleText,
+                          const SizedBox(width: 5),
+                          Flexible(
+                            child: Text(
+                              llmLabel,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: palette.text,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 3),
+                          Icon(
+                            CupertinoIcons.chevron_up_chevron_down,
+                            size: 10,
+                            color: palette.subtleText,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const Spacer(),
+              CupertinoButton(
+                padding: const EdgeInsets.all(4),
+                onPressed: onPickFile,
+                child: Icon(
+                  CupertinoIcons.paperclip,
+                  size: 15,
+                  color:
+                      pickedFile != null ? palette.accent : palette.subtleText,
+                ),
+              ),
               CupertinoButton(
                 padding: const EdgeInsets.all(4),
                 onPressed: onClear,
@@ -282,11 +452,85 @@ class _ChatComposer extends StatelessWidget {
               ),
             ],
           ),
-          if (attached && _isImage(selection))
+          const SizedBox(height: 6),
+          if (pickedFile != null)
+            Row(
+              children: [
+                Icon(
+                  _attachmentIcon(pickedFile!.name),
+                  size: 13,
+                  color: palette.accent,
+                ),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    'Attach: ${pickedFile!.name}',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: palette.text),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: onClearPickedFile,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: Icon(
+                      CupertinoIcons.xmark_circle_fill,
+                      size: 14,
+                      color: palette.subtleText,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else
+            GestureDetector(
+              onTap: onToggleAttach == null
+                  ? null
+                  : () => onToggleAttach!(!attached),
+              child: MouseRegion(
+                cursor: onToggleAttach == null
+                    ? SystemMouseCursors.basic
+                    : SystemMouseCursors.click,
+                child: Row(
+                  children: [
+                    Icon(
+                      attached
+                          ? CupertinoIcons.checkmark_square_fill
+                          : CupertinoIcons.square,
+                      size: 16,
+                      color: attached ? palette.accent : palette.subtleText,
+                    ),
+                    const SizedBox(width: 6),
+                    if (hasSelection) ...[
+                      Icon(
+                        _attachmentIcon(selection.name as String),
+                        size: 13,
+                        color: palette.subtleText,
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Flexible(
+                      child: Text(
+                        hasSelection
+                            ? 'Include: ${selection.name}'
+                            : 'No selection',
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: palette.subtleText,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          if (_isImage(attachedName))
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 22),
               child: Text(
-                'Vision model required (e.g. llava, llama3.2-vision)',
+                'Vision-capable model required',
                 style: TextStyle(fontSize: 10.5, color: palette.subtleText),
               ),
             ),

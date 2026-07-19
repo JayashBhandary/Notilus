@@ -15,6 +15,7 @@ class ChatAttachment {
     required this.name,
     this.text,
     this.imageBase64,
+    this.imageMime,
     this.notice,
   });
 
@@ -30,17 +31,28 @@ class ChatAttachment {
   /// Base64-encoded raw bytes (for images sent to vision models).
   final String? imageBase64;
 
+  /// MIME type of [imageBase64] (cloud providers require it).
+  final String? imageMime;
+
   /// Optional human-readable hint shown to the user (e.g. "needs vision model").
   final String? notice;
 }
 
-/// Converts a file into something Ollama can consume.
+/// Converts a file into something an LLM can consume.
 class AttachmentService {
   static const int _textReadCap = 200 * 1024; // 200KB
   static const int _imageByteCap = 6 * 1024 * 1024; // 6MB
 
   static const _imageExts = {
     '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp',
+  };
+  static const _imageMimes = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.bmp': 'image/bmp',
+    '.webp': 'image/webp',
   };
   static const _textExts = {
     '.txt', '.md', '.markdown', '.mdown', '.log',
@@ -103,8 +115,8 @@ class AttachmentService {
       kind: AttachmentKind.image,
       name: file.name,
       imageBase64: base64Encode(bytes),
-      notice:
-          'Image attached. Use a vision-capable model (e.g. llava, llama3.2-vision, qwen2.5vl).',
+      imageMime: _imageMimes[file.extension] ?? 'image/png',
+      notice: 'Image attached. Use a vision-capable model.',
     );
   }
 

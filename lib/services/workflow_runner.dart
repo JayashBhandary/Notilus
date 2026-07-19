@@ -3,7 +3,7 @@ import 'dart:async';
 import '../models/file_entry.dart';
 import '../models/workflow.dart';
 import 'file_service.dart';
-import 'ollama_service.dart';
+import 'llm/llm_client.dart';
 
 class StepRunEvent {
   StepRunEvent({
@@ -23,11 +23,11 @@ class StepRunEvent {
 
 class WorkflowRunner {
   WorkflowRunner({
-    required this.ollama,
+    required this.llm,
     required this.fileService,
   });
 
-  final OllamaService ollama;
+  final LlmClient llm;
   final FileService fileService;
 
   /// Runs a workflow on a (possibly null) selected file, streaming tokens
@@ -60,7 +60,7 @@ class WorkflowRunner {
 
       final buffer = StringBuffer();
       try {
-        await for (final chunk in ollama.generate(
+        await for (final chunk in llm.generate(
           model: model,
           prompt: prompt,
           temperature: temperature,

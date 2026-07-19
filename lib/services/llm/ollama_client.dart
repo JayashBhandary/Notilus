@@ -1,38 +1,14 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-class OllamaException implements Exception {
-  OllamaException(this.message);
-  final String message;
-  @override
-  String toString() => 'OllamaException: $message';
-}
+import 'llm_client.dart';
 
-class OllamaChatTurn {
-  OllamaChatTurn({
-    required this.role,
-    required this.content,
-    this.images,
-  });
-  final String role; // 'system' | 'user' | 'assistant'
-  final String content;
+/// Local Ollama server — NDJSON streaming over `/api/chat` / `/api/generate`.
+class OllamaClient extends LlmClient {
+  OllamaClient(String host) : host = _normaliseHost(host);
 
-  /// Base64-encoded image bytes — only honoured by vision-capable models.
-  final List<String>? images;
-
-  Map<String, dynamic> toJson() => {
-        'role': role,
-        'content': content,
-        if (images != null && images!.isNotEmpty) 'images': images,
-      };
-}
-
-class OllamaService {
-  OllamaService(String host) : host = _normaliseHost(host);
-
-  String host;
+  final String host;
 
   static String _normaliseHost(String raw) {
     var h = raw.trim();
@@ -46,12 +22,13 @@ class OllamaService {
 
   Uri _uri(String path) => Uri.parse('$host$path');
 
+  @override
   Future<List<String>> listModels() async {
     final res = await http
         .get(_uri('/api/tags'))
         .timeout(const Duration(seconds: 8));
     if (res.statusCode != 200) {
-      throw OllamaException('listModels HTTP ${res.statusCode}');
+      throw LlmException('listModels HTTP ${res.statusCode}');
     }
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     final models = (body['models'] as List? ?? [])
@@ -60,16 +37,7 @@ class OllamaService {
     return models;
   }
 
-  Future<bool> ping() async {
-    try {
-      await listModels();
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Streams tokens from `/api/generate` (single prompt, no history).
+  @override
   Stream<String> generate({
     required String model,
     required String prompt,
@@ -88,10 +56,10 @@ class OllamaService {
     );
   }
 
-  /// Streams tokens from `/api/chat` with full conversation history.
+  @override
   Stream<String> chat({
     required String model,
-    required List<OllamaChatTurn> messages,
+    required List<LlmChatTurn> messages,
     double? temperature,
     http.Client? client,
   }) {
@@ -99,7 +67,15 @@ class OllamaService {
       path: '/api/chat',
       body: {
         'model': model,
-        'messages': messages.map((m) => m.toJson()).toList(),
+        'messages': [
+          for (final m in messages)
+            {
+              'role': m.role,
+              'content': m.content,
+              if (m.images != null && m.images!.isNotEmpty)
+                'images': [for (final img in m.images!) img.base64],
+            },
+        ],
         'stream': true,
         if (temperature != null) 'options': {'temperature': temperature},
       },
@@ -115,24 +91,13 @@ class OllamaService {
     final ownsClient = client == null;
     final c = client ?? http.Client();
     try {
-      final req = http.Request('POST', _uri(path));
-      req.headers['Content-Type'] = 'application/json';
-      req.headers['Accept'] = 'application/x-ndjson';
-      req.body = jsonEncode(body);
-
-      final streamed = await c.send(req).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () => throw OllamaException(
-          'Connection to $host timed out. Is Ollama running?',
-        ),
+      final streamed = await sendJsonStream(
+        client: c,
+        uri: _uri(path),
+        headers: const {'Accept': 'application/x-ndjson'},
+        body: body,
+        timeoutMessage: 'Connection to $host timed out. Is Ollama running?',
       );
-
-      if (streamed.statusCode != 200) {
-        final errBody = await streamed.stream.bytesToString();
-        throw OllamaException(
-          'HTTP ${streamed.statusCode} from $path: ${errBody.isEmpty ? '(empty body)' : errBody}',
-        );
-      }
 
       final lines = streamed.stream
           .transform(utf8.decoder)
@@ -151,7 +116,7 @@ class OllamaService {
         // Server-side error reported in the stream.
         final err = obj['error'];
         if (err is String && err.isNotEmpty) {
-          throw OllamaException(err);
+          throw LlmException(err);
         }
 
         // /api/generate → "response"; /api/chat → "message.content".

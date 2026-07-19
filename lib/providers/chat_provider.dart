@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
 import '../models/file_entry.dart';
 import '../services/attachment_service.dart';
-import '../services/ollama_service.dart';
+import '../services/llm/llm_client.dart';
 
 class ChatProvider extends ChangeNotifier {
   ChatProvider({AttachmentService? attachments})
@@ -17,12 +17,26 @@ class ChatProvider extends ChangeNotifier {
   http.Client? _activeClient;
   bool _cancelled = false;
 
+  // Per-conversation LLM override; null means "use the app default".
+  LlmProviderKind? _providerOverride;
+  String? _modelOverride;
+
   // Images attached to each user message (by index in _messages).
-  final Map<int, List<String>> _userImages = {};
+  final Map<int, List<LlmImage>> _userImages = {};
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   bool get busy => _busy;
   String? get error => _error;
+  LlmProviderKind? get providerOverride => _providerOverride;
+  String? get modelOverride => _modelOverride;
+
+  /// Pins this chat to a specific provider/model; pass nulls to follow the
+  /// app-wide default again.
+  void setLlmOverride(LlmProviderKind? provider, String? model) {
+    _providerOverride = provider;
+    _modelOverride = model;
+    notifyListeners();
+  }
 
   void clear() {
     if (_busy) cancel();
@@ -52,7 +66,7 @@ class ChatProvider extends ChangeNotifier {
 
   Future<void> send({
     required String userInput,
-    required String host,
+    required LlmClient llm,
     required String model,
     required double temperature,
     FileEntry? attachedFile,
@@ -69,7 +83,7 @@ class ChatProvider extends ChangeNotifier {
     // per-message image list.
     String userDisplay;
     String userBody = userInput;
-    List<String>? images;
+    List<LlmImage>? images;
     String? noticeForUi;
 
     if (att == null) {
@@ -86,7 +100,12 @@ class ChatProvider extends ChangeNotifier {
           // filename so the model can refer to it.
           userBody = 'Image: ${att.name}\n\n$userInput';
           userDisplay = '[+${att.name}] $userInput';
-          images = [att.imageBase64!];
+          images = [
+            LlmImage(
+              base64: att.imageBase64!,
+              mimeType: att.imageMime ?? 'image/png',
+            ),
+          ];
           noticeForUi = att.notice;
           break;
         case AttachmentKind.unsupported:
@@ -121,7 +140,7 @@ class ChatProvider extends ChangeNotifier {
     // Build conversation history (everything except the assistant placeholder
     // we just added). For the current user turn, swap in the augmented body
     // and attach images.
-    final turns = <OllamaChatTurn>[];
+    final turns = <LlmChatTurn>[];
     for (var i = 0; i < _messages.length - 1; i++) {
       final m = _messages[i];
       if (m.role == ChatRole.system &&
@@ -130,19 +149,18 @@ class ChatProvider extends ChangeNotifier {
         continue; // skip the UI-only notice
       }
       final isCurrentUser = i == userIndex;
-      turns.add(OllamaChatTurn(
+      turns.add(LlmChatTurn(
         role: _roleString(m.role),
         content: isCurrentUser ? userBody : m.content,
         images: isCurrentUser ? images : _userImages[i],
       ));
     }
 
-    final svc = OllamaService(host);
     final client = http.Client();
     _activeClient = client;
     _cancelled = false;
     try {
-      await for (final chunk in svc.chat(
+      await for (final chunk in llm.chat(
         model: model,
         messages: turns,
         temperature: temperature,

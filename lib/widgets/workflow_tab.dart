@@ -90,7 +90,7 @@ class WorkflowTab extends StatelessWidget {
                         onEdit: () => _openEditor(context, w),
                         onRun: () => wf.run(
                           workflow: w,
-                          host: settings.host,
+                          llm: settings.defaultClient(),
                           model: settings.model!,
                           temperature: settings.temperature,
                           selectedFile: selection,

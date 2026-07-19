@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/settings_provider.dart';
+import '../services/llm/llm_client.dart';
 import '../theme.dart';
 
 /// Shows the settings as a centered modal dialog. Settings hold only a handful
@@ -27,6 +28,8 @@ class SettingsDialog extends StatefulWidget {
 
 class _SettingsDialogState extends State<SettingsDialog> {
   late TextEditingController _hostCtrl;
+  late TextEditingController _apiKeyCtrl;
+  late TextEditingController _baseUrlCtrl;
   late TextEditingController _destCtrl;
   bool _testing = false;
 
@@ -35,20 +38,161 @@ class _SettingsDialogState extends State<SettingsDialog> {
     super.initState();
     final settings = context.read<SettingsProvider>();
     _hostCtrl = TextEditingController(text: settings.host);
+    _apiKeyCtrl =
+        TextEditingController(text: settings.apiKeyFor(settings.provider));
+    _baseUrlCtrl = TextEditingController(text: settings.compatBaseUrl);
     _destCtrl = TextEditingController(text: settings.transferDestination);
   }
 
   @override
   void dispose() {
     _hostCtrl.dispose();
+    _apiKeyCtrl.dispose();
+    _baseUrlCtrl.dispose();
     _destCtrl.dispose();
     super.dispose();
   }
 
+  Future<void> _selectProvider(
+    SettingsProvider settings,
+    LlmProviderKind kind,
+  ) async {
+    await settings.setProvider(kind);
+    if (!mounted) return;
+    setState(() {
+      _hostCtrl.text = settings.host;
+      _apiKeyCtrl.text = settings.apiKeyFor(kind);
+      _baseUrlCtrl.text = settings.compatBaseUrl;
+    });
+  }
+
   Future<void> _saveAndTest(SettingsProvider settings) async {
     setState(() => _testing = true);
-    await settings.setHost(_hostCtrl.text.trim());
+    final p = settings.provider;
+    switch (p) {
+      case LlmProviderKind.ollama:
+        await settings.setHost(_hostCtrl.text.trim());
+        break;
+      case LlmProviderKind.anthropic:
+      case LlmProviderKind.gemini:
+      case LlmProviderKind.openai:
+        await settings.setApiKey(p, _apiKeyCtrl.text);
+        break;
+      case LlmProviderKind.openaiCompat:
+        await settings.setCompatBaseUrl(_baseUrlCtrl.text);
+        await settings.setApiKey(p, _apiKeyCtrl.text);
+        break;
+    }
+    await settings.refreshModelsFor(p);
     if (mounted) setState(() => _testing = false);
+  }
+
+  String _unconfiguredHint(LlmProviderKind kind) {
+    switch (kind) {
+      case LlmProviderKind.openaiCompat:
+        return 'Enter a base URL';
+      default:
+        return 'Enter an API key';
+    }
+  }
+
+  Widget _settingsTextField({
+    required TextEditingController controller,
+    required String placeholder,
+    required AppPalette palette,
+    bool obscure = false,
+  }) {
+    return CupertinoTextField(
+      controller: controller,
+      placeholder: placeholder,
+      obscureText: obscure,
+      decoration: BoxDecoration(
+        color: palette.cardBg,
+        border: Border.all(color: palette.divider),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      style: TextStyle(fontSize: 13, color: palette.text),
+    );
+  }
+
+  List<Widget> _providerFields(SettingsProvider settings, AppPalette palette) {
+    switch (settings.provider) {
+      case LlmProviderKind.ollama:
+        return [
+          _LabeledField(
+            label: 'Host URL',
+            palette: palette,
+            child: _settingsTextField(
+              controller: _hostCtrl,
+              placeholder: 'http://localhost:11434',
+              palette: palette,
+            ),
+          ),
+        ];
+      case LlmProviderKind.anthropic:
+        return [
+          _LabeledField(
+            label: 'Anthropic API key',
+            palette: palette,
+            child: _settingsTextField(
+              controller: _apiKeyCtrl,
+              placeholder: 'sk-ant-…',
+              palette: palette,
+              obscure: true,
+            ),
+          ),
+        ];
+      case LlmProviderKind.gemini:
+        return [
+          _LabeledField(
+            label: 'Google AI API key',
+            palette: palette,
+            child: _settingsTextField(
+              controller: _apiKeyCtrl,
+              placeholder: 'AIza…',
+              palette: palette,
+              obscure: true,
+            ),
+          ),
+        ];
+      case LlmProviderKind.openai:
+        return [
+          _LabeledField(
+            label: 'OpenAI API key',
+            palette: palette,
+            child: _settingsTextField(
+              controller: _apiKeyCtrl,
+              placeholder: 'sk-…',
+              palette: palette,
+              obscure: true,
+            ),
+          ),
+        ];
+      case LlmProviderKind.openaiCompat:
+        return [
+          _LabeledField(
+            label: 'Base URL (OpenAI-compatible)',
+            palette: palette,
+            child: _settingsTextField(
+              controller: _baseUrlCtrl,
+              placeholder: 'http://localhost:1234/v1',
+              palette: palette,
+            ),
+          ),
+          const SizedBox(height: 12),
+          _LabeledField(
+            label: 'API key (optional)',
+            palette: palette,
+            child: _settingsTextField(
+              controller: _apiKeyCtrl,
+              placeholder: 'Leave empty if the server has no auth',
+              palette: palette,
+              obscure: true,
+            ),
+          ),
+        ];
+    }
   }
 
   void _showModelPicker(SettingsProvider settings) {
@@ -240,27 +384,30 @@ class _SettingsDialogState extends State<SettingsDialog> {
                     ),
                     const SizedBox(height: 16),
                     _Section(
-                      title: 'Ollama',
+                      title: 'AI Provider',
                       palette: palette,
                       children: [
-                        _LabeledField(
-                          label: 'Host URL',
-                          palette: palette,
-                          child: CupertinoTextField(
-                            controller: _hostCtrl,
-                            placeholder: 'http://localhost:11434',
-                            decoration: BoxDecoration(
-                              color: palette.cardBg,
-                              border: Border.all(color: palette.divider),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 10,
-                            ),
-                            style: TextStyle(fontSize: 13, color: palette.text),
-                          ),
+                        CupertinoSlidingSegmentedControl<LlmProviderKind>(
+                          groupValue: settings.provider,
+                          children: {
+                            for (final k in LlmProviderKind.values)
+                              k: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 6,
+                                ),
+                                child: Text(
+                                  k.label,
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ),
+                          },
+                          onValueChanged: (v) {
+                            if (v != null) _selectProvider(settings, v);
+                          },
                         ),
+                        const SizedBox(height: 12),
+                        ..._providerFields(settings, palette),
                         const SizedBox(height: 12),
                         Row(
                           children: [
@@ -297,7 +444,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
                               child: Text(
                                 settings.connected
                                     ? 'Connected • ${settings.availableModels.length} models'
-                                    : 'Not connected',
+                                    : settings.isConfigured(settings.provider)
+                                        ? 'Not connected'
+                                        : _unconfiguredHint(settings.provider),
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: palette.subtleText,
@@ -315,7 +464,11 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       children: [
                         if (settings.availableModels.isEmpty)
                           Text(
-                            'No models available. Make sure Ollama is running and reachable.',
+                            settings.isConfigured(settings.provider)
+                                ? 'No models available. Check the '
+                                    '${settings.provider.label} connection above.'
+                                : 'Configure ${settings.provider.label} above '
+                                    'to load its models.',
                             style: TextStyle(
                               color: palette.subtleText,
                               fontSize: 12,

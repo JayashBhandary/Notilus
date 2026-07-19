@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import '../providers/browser_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/file_service.dart';
-import '../services/ollama_service.dart';
 import '../services/system_info_service.dart';
 import '../theme.dart';
 import '../widgets/skeleton.dart';
@@ -69,7 +68,7 @@ class SystemOverviewViewState extends State<SystemOverviewView> {
         builder: (ctx) => CupertinoAlertDialog(
           title: const Text('No model selected'),
           content: const Text(
-              'Pick an Ollama model in Settings to generate insights.'),
+              'Pick a model in Settings to generate insights.'),
           actions: [
             CupertinoDialogAction(
               isDefaultAction: true,
@@ -109,9 +108,9 @@ class SystemOverviewViewState extends State<SystemOverviewView> {
         'consumers, things worth cleaning up, and one suggestion. Keep it under '
         '120 words. Stats:\n\n${stats.toString()}';
 
-    final ollama = OllamaService(settings.host);
+    final llm = settings.defaultClient();
     try {
-      await for (final chunk in ollama.generate(
+      await for (final chunk in llm.generate(
         model: settings.model!,
         prompt: prompt,
         temperature: settings.temperature,
@@ -879,7 +878,7 @@ class _AISection extends StatelessWidget {
           if (insight.isEmpty && !busy)
             Text(
               'Generate a quick analysis of disk usage, big consumers, and '
-              'cleanup suggestions using your selected Ollama model.',
+              'cleanup suggestions using your selected AI model.',
               style: TextStyle(
                 fontSize: 12,
                 color: palette.subtleText,

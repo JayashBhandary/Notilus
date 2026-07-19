@@ -539,7 +539,7 @@ class _WideTopBar extends StatelessWidget {
                   const SizedBox(width: 4),
                 ],
               ],
-              // Tail group: terminal, ollama model, settings, panel toggle.
+              // Tail group: terminal, AI model, settings, panel toggle.
               _ToolbarIconButton(
                 icon: CupertinoIcons.chevron_left_slash_chevron_right,
                 tooltip:
