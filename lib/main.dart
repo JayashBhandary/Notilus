@@ -6,6 +6,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app.dart';
+import 'services/native_core.dart';
 import 'services/notification_service.dart';
 import 'services/settings_store.dart';
 import 'services/tray_service.dart';
@@ -17,6 +18,10 @@ Future<void> main() async {
   // so the app still launches (transfer just shows its "set up" hint) when the
   // file is absent — e.g. a fresh checkout before .env is created.
   await dotenv.load(fileName: '.env', isOptional: true);
+
+  // Load the Rust core. Every file operation, search and scan goes through it,
+  // so this has to succeed before the first frame can do anything useful.
+  await NativeCore.ensureInitialized();
 
   // Desktop: stand up the window + tray so the app can minimize-to-tray and
   // keep receiving transfers in the background (Phase 8).

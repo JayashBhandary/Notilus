@@ -444,6 +444,13 @@ class _SvgView extends StatefulWidget {
 class _SvgViewState extends State<_SvgView> {
   final TransformationController _xform = TransformationController();
   double _scale = 1.0;
+  Future<Uint8List>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadBytes();
+  }
 
   @override
   void dispose() {
@@ -479,7 +486,7 @@ class _SvgViewState extends State<_SvgView> {
         children: [
           Positioned.fill(
             child: FutureBuilder<Uint8List>(
-              future: _loadBytes(),
+              future: _future,
               builder: (_, snap) {
                 if (!snap.hasData) {
                   return const Center(child: CupertinoActivityIndicator());
@@ -1154,12 +1161,12 @@ class _LinuxPdfViewState extends State<_LinuxPdfView> {
       return;
     }
 
-    final pages = tmp
-        .listSync()
-        .whereType<File>()
-        .where((f) => f.path.endsWith('.png'))
-        .toList()
-      ..sort((a, b) => a.path.compareTo(b.path));
+    final pages = await tmp
+        .list()
+        .where((e) => e is File && e.path.endsWith('.png'))
+        .cast<File>()
+        .toList();
+    pages.sort((a, b) => a.path.compareTo(b.path));
     if (mounted) {
       setState(() {
         _pages = pages;
@@ -1491,7 +1498,8 @@ class _OfficeView extends StatefulWidget {
 
 class _OfficeViewState extends State<_OfficeView> {
   Directory? _tmpDir;
-  File? _convertedPdf;
+  // Stat'd once when the conversion lands, so build() never touches the disk.
+  FileEntry? _convertedEntry;
   bool _loading = true;
   bool _missing = false;
   String? _errorMsg;
@@ -1599,13 +1607,13 @@ class _OfficeViewState extends State<_OfficeView> {
     }
 
     final base = p.basenameWithoutExtension(widget.file.path);
-    final pdf = File(p.join(tmp.path, '$base.pdf'));
+    var pdf = File(p.join(tmp.path, '$base.pdf'));
     if (!await pdf.exists()) {
       // Sometimes LibreOffice picks a different base name.
-      final any = tmp
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.toLowerCase().endsWith('.pdf'))
+      final any = await tmp
+          .list()
+          .where((e) => e is File && e.path.toLowerCase().endsWith('.pdf'))
+          .cast<File>()
           .toList();
       if (any.isEmpty) {
         if (mounted) {
@@ -1616,20 +1624,15 @@ class _OfficeViewState extends State<_OfficeView> {
         }
         return;
       }
-      if (mounted) {
-        setState(() {
-          _convertedPdf = any.first;
-          _loading = false;
-        });
-      }
-      return;
+      pdf = any.first;
     }
-    if (mounted) {
-      setState(() {
-        _convertedPdf = pdf;
-        _loading = false;
-      });
-    }
+    final entry = await FileEntry.from(pdf);
+    if (!mounted) return;
+    setState(() {
+      _convertedEntry = entry;
+      _loading = false;
+      if (entry == null) _errorMsg = 'Couldn\'t read the converted PDF.';
+    });
   }
 
   Future<void> _openExternally() async {
@@ -1672,7 +1675,8 @@ class _OfficeViewState extends State<_OfficeView> {
         onOpenExternal: _openExternally,
       );
     }
-    if (_convertedPdf == null) {
+    final asPdfEntry = _convertedEntry;
+    if (asPdfEntry == null) {
       return _PdfFallbackBox(
         palette: palette,
         title: 'Couldn\'t render this document',
@@ -1681,13 +1685,6 @@ class _OfficeViewState extends State<_OfficeView> {
       );
     }
     // Reuse the PDF pipeline on the converted file.
-    final asPdfEntry = FileEntry(
-      path: _convertedPdf!.path,
-      name: p.basename(_convertedPdf!.path),
-      isDirectory: false,
-      size: _convertedPdf!.lengthSync(),
-      modified: _convertedPdf!.lastModifiedSync(),
-    );
     if (!kIsWeb && Platform.isLinux) {
       return _LinuxPdfView(file: asPdfEntry);
     }
@@ -1723,50 +1720,8 @@ class _ArchiveViewState extends State<_ArchiveView> {
     _future = _scan();
   }
 
-  Future<List<_ArchiveEntry>> _scan() async {
-    final lower = widget.file.name.toLowerCase();
-    final bytes = await File(widget.file.path).readAsBytes();
-
-    Archive? archive;
-    try {
-      if (lower.endsWith('.zip') || lower.endsWith('.jar')) {
-        archive = ZipDecoder().decodeBytes(bytes);
-      } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
-        final gunz = GZipDecoder().decodeBytes(bytes);
-        archive = TarDecoder().decodeBytes(gunz);
-      } else if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2')) {
-        final bunz = BZip2Decoder().decodeBytes(bytes);
-        archive = TarDecoder().decodeBytes(bunz);
-      } else if (lower.endsWith('.tar')) {
-        archive = TarDecoder().decodeBytes(bytes);
-      } else if (lower.endsWith('.gz')) {
-        final gunz = GZipDecoder().decodeBytes(bytes);
-        return [
-          _ArchiveEntry(
-            p.basenameWithoutExtension(widget.file.name),
-            gunz.length,
-            false,
-          ),
-        ];
-      } else if (lower.endsWith('.bz2')) {
-        final bunz = BZip2Decoder().decodeBytes(bytes);
-        return [
-          _ArchiveEntry(
-            p.basenameWithoutExtension(widget.file.name),
-            bunz.length,
-            false,
-          ),
-        ];
-      }
-    } catch (e) {
-      throw 'Decode failed: $e';
-    }
-    if (archive == null) return const [];
-    return archive
-        .map((f) => _ArchiveEntry(f.name, f.size, f.isFile == false))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
-  }
+  Future<List<_ArchiveEntry>> _scan() =>
+      compute(_decodeArchive, widget.file.path);
 
   String _fmtSize(int b) {
     if (b < 1024) return '$b B';
@@ -1883,6 +1838,51 @@ class _ArchiveViewState extends State<_ArchiveView> {
       },
     );
   }
+}
+
+/// Reads an archive at [path] and lists its entries.
+///
+/// Runs on a background isolate via [compute]. The pure-Dart inflate/bunzip2
+/// decoders are slow enough — and the whole file has to be materialised in
+/// memory to decode it — that doing this inline froze the UI for seconds on a
+/// large archive. Sync I/O is fine here: the isolate has nothing else to do.
+List<_ArchiveEntry> _decodeArchive(String path) {
+  final name = p.basename(path);
+  final lower = name.toLowerCase();
+  final bytes = File(path).readAsBytesSync();
+
+  Archive? archive;
+  try {
+    if (lower.endsWith('.zip') || lower.endsWith('.jar')) {
+      archive = ZipDecoder().decodeBytes(bytes);
+    } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
+      final gunz = GZipDecoder().decodeBytes(bytes);
+      archive = TarDecoder().decodeBytes(gunz);
+    } else if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2')) {
+      final bunz = BZip2Decoder().decodeBytes(bytes);
+      archive = TarDecoder().decodeBytes(bunz);
+    } else if (lower.endsWith('.tar')) {
+      archive = TarDecoder().decodeBytes(bytes);
+    } else if (lower.endsWith('.gz')) {
+      final gunz = GZipDecoder().decodeBytes(bytes);
+      return [
+        _ArchiveEntry(p.basenameWithoutExtension(name), gunz.length, false),
+      ];
+    } else if (lower.endsWith('.bz2')) {
+      final bunz = BZip2Decoder().decodeBytes(bytes);
+      return [
+        _ArchiveEntry(p.basenameWithoutExtension(name), bunz.length, false),
+      ];
+    }
+  } catch (e) {
+    throw 'Decode failed: $e';
+  }
+  if (archive == null) return const [];
+  final entries = archive
+      .map((f) => _ArchiveEntry(f.name, f.size, f.isFile == false))
+      .toList();
+  entries.sort((a, b) => a.name.compareTo(b.name));
+  return entries;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

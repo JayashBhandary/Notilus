@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/cupertino.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
@@ -5,11 +7,110 @@ import 'package:provider/provider.dart';
 import '../providers/browser_provider.dart';
 import '../theme.dart';
 
+/// Lets Cmd/Ctrl+L put the status bar into path-editing mode from elsewhere.
+final GlobalKey<PathStatusBarState> pathStatusBarKey =
+    GlobalKey<PathStatusBarState>();
+
 /// Finder-style compact status bar at the bottom of the window.
-/// Left side: tiny path chain ("MacOS › Users › jayash › Desktop").
+///
+/// Left side: the path, as a clickable chain of ancestors. Clicking the empty
+/// space beside it — or pressing Cmd/Ctrl+L — swaps in a text field so a path
+/// can be typed or pasted. This is the app's only path display: a second copy
+/// above the file list would just be the same control twice.
+///
 /// Right side: item count + selection summary.
-class PathStatusBar extends StatelessWidget {
+class PathStatusBar extends StatefulWidget {
   const PathStatusBar({super.key});
+
+  @override
+  State<PathStatusBar> createState() => PathStatusBarState();
+}
+
+class PathStatusBarState extends State<PathStatusBar> {
+  final TextEditingController _controller = TextEditingController();
+  final FocusNode _focusNode = FocusNode(debugLabel: 'PathStatusBar');
+  bool _editing = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // Clicking away without submitting reverts rather than stranding the user
+    // in a text field.
+    _focusNode.addListener(() {
+      if (!_focusNode.hasFocus && _editing) _stopEditing();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  /// Enters edit mode with the current path selected, so typing replaces it.
+  void beginEditing() {
+    final browser = context.read<BrowserProvider>();
+    _controller.text = browser.currentPath;
+    _controller.selection =
+        TextSelection(baseOffset: 0, extentOffset: _controller.text.length);
+    setState(() {
+      _editing = true;
+      _error = null;
+    });
+    _focusNode.requestFocus();
+  }
+
+  void _stopEditing() {
+    if (!_editing) return;
+    setState(() {
+      _editing = false;
+      _error = null;
+    });
+  }
+
+  Future<void> _submit(String raw) async {
+    final target = _expand(raw.trim());
+    if (target.isEmpty) {
+      _stopEditing();
+      return;
+    }
+    // Accept a path to a file too, and land on its folder with it selected —
+    // pasting a full file path is a normal thing to do.
+    final type = await FileSystemEntity.type(target);
+    if (!mounted) return;
+
+    final browser = context.read<BrowserProvider>();
+    switch (type) {
+      case FileSystemEntityType.directory:
+        _stopEditing();
+        await browser.navigateTo(target);
+      case FileSystemEntityType.notFound:
+        setState(() => _error = 'No such folder');
+      default:
+        _stopEditing();
+        await browser.revealPath(target);
+    }
+  }
+
+  /// Resolves `~` and makes a relative entry relative to the current folder.
+  String _expand(String input) {
+    if (input.isEmpty) return input;
+    var out = input;
+    if (out == '~' || out.startsWith('~/')) {
+      final home =
+          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+      if (home != null) {
+        out = out == '~' ? home : p.join(home, out.substring(2));
+      }
+    }
+    if (!p.isAbsolute(out)) {
+      final current = context.read<BrowserProvider>().currentPath;
+      if (current.isNotEmpty) out = p.normalize(p.join(current, out));
+    }
+    return out;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -17,7 +118,7 @@ class PathStatusBar extends StatelessWidget {
     final palette = AppColors.of(context);
     final path = browser.currentPath;
     final parts = path.isEmpty ? <String>[] : p.split(path);
-    final count = browser.entries.length;
+    final count = browser.entryCount;
     final selected = browser.selectedPaths.length;
 
     return Container(
@@ -30,13 +131,30 @@ class PathStatusBar extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              reverse: true,
-              child: Row(
-                children: _crumbs(browser, parts, palette),
-              ),
-            ),
+            child: _editing
+                ? _field(palette)
+                : GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: beginEditing,
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            reverse: true,
+                            child: Row(
+                              children: _crumbs(browser, parts, palette),
+                            ),
+                          ),
+                        ),
+                        // Empty space beside the crumbs is the "edit the path"
+                        // target, so the whole strip is clickable.
+                        const Expanded(
+                          child: SizedBox(height: double.infinity),
+                        ),
+                      ],
+                    ),
+                  ),
           ),
           const SizedBox(width: 12),
           Text(
@@ -48,6 +166,33 @@ class PathStatusBar extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _field(AppPalette palette) {
+    return CupertinoTextField(
+      controller: _controller,
+      focusNode: _focusNode,
+      autofocus: true,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      style: TextStyle(fontSize: 11, color: palette.text),
+      decoration: BoxDecoration(
+        color: palette.contentBg,
+        border: Border.all(
+          color: _error == null ? palette.accent : CupertinoColors.systemRed,
+        ),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      placeholder: _error ?? 'Type a path',
+      placeholderStyle: TextStyle(
+        fontSize: 11,
+        color: _error == null ? palette.subtleText : CupertinoColors.systemRed,
+      ),
+      onChanged: (_) {
+        if (_error != null) setState(() => _error = null);
+      },
+      onSubmitted: _submit,
+      onTapOutside: (_) => _stopEditing(),
     );
   }
 

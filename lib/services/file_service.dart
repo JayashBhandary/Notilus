@@ -4,6 +4,10 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/file_entry.dart';
+// Prefixed: the native SortField is deliberately not re-exported from
+// native_core.dart, because BrowserProvider owns an enum by the same name.
+import '../src/rust/api/listing.dart' as rust_listing;
+import 'native_core.dart';
 
 class DirectoryListing {
   DirectoryListing({required this.entries, this.error});
@@ -21,35 +25,58 @@ class DriveEntry {
 class FileService {
   static const int _textReadCap = 200 * 1024; // 200KB
 
-  Future<DirectoryListing> listDirectory(String path) async {
-    final dir = Directory(path);
-    if (!await dir.exists()) {
-      return DirectoryListing(
-        entries: const [],
-        error: 'Folder does not exist: $path',
-      );
-    }
-    final List<FileEntry> entries = [];
-    String? error;
+  /// Lists [path] through the Rust core.
+  ///
+  /// The Dart implementation this replaces awaited a separate `stat()` per
+  /// entry — each one a round trip through the IO thread pool — then sorted on
+  /// the caller's thread. The native pass collects metadata with the directory
+  /// read and returns the list already ordered.
+  ///
+  /// The signature is unchanged on purpose: `BrowserProvider` keeps its own
+  /// memoised sort so changing the sort column reorders instantly instead of
+  /// going back to disk.
+  Future<DirectoryListing> listDirectory(
+    String path, {
+    bool showHidden = false,
+  }) async {
     try {
-      await for (final entity in dir.list(followLinks: false)) {
-        final name = p.basename(entity.path);
-        if (name.startsWith('.')) continue; // hide dotfiles
-        final entry = await FileEntry.from(entity);
-        if (entry != null) entries.add(entry);
-      }
-    } on PathAccessException catch (e) {
-      error = 'Permission denied: ${e.message}';
-    } on FileSystemException catch (e) {
-      error = e.message;
+      final native = await NativeCore.instance.listDir(
+        path,
+        sort: SortSpec(
+          field: rust_listing.SortField.name,
+          ascending: true,
+          dirsFirst: true,
+          includeHidden: showHidden,
+        ),
+      );
+      return DirectoryListing(
+        entries: [for (final e in native) _toEntry(e)],
+      );
+    } catch (e) {
+      return DirectoryListing(entries: const [], error: _describe(path, e));
     }
-    entries.sort((a, b) {
-      if (a.isDirectory != b.isDirectory) {
-        return a.isDirectory ? -1 : 1;
-      }
-      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-    });
-    return DirectoryListing(entries: entries, error: error);
+  }
+
+  FileEntry _toEntry(DirEntryInfo e) => FileEntry(
+        path: e.path,
+        name: e.name,
+        isDirectory: e.isDir,
+        size: e.size.toInt(),
+        modified: DateTime.fromMillisecondsSinceEpoch(e.modifiedMs),
+      );
+
+  /// Turns a native error string into something worth showing a user. Rust
+  /// reports `"<path>: <os error>"`; the OS half is the informative part.
+  String _describe(String path, Object error) {
+    final text = '$error';
+    final lower = text.toLowerCase();
+    if (lower.contains('permission denied')) {
+      return 'Permission denied: $path';
+    }
+    if (lower.contains('no such file') || lower.contains('not found')) {
+      return 'Folder does not exist: $path';
+    }
+    return text;
   }
 
   Future<String?> homePath() async {

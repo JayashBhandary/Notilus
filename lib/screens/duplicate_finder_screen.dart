@@ -6,6 +6,9 @@ import 'package:provider/provider.dart';
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../services/duplicate_finder_service.dart';
+// Prefixed: this file still uses the Dart DuplicateGroup/ScanProgress, whose
+// names the Rust bindings also export.
+import '../services/native_core.dart' as native;
 import '../services/duplicate_scan_store.dart';
 import '../services/file_actions_service.dart';
 import '../services/settings_store.dart';
@@ -48,6 +51,20 @@ const Map<_KeepStrategy, String> _keepStrategyLabels = {
   _KeepStrategy.oldest: 'Oldest',
   _KeepStrategy.shortestPath: 'Shortest path',
 };
+
+/// A cached "which copy do we keep" answer, tagged with the inputs it was
+/// derived from so it can be revalidated instead of blindly trusted.
+class _KeepIndexEntry {
+  const _KeepIndexEntry({
+    required this.fileCount,
+    required this.strategy,
+    required this.index,
+  });
+
+  final int fileCount;
+  final _KeepStrategy strategy;
+  final int index;
+}
 
 /// A scan target the user can toggle on/off before running a scan.
 class _ScanTarget {
@@ -111,6 +128,7 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
     // Don't clobber a scan the user kicked off while we were loading.
     if (_scanning || _hasScanned) return;
     setState(() {
+      _keepIndexCache.clear();
       _groups = saved.groups;
       _lastScanAt = saved.savedAt;
       _hasScanned = true;
@@ -230,6 +248,7 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
       _service = service;
       _scanning = true;
       _hasScanned = true;
+      _keepIndexCache.clear();
       _groups = [];
       _progress = ScanProgress(
         phase: 'Scanning',
@@ -270,6 +289,7 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
     final now = DateTime.now();
     setState(() {
       _scanning = false;
+      _keepIndexCache.clear();
       _groups = groups;
       _service = null;
       _lastScanAt = now;
@@ -289,8 +309,31 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
     setState(() => _scanning = false);
   }
 
-  /// Index of the copy to keep in [group] under the current strategy.
+  /// Memoised [_computeKeepIndex]. The grid asks for the keep index of every
+  /// visible card on every rebuild, so recomputing it each time is pure waste.
+  /// Keyed by group identity and guarded on the two inputs that can change
+  /// under a cached entry — the strategy, and the group's file count (cleanup
+  /// removes files from the list in place) — so a stale index can't survive.
+  final Map<DuplicateGroup, _KeepIndexEntry> _keepIndexCache = {};
+
   int _keepIndex(DuplicateGroup group) {
+    final hit = _keepIndexCache[group];
+    if (hit != null &&
+        hit.fileCount == group.files.length &&
+        hit.strategy == _keepStrategy) {
+      return hit.index;
+    }
+    final index = _computeKeepIndex(group);
+    _keepIndexCache[group] = _KeepIndexEntry(
+      fileCount: group.files.length,
+      strategy: _keepStrategy,
+      index: index,
+    );
+    return index;
+  }
+
+  /// Index of the copy to keep in [group] under the current strategy.
+  int _computeKeepIndex(DuplicateGroup group) {
     final files = group.files;
     var best = 0;
     for (var i = 1; i < files.length; i++) {
@@ -359,7 +402,9 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
     // Trash the whole selection in one batch so macOS plays the Trash sound
     // once for the cleanup instead of once per file.
     final allVictims = victims.values.expand((l) => l).toList();
-    final failedPaths = await _actions.trashAll(allVictims);
+    final outcome = await native.NativeCore.instance
+        .moveToTrash([for (final f in allVictims) f.path]);
+    final failedPaths = {for (final f in outcome.failed) f.path};
     for (final entry in victims.entries) {
       final group = entry.key;
       for (final file in entry.value) {
@@ -464,7 +509,8 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
     );
     if (confirmed != true) return;
 
-    final ok = await _actions.trash(entry);
+    final outcome = await native.NativeCore.instance.moveToTrash([entry.path]);
+    final ok = outcome.failed.isEmpty;
     if (!mounted) return;
     if (!ok) {
       await _showError('Couldn\'t move "${entry.name}" to Trash.');

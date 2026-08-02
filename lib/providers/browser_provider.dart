@@ -51,9 +51,26 @@ class BrowserProvider extends ChangeNotifier {
   double _rowDensity = 1.0; // 0.85=compact, 1.0=normal, 1.2=spacious
   ViewMode _viewMode = ViewMode.icons;
   CenterView _centerView = CenterView.files;
+  bool _showHidden = false;
+
+  // Derived-view caches. Sorting and grouping are pure functions of
+  // (_entries, _sortField, _sortAscending, _useGroups), but `entries` is read
+  // from build methods — without memoisation a single notifyListeners() costs
+  // several full sorts of the folder. Invalidated by [_invalidateView].
+  List<FileEntry>? _sortedCache;
+  List<EntryGroup>? _groupedCache;
+
+  void _invalidateView() {
+    _sortedCache = null;
+    _groupedCache = null;
+  }
 
   String get currentPath => _currentPath;
   List<FileEntry> get entries => _sortedEntries();
+
+  /// Number of entries in the current folder. Order-independent, so it reads
+  /// the raw list — callers that only need a count shouldn't force a sort.
+  int get entryCount => _entries.length;
   Set<String> get selectedPaths => _selectedPaths;
   Map<String, String?> get shortcuts => _shortcuts;
   List<DriveEntry> get drives => _drives;
@@ -65,6 +82,15 @@ class BrowserProvider extends ChangeNotifier {
   double get rowDensity => _rowDensity;
   ViewMode get viewMode => _viewMode;
   CenterView get centerView => _centerView;
+  bool get showHidden => _showHidden;
+
+  /// Shows or hides dot-prefixed entries. Requires a re-listing: the filter is
+  /// applied natively during the directory read, not on the result.
+  Future<void> setShowHidden(bool value) async {
+    if (_showHidden == value) return;
+    _showHidden = value;
+    if (_currentPath.isNotEmpty) await _load(_currentPath);
+  }
 
   /// Switches the central content pane to a non-file page. File navigation
   /// implicitly returns to [CenterView.files] via [_load].
@@ -118,6 +144,20 @@ class BrowserProvider extends ChangeNotifier {
     await _load(target);
   }
 
+  /// True when the current folder has a parent to go up to.
+  bool get canGoUp {
+    if (_currentPath.isEmpty) return false;
+    final parent = p.dirname(_currentPath);
+    return parent != _currentPath && parent.isNotEmpty;
+  }
+
+  /// Navigates to the parent folder, recording the move in history so Back
+  /// returns here.
+  Future<void> goUp() async {
+    if (!canGoUp) return;
+    await navigateTo(p.dirname(_currentPath));
+  }
+
   Future<void> goForward() async {
     if (_forward.isEmpty) return;
     final target = _forward.removeLast();
@@ -134,8 +174,10 @@ class BrowserProvider extends ChangeNotifier {
     _loading = true;
     _error = null;
     notifyListeners();
-    final result = await _fileService.listDirectory(path);
+    final result =
+        await _fileService.listDirectory(path, showHidden: _showHidden);
     _entries = result.entries;
+    _invalidateView();
     _error = result.error;
     _loading = false;
     notifyListeners();
@@ -175,12 +217,18 @@ class BrowserProvider extends ChangeNotifier {
 
   Future<void> _silentReload() async {
     if (_currentPath.isEmpty) return;
-    final result = await _fileService.listDirectory(_currentPath);
+    final result = await _fileService.listDirectory(_currentPath,
+        showHidden: _showHidden);
     _entries = result.entries;
+    _invalidateView();
     _error = result.error;
-    // Drop any selections that no longer exist.
-    _selectedPaths.removeWhere(
-        (p) => _entries.indexWhere((e) => e.path == p) < 0);
+    // Drop any selections that no longer exist. Build a path set first: a
+    // linear indexWhere per selected path would be O(selected × entries),
+    // which a Cmd+A on a large folder turns into millions of comparisons on
+    // every filesystem-watch event.
+    final live = {for (final e in _entries) e.path};
+    _selectedPaths.removeWhere((path) => !live.contains(path));
+    if (_anchorPath != null && !live.contains(_anchorPath)) _anchorPath = null;
     notifyListeners();
   }
 
@@ -271,6 +319,23 @@ class BrowserProvider extends ChangeNotifier {
     await navigateTo(_currentPath);
   }
 
+  /// Navigates to the folder containing [path] and selects the item there.
+  ///
+  /// This is what makes a search result actionable: the user lands on the file
+  /// in context, with the rest of its folder around it, rather than on a
+  /// detached result.
+  Future<void> revealPath(String path) async {
+    final parent = p.dirname(path);
+    if (parent != _currentPath) {
+      await navigateTo(parent);
+    }
+    _selectedPaths
+      ..clear()
+      ..add(path);
+    _anchorPath = path;
+    notifyListeners();
+  }
+
   Future<String?> createFolder({String name = 'untitled folder'}) async {
     if (_currentPath.isEmpty) return null;
     final created = await _fileService.createDirectory(_currentPath, name);
@@ -292,11 +357,14 @@ class BrowserProvider extends ChangeNotifier {
       _sortField = field;
       _sortAscending = true;
     }
+    _invalidateView();
     notifyListeners();
   }
 
   void setUseGroups(bool value) {
+    if (_useGroups == value) return;
     _useGroups = value;
+    _invalidateView();
     notifyListeners();
   }
 
@@ -312,7 +380,9 @@ class BrowserProvider extends ChangeNotifier {
 
   /// Returns entries grouped by kind when [useGroups] is on; otherwise a
   /// single bucket. Each bucket is sorted by the active [sortField].
-  List<EntryGroup> groupedEntries() {
+  List<EntryGroup> groupedEntries() => _groupedCache ??= _computeGroups();
+
+  List<EntryGroup> _computeGroups() {
     final sorted = _sortedEntries();
     if (!_useGroups) {
       return [EntryGroup(label: null, entries: sorted)];
@@ -338,7 +408,9 @@ class BrowserProvider extends ChangeNotifier {
     return groups;
   }
 
-  List<FileEntry> _sortedEntries() {
+  List<FileEntry> _sortedEntries() => _sortedCache ??= _computeSorted();
+
+  List<FileEntry> _computeSorted() {
     final list = List<FileEntry>.from(_entries);
     int cmp(FileEntry a, FileEntry b) {
       if (a.isDirectory != b.isDirectory) {

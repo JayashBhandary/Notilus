@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 
 import 'providers/browser_provider.dart';
 import 'providers/chat_provider.dart';
+import 'providers/file_ops_provider.dart';
+import 'providers/search_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/transfer_controller.dart';
 import 'providers/workflow_provider.dart';
@@ -28,6 +30,12 @@ class NotilusApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => BrowserProvider(fileService)..init(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => FileOpsProvider(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => SearchProvider(),
         ),
         ChangeNotifierProvider(
           create: (_) => ChatProvider(),

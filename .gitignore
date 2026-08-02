@@ -54,3 +54,6 @@ app.*.map.json
 /android/app/release
 
 firebaseConfig.js
+# Rust core build output
+core/target/
+rust_builder/**/.cargokit*

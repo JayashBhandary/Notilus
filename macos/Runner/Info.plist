@@ -2,6 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Flutter 3.44 runs the UI and platform threads merged by default on
+	     macOS ("Running with merged UI and platform thread. Experimental.").
+	     irondash_engine_context — which super_native_extensions, and therefore
+	     our drag-and-drop, is built on — is not compatible with it:
+	     +[IrondashEngineContextPlugin getFlutterView:] does a weak load on a
+	     FlutterView that isn't valid under the merged model, so
+	     objc_loadWeakRetained segfaults the moment the first DropRegion is
+	     created. Opt out until the plugin supports it. -->
+	<key>FLTEnableMergedPlatformUIThread</key>
+	<false/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleExecutable</key>
