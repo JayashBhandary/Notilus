@@ -54,3 +54,21 @@ app.*.map.json
 /android/app/release
 
 firebaseConfig.js
+
+# ── Rust native core ──────────────────────────────────────────────────────
+# Cargo build output. This is the only large artifact in `core/` — it reaches
+# several GB, so without this line a `git add -A` tries to stage the lot.
+core/target/
+
+# cargokit's build_tool is a Dart *package*, not an app, so its lockfile is
+# not committed. Its `.dart_tool/` dirs are already covered by the global
+# `.dart_tool/` rule above, as is `._target` by the `._*` rule.
+rust_builder/pubspec.lock
+
+# Deliberately NOT ignored, despite being generated — CI runs neither
+# `cargo` nor `flutter_rust_bridge_codegen`, so a fresh clone can only build
+# if these are in the repo:
+#   core/src/frb_generated.rs   (declared by `mod frb_generated;` in lib.rs)
+#   lib/src/rust/**             (imported directly by Dart)
+# Commit core/Cargo.lock too: this is an application, so the exact dependency
+# graph should be reproducible.
