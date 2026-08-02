@@ -1,0 +1,16 @@
+# flutter_rust_bridge codegen configuration.
+#
+# Run from the repository root:
+#     flutter_rust_bridge_codegen generate --config-file core/flutter_rust_bridge.yaml
+#
+# Paths are relative to this file's directory (core/).
+
+rust_input: crate::api::bridge
+rust_root: .
+rust_output: src/frb_generated.rs
+dart_output: ../lib/src/rust
+dart_entrypoint_class_name: NotilusCore
+
+# Keep the generated Dart out of the analyzer's way — it is machine-written
+# and regenerated on every signature change.
+dart_format_line_length: 80

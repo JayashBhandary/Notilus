@@ -1,0 +1,32 @@
+[package]
+name = "notilus_core"
+version = "0.1.0"
+edition = "2021"
+description = "Native core for Notilus: filesystem walking, hashing, duplicate detection, archives and thumbnails."
+license = "MIT"
+publish = false
+
+[lib]
+name = "notilus_core"
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[dependencies]
+bzip2 = "0.6.1"
+flate2 = "1.1.9"
+flutter_rust_bridge = "=2.12.0"
+ignore = "0.4.31"
+image = "0.25.10"
+memchr = "2.8.3"
+rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+sha2 = "0.10"
+tar = "0.4.46"
+trash = "5.2.6"
+walkdir = "2.5.0"
+zip = "8.6.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -9,6 +9,7 @@ import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../services/thumbnail_service.dart';
 import '../theme.dart';
+import 'file_drag_drop.dart';
 import '../utils/responsive.dart';
 import 'file_list_view.dart' show openFilePreview, openFileInDefaultApp;
 import 'marquee_selection.dart';
@@ -142,7 +143,9 @@ class _IconTileState extends State<_IconTile>
         ? palette.accent.withValues(alpha: 0.18)
         : (_hover ? palette.sidebarHover : null);
 
-    return MouseRegion(
+    return wrapDragDrop(
+      entry: widget.entry,
+      child: MouseRegion(
       cursor: SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -224,6 +227,7 @@ class _IconTileState extends State<_IconTile>
             ],
           ),
         ),
+      ),
       ),
     );
   }
