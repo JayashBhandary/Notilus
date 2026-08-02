@@ -58,7 +58,7 @@ firebaseConfig.js
 # ── Rust native core ──────────────────────────────────────────────────────
 # Cargo build output. This is the only large artifact in `core/` — it reaches
 # several GB, so without this line a `git add -A` tries to stage the lot.
-core/target/
+
 
 # cargokit's build_tool is a Dart *package*, not an app, so its lockfile is
 # not committed. Its `.dart_tool/` dirs are already covered by the global
