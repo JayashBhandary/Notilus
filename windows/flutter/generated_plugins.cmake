@@ -6,10 +6,12 @@ list(APPEND FLUTTER_PLUGIN_LIST
   file_selector_windows
   flutter_secure_storage_windows
   flutter_webrtc
+  irondash_engine_context
   local_notifier
   pdfx
   screen_retriever_windows
   share_plus
+  super_native_extensions
   tray_manager
   url_launcher_windows
   window_manager
@@ -18,6 +20,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
   flutter_pty
   jni
+  notilus_core
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

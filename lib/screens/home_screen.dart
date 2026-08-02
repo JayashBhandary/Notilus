@@ -6,11 +6,15 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../providers/browser_provider.dart';
+import '../providers/search_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/chat_panel.dart';
 import '../widgets/file_list_view.dart';
+import '../widgets/file_op_progress.dart';
+import '../widgets/file_drag_drop.dart';
+import '../widgets/search_bar.dart';
 import '../widgets/info_panel.dart';
 import '../widgets/path_status_bar.dart';
 import '../widgets/sidebar.dart';
@@ -24,13 +28,50 @@ import 'transfer/transfer_screen.dart';
 /// Builds the widget that fills the app's central content pane for [view].
 /// The System Overview view is keyed so the toolbar's refresh action can
 /// reach its state.
+
+/// The file browser pane: a search field above, and either the folder listing
+/// or the search results below.
+///
+/// Search replaces the listing rather than filtering it, because it covers the
+/// whole subtree — results come from folders that aren't on screen, so there
+/// is nothing sensible to filter in place.
+class _FilesPane extends StatelessWidget {
+  const _FilesPane();
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    final searching = context.select<SearchProvider, bool>((s) => s.isActive);
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+          decoration: BoxDecoration(
+            color: palette.headerBg,
+            border: Border(bottom: BorderSide(color: palette.divider)),
+          ),
+          child: const FolderSearchBar(),
+        ),
+        Expanded(
+          child: searching
+              ? const SearchResultsView()
+              // Wrapping the listing (not each row) is what lets a drag from
+              // Finder land anywhere in the pane, including empty space.
+              : const CurrentFolderDropTarget(child: FileListView()),
+        ),
+      ],
+    );
+  }
+}
+
 Widget _centerBody(
   CenterView view,
   GlobalKey<SystemOverviewViewState> overviewKey,
 ) {
   switch (view) {
     case CenterView.files:
-      return const FileListView();
+      return const _FilesPane();
     case CenterView.systemOverview:
       return SystemOverviewView(key: overviewKey);
     case CenterView.duplicates:
@@ -297,7 +338,8 @@ class _WideLayout extends StatelessWidget {
             ],
           ),
         ),
-        const PathStatusBar(),
+        const FileOpProgressBar(),
+        PathStatusBar(key: pathStatusBarKey),
       ],
     );
   }
@@ -377,7 +419,8 @@ class _CompactLayout extends StatelessWidget {
                   onResize: onResizeTerminal,
                   onClose: onCloseTerminal,
                 ),
-              const PathStatusBar(),
+              const FileOpProgressBar(),
+              PathStatusBar(key: pathStatusBarKey),
               SafeArea(
                 top: false,
                 child: _CompactTabBar(
@@ -504,6 +547,15 @@ class _WideTopBar extends StatelessWidget {
                     tooltip: 'Forward',
                     onPressed:
                         browser.canGoForward ? browser.goForward : null,
+                    size: 30,
+                  ),
+                  // Up sits with Back/Forward rather than on its own row —
+                  // they're the same kind of control, and the path itself
+                  // lives in the status bar at the bottom.
+                  _ToolbarIconButton(
+                    icon: CupertinoIcons.arrow_up,
+                    tooltip: 'Up',
+                    onPressed: browser.canGoUp ? browser.goUp : null,
                     size: 30,
                   ),
                   const SizedBox(width: 8),

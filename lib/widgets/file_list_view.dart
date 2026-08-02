@@ -9,13 +9,17 @@ import 'package:provider/provider.dart';
 
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
+import '../providers/file_ops_provider.dart';
+import '../services/native_core.dart';
 import '../screens/file_preview_screen.dart';
 import '../screens/transfer/send_to.dart';
 import '../services/file_actions_service.dart';
 import '../theme.dart';
 import '../utils/responsive.dart';
 import 'desk_context_menu.dart';
+import 'file_drag_drop.dart';
 import 'file_icon_grid.dart';
+import 'path_status_bar.dart' show pathStatusBarKey;
 import 'marquee_selection.dart';
 
 final FileActionsService _actions = FileActionsService();
@@ -91,23 +95,121 @@ class _FileListViewState extends State<FileListView> {
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final browser = context.read<BrowserProvider>();
+    if (browser.centerView != CenterView.files) return KeyEventResult.ignored;
 
-    // Cmd/Ctrl+A: select everything in the current folder.
-    if (event.logicalKey == LogicalKeyboardKey.keyA &&
-        (HardwareKeyboard.instance.isMetaPressed ||
-            HardwareKeyboard.instance.isControlPressed)) {
-      if (browser.centerView != CenterView.files) return KeyEventResult.ignored;
-      browser.selectAll();
-      return KeyEventResult.handled;
+    final key = event.logicalKey;
+    final mod = HardwareKeyboard.instance.isMetaPressed ||
+        HardwareKeyboard.instance.isControlPressed;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final selected = _selectedEntries(browser);
+
+    if (mod) {
+      switch (key) {
+        case LogicalKeyboardKey.keyA:
+          browser.selectAll();
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.keyC:
+          if (selected.isEmpty) return KeyEventResult.ignored;
+          context
+              .read<FileOpsProvider>()
+              .copyToClipboard([for (final e in selected) e.path]);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.keyX:
+          if (selected.isEmpty) return KeyEventResult.ignored;
+          context
+              .read<FileOpsProvider>()
+              .cutToClipboard([for (final e in selected) e.path]);
+          return KeyEventResult.handled;
+        case LogicalKeyboardKey.keyV:
+          pasteIntoCurrentFolder(context, browser);
+          return KeyEventResult.handled;
+        // Cmd/Ctrl+L puts the status-bar path into edit mode — the Explorer
+        // and Nautilus binding.
+        case LogicalKeyboardKey.keyL:
+          pathStatusBarKey.currentState?.beginEditing();
+          return KeyEventResult.handled;
+        // Cmd/Ctrl+H toggles dotfiles, which needs a re-listing since the
+        // filter is applied natively during the directory read.
+        case LogicalKeyboardKey.keyH:
+          browser.setShowHidden(!browser.showHidden);
+          return KeyEventResult.handled;
+        // Cmd/Ctrl+Up goes to the parent folder.
+        case LogicalKeyboardKey.arrowUp:
+          browser.goUp();
+          return KeyEventResult.handled;
+      }
     }
 
-    if (event.logicalKey != LogicalKeyboardKey.space) {
-      return KeyEventResult.ignored;
+    switch (key) {
+      // Del / Backspace → Trash. With Shift, delete permanently.
+      case LogicalKeyboardKey.delete:
+      case LogicalKeyboardKey.backspace:
+        if (selected.isEmpty) return KeyEventResult.ignored;
+        confirmTrashAll(context, browser, selected, permanent: shift);
+        return KeyEventResult.handled;
+
+      case LogicalKeyboardKey.f2:
+        if (selected.length != 1) return KeyEventResult.ignored;
+        _renameEntry(context, browser, selected.first);
+        return KeyEventResult.handled;
+
+      // Enter opens: folders navigate, files launch in their default app.
+      case LogicalKeyboardKey.enter:
+      case LogicalKeyboardKey.numpadEnter:
+        if (selected.length != 1) return KeyEventResult.ignored;
+        final target = selected.first;
+        if (target.isDirectory) {
+          browser.navigateTo(target.path);
+        } else {
+          openFileInDefaultApp(context, browser, target);
+        }
+        return KeyEventResult.handled;
+
+      case LogicalKeyboardKey.space:
+        final sel = browser.primarySelection;
+        if (sel == null || sel.isDirectory) return KeyEventResult.ignored;
+        openFilePreview(context, browser, sel);
+        return KeyEventResult.handled;
+
+      case LogicalKeyboardKey.arrowUp:
+        _moveCursor(browser, -1, extend: shift);
+        return KeyEventResult.handled;
+      case LogicalKeyboardKey.arrowDown:
+        _moveCursor(browser, 1, extend: shift);
+        return KeyEventResult.handled;
     }
-    final sel = browser.primarySelection;
-    if (sel == null || sel.isDirectory) return KeyEventResult.ignored;
-    openFilePreview(context, browser, sel);
-    return KeyEventResult.handled;
+    return KeyEventResult.ignored;
+  }
+
+  /// Entries backing the current selection, in display order.
+  List<FileEntry> _selectedEntries(BrowserProvider browser) {
+    final paths = browser.selectedPaths;
+    if (paths.isEmpty) return const [];
+    return [
+      for (final e in browser.entries)
+        if (paths.contains(e.path)) e,
+    ];
+  }
+
+  /// Arrow-key navigation. Without Shift this replaces the selection; with
+  /// Shift it extends the range from the existing anchor.
+  void _moveCursor(BrowserProvider browser, int delta, {required bool extend}) {
+    final order = browser.entries;
+    if (order.isEmpty) return;
+
+    final current = browser.selectedPaths.isEmpty
+        ? -1
+        : order.indexWhere((e) => e.path == browser.selectedPaths.last);
+    // No selection yet: Down lands on the first row, Up on the last.
+    final next = current < 0
+        ? (delta > 0 ? 0 : order.length - 1)
+        : (current + delta).clamp(0, order.length - 1);
+
+    if (extend) {
+      browser.selectRange(order[next]);
+    } else {
+      browser.toggleSelect(order[next], additive: false);
+    }
   }
 
   @override
@@ -297,6 +399,14 @@ class _Header extends StatelessWidget {
           ),
           if (!compact)
             _SortableHeader(
+              label: 'Kind',
+              field: SortField.kind,
+              flex: 2,
+              palette: palette,
+              browser: browser,
+            ),
+          if (!compact)
+            _SortableHeader(
               label: 'Date modified',
               field: SortField.modified,
               flex: 3,
@@ -442,7 +552,11 @@ class _FileRowState extends State<_FileRow>
     final iconSize = (compact ? 20 : 18) * density;
     final fontSize = 13 * density;
 
-    return MouseRegion(
+    // Rows are draggable, and folder rows also accept drops so a file can be
+    // dropped straight onto a subfolder without navigating into it first.
+    return wrapDragDrop(
+      entry: widget.entry,
+      child: MouseRegion(
       cursor: SystemMouseCursors.basic,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
@@ -517,6 +631,18 @@ class _FileRowState extends State<_FileRow>
               ),
               if (!compact)
                 Expanded(
+                  flex: 2,
+                  child: Text(
+                    _kindLabel(widget.entry),
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: fontSize - 1,
+                      color: palette.subtleText,
+                    ),
+                  ),
+                ),
+              if (!compact)
+                Expanded(
                   flex: 3,
                   child: Text(
                     _formatDate(widget.entry.modified),
@@ -541,6 +667,7 @@ class _FileRowState extends State<_FileRow>
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -575,7 +702,16 @@ class _FileRowState extends State<_FileRow>
     }
   }
 
-  String _formatDate(DateTime dt) {
+  /// The "Kind" cell. Mirrors `BrowserProvider._kindLabel` so the column and the
+/// group headings always read the same.
+String _kindLabel(FileEntry e) {
+  if (e.isDirectory) return 'Folder';
+  final ext = e.extension;
+  if (ext.isEmpty) return 'Document';
+  return '${ext.substring(1).toUpperCase()} file';
+}
+
+String _formatDate(DateTime dt) {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${dt.year}-${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}';
   }
@@ -700,6 +836,21 @@ List<DeskMenuItem> _baseMenuItems(
         icon: CupertinoIcons.square_on_square,
         onTap: () => _duplicateEntry(context, browser, target),
       ),
+      DeskMenuItem.divider(),
+      DeskMenuItem(
+        label: _selectionLabel(browser, target, 'Copy'),
+        icon: CupertinoIcons.doc_on_doc,
+        onTap: () => context
+            .read<FileOpsProvider>()
+            .copyToClipboard(_targetPaths(browser, target)),
+      ),
+      DeskMenuItem(
+        label: _selectionLabel(browser, target, 'Cut'),
+        icon: CupertinoIcons.scissors,
+        onTap: () => context
+            .read<FileOpsProvider>()
+            .cutToClipboard(_targetPaths(browser, target)),
+      ),
       DeskMenuItem(
         label: 'Copy Path',
         icon: CupertinoIcons.doc_on_clipboard,
@@ -721,15 +872,38 @@ List<DeskMenuItem> _baseMenuItems(
       DeskMenuItem.divider(),
     ]);
   }
+  final ops = context.read<FileOpsProvider>();
+  final pending = ops.clipboard;
   return [
     ...fileItems,
+    DeskMenuItem(
+      label: pending == null || pending.isEmpty
+          ? 'Paste'
+          : 'Paste ${pending.paths.length} Item'
+              '${pending.paths.length == 1 ? '' : 's'}',
+      icon: CupertinoIcons.doc_on_clipboard_fill,
+      enabled: ops.hasClipboard && browser.currentPath.isNotEmpty,
+      onTap: () => pasteIntoCurrentFolder(context, browser),
+    ),
+    DeskMenuItem.divider(),
     DeskMenuItem(
       label: 'New Folder',
       icon: CupertinoIcons.folder_badge_plus,
       enabled: browser.currentPath.isNotEmpty,
       onTap: () => _newFolder(context, browser),
     ),
+    DeskMenuItem(
+      label: 'New File',
+      icon: CupertinoIcons.doc_text_search,
+      enabled: browser.currentPath.isNotEmpty,
+      onTap: () => _newFile(context, browser),
+    ),
     DeskMenuItem.divider(),
+    DeskMenuItem(
+      label: 'Show Hidden Files',
+      checked: browser.showHidden,
+      onTap: () => browser.setShowHidden(!browser.showHidden),
+    ),
     DeskMenuItem(
       label: 'Use Groups',
       checked: browser.useGroups,
@@ -755,6 +929,22 @@ List<String> _sendPaths(BrowserProvider browser, FileEntry target) {
   final sel = browser.selectedPaths;
   if (sel.length > 1 && sel.contains(target.path)) return sel.toList();
   return [target.path];
+}
+
+/// Paths a clipboard action should act on. Right-clicking inside a
+/// multi-selection acts on all of it; right-clicking elsewhere acts on the one
+/// item under the cursor, matching Finder and Explorer.
+List<String> _targetPaths(BrowserProvider browser, FileEntry target) =>
+    _sendPaths(browser, target);
+
+/// "Copy" vs "Copy 3 Items", depending on how much the action will affect.
+String _selectionLabel(
+  BrowserProvider browser,
+  FileEntry target,
+  String verb,
+) {
+  final n = _targetPaths(browser, target).length;
+  return n > 1 ? '$verb $n Items' : verb;
 }
 
 List<DeskMenuItem> _openWithSubmenu(BuildContext context, FileEntry target) {
@@ -798,6 +988,48 @@ List<DeskMenuItem> _sortSubmenu(BrowserProvider browser) {
     option('Date Modified', SortField.modified),
     option('Size', SortField.size),
   ];
+}
+
+/// Creates an empty file in the current folder. Rust picks a collision-free
+/// name, so repeated use yields "untitled", "untitled copy", and so on.
+Future<void> _newFile(BuildContext context, BrowserProvider browser) async {
+  final controller = TextEditingController(text: 'untitled.txt');
+  final palette = AppColors.of(context);
+  final name = await showCupertinoDialog<String?>(
+    context: context,
+    builder: (ctx) => CupertinoAlertDialog(
+      title: const Text('New File'),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: CupertinoTextField(
+          controller: controller,
+          autofocus: true,
+          style: TextStyle(color: palette.text),
+          onSubmitted: (_) => Navigator.of(ctx).pop(controller.text.trim()),
+        ),
+      ),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(ctx).pop(null),
+          child: const Text('Cancel'),
+        ),
+        CupertinoDialogAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+          child: const Text('Create'),
+        ),
+      ],
+    ),
+  );
+  if (name == null || name.isEmpty) return;
+
+  try {
+    await NativeCore.instance.createFile(browser.currentPath, name);
+  } catch (e) {
+    if (context.mounted) await _showError(context, '$e');
+    return;
+  }
+  await browser.refresh();
 }
 
 Future<void> _newFolder(BuildContext context, BrowserProvider browser) async {
@@ -1100,10 +1332,10 @@ Future<void> _renameEntry(
     ),
   );
   if (newName == null) return;
-  final result = await _actions.rename(entry, newName);
-  if (result == null && context.mounted) {
-    await _showError(context, 'Couldn\'t rename. A file with that name may '
-        'already exist, or the destination isn\'t writable.');
+  try {
+    await NativeCore.instance.rename(entry.path, newName);
+  } catch (e) {
+    if (context.mounted) await _showError(context, 'Couldn\'t rename: $e');
     return;
   }
   await browser.refresh();
@@ -1114,9 +1346,14 @@ Future<void> _duplicateEntry(
   BrowserProvider browser,
   FileEntry entry,
 ) async {
-  final result = await _actions.duplicate(entry);
-  if (result == null && context.mounted) {
-    await _showError(context, 'Couldn\'t duplicate this item.');
+  final result = await context
+      .read<FileOpsProvider>()
+      .copyTo([entry.path], p.dirname(entry.path));
+  if (result.failed.isNotEmpty && context.mounted) {
+    await _showError(
+      context,
+      'Couldn\'t duplicate this item: ${result.failed.first.error}',
+    );
     return;
   }
   await browser.refresh();
@@ -1140,18 +1377,40 @@ Future<void> _confirmTrash(
   BuildContext context,
   BrowserProvider browser,
   FileEntry entry,
-) async {
-  final title = _isMacOS ? 'Move to Trash?' : 'Delete?';
-  final body = _isMacOS
-      ? '"${entry.name}" will be moved to the Trash.'
-      : '"${entry.name}" will be permanently deleted. This cannot be undone.';
+) =>
+    confirmTrashAll(context, browser, [entry]);
+
+/// Confirms, then moves [entries] to the recycle bin — or deletes them outright
+/// when [permanent] is set (Shift+Delete).
+///
+/// Trashing goes through the Rust core, which uses the real platform recycle
+/// bin on all three desktops. The previous Dart path only did so on macOS and
+/// hard-deleted on Windows and Linux.
+Future<void> confirmTrashAll(
+  BuildContext context,
+  BrowserProvider browser,
+  List<FileEntry> entries, {
+  bool permanent = false,
+}) async {
+  if (entries.isEmpty) return;
+
+  // Resolved before the dialog await, so the provider lookup can't outlive
+  // the element that owns this context.
+  final ops = context.read<FileOpsProvider>();
+  final what = entries.length == 1
+      ? '"${entries.first.name}"'
+      : '${entries.length} items';
   final ok = await showCupertinoDialog<bool>(
     context: context,
     builder: (ctx) => CupertinoAlertDialog(
-      title: Text(title),
+      title: Text(permanent ? 'Delete permanently?' : 'Move to Trash?'),
       content: Padding(
         padding: const EdgeInsets.only(top: 6),
-        child: Text(body),
+        child: Text(
+          permanent
+              ? '$what will be deleted immediately. This cannot be undone.'
+              : '$what will be moved to the Trash.',
+        ),
       ),
       actions: [
         CupertinoDialogAction(
@@ -1161,17 +1420,46 @@ Future<void> _confirmTrash(
         CupertinoDialogAction(
           isDestructiveAction: true,
           onPressed: () => Navigator.of(ctx).pop(true),
-          child: Text(_isMacOS ? 'Move to Trash' : 'Delete'),
+          child: Text(permanent ? 'Delete' : 'Move to Trash'),
         ),
       ],
     ),
   );
   if (ok != true) return;
-  final success = await _actions.trash(entry);
-  if (!success && context.mounted) {
-    await _showError(context,
-        _isMacOS ? 'Couldn\'t move to Trash.' : 'Couldn\'t delete this item.');
-    return;
+
+  final paths = [for (final e in entries) e.path];
+  final outcome =
+      permanent ? await ops.deleteForever(paths) : await ops.trash(paths);
+
+  if (!context.mounted) return;
+  if (outcome.failed.isNotEmpty) {
+    final n = outcome.failed.length;
+    await _showError(
+      context,
+      '$n item${n == 1 ? '' : 's'} couldn\'t be removed:\n'
+      '${outcome.failed.first.error}',
+    );
+  }
+  await browser.refresh();
+}
+
+/// Pastes the clipboard into the folder currently on screen.
+Future<void> pasteIntoCurrentFolder(
+  BuildContext context,
+  BrowserProvider browser,
+) async {
+  final ops = context.read<FileOpsProvider>();
+  if (!ops.hasClipboard || browser.currentPath.isEmpty) return;
+
+  final result = await ops.paste(browser.currentPath);
+  if (!context.mounted) return;
+
+  if (result.failed.isNotEmpty) {
+    await _showError(
+      context,
+      'Couldn\'t paste ${result.failed.length} item'
+      '${result.failed.length == 1 ? '' : 's'}:\n${result.failed.first.error}',
+    );
   }
   await browser.refresh();
 }

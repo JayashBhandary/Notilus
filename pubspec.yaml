@@ -4,8 +4,10 @@ publish_to: 'none'
 version: 0.2.1
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
-  flutter: '>=3.10.0'
+  # 3.3 is the floor for extension types, which flutter_rust_bridge's generated
+  # web interop uses. CI pins Flutter 3.44 (Dart 3.12), so this is well clear.
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
 
 dependencies:
   flutter:
@@ -36,12 +38,19 @@ dependencies:
   flutter_dotenv: ^6.0.1
   flutter_secure_storage: ^9.2.2
   file_selector: ^1.0.3
+  flutter_rust_bridge: 2.12.0
+  freezed_annotation: ^3.1.0
+  notilus_core:
+    path: rust_builder
+  super_drag_and_drop: ^0.9.1
 
 dev_dependencies:
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.13.1
   flutter_test:
     sdk: flutter
+  freezed: ^3.2.5
+  build_runner: ^2.15.1
 
 # video_player_avfoundation 2.8.x+ split the Apple plugin into a modular
 # Objective-C subtarget that imports <Flutter/Flutter.h> unconditionally,

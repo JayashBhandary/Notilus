@@ -5,8 +5,17 @@ import 'package:notilus/models/file_entry.dart';
 import 'package:notilus/services/duplicate_finder_service.dart';
 import 'package:path/path.dart' as p;
 
+import 'native_test_support.dart';
+
 void main() {
   late Directory root;
+  // The scan itself now runs in the Rust core, so these exercise the real
+  // native pipeline rather than a Dart reimplementation of it.
+  late bool native;
+
+  setUpAll(() async {
+    native = await NativeTestSupport.ensureLoaded();
+  });
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('dupfinder_test_');
@@ -24,6 +33,7 @@ void main() {
   }
 
   test('finds byte-identical files with different names', () async {
+    if (!native) return markTestSkipped(NativeTestSupport.skipReason);
     await write('a.txt', 'hello world duplicate content');
     await write('sub/b.txt', 'hello world duplicate content');
     await write('unique.txt', 'i am one of a kind');
@@ -36,6 +46,7 @@ void main() {
   });
 
   test('skips excluded directories by name', () async {
+    if (!native) return markTestSkipped(NativeTestSupport.skipReason);
     await write('keep/a.bin', 'shared payload xyz');
     await write('node_modules/b.bin', 'shared payload xyz');
 
@@ -49,6 +60,7 @@ void main() {
   });
 
   test('honors the file-type (extension) filter', () async {
+    if (!native) return markTestSkipped(NativeTestSupport.skipReason);
     await write('one.png', 'PNGDATA-identical');
     await write('two.png', 'PNGDATA-identical');
     await write('one.txt', 'TXT-identical');
@@ -68,6 +80,7 @@ void main() {
 
   test('does not descend into macOS .app bundles when skipBundles is on',
       () async {
+    if (!native) return markTestSkipped(NativeTestSupport.skipReason);
     await write('Real.txt', 'bundle-dupe-body');
     await write('Foo.app/Contents/Real.txt', 'bundle-dupe-body');
 

@@ -72,3 +72,6 @@ rust_builder/pubspec.lock
 #   lib/src/rust/**             (imported directly by Dart)
 # Commit core/Cargo.lock too: this is an application, so the exact dependency
 # graph should be reproducible.
+# Rust core build output
+core/target/
+rust_builder/**/.cargokit*
