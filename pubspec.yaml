@@ -43,6 +43,7 @@ dependencies:
   notilus_core:
     path: rust_builder
   super_drag_and_drop: ^0.9.1
+  shadcn_ui: ^0.56.0
 
 dev_dependencies:
   flutter_lints: ^3.0.0
@@ -51,6 +52,8 @@ dev_dependencies:
     sdk: flutter
   freezed: ^3.2.5
   build_runner: ^2.15.1
+  path_provider_platform_interface: ^2.1.3
+  plugin_platform_interface: ^2.1.8
 
 # video_player_avfoundation 2.8.x+ split the Apple plugin into a modular
 # Objective-C subtarget that imports <Flutter/Flutter.h> unconditionally,

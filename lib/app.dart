@@ -1,6 +1,8 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show DefaultMaterialLocalizations;
+import 'package:flutter/material.dart'
+    show DefaultMaterialLocalizations, ThemeMode;
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'providers/browser_provider.dart';
 import 'providers/chat_provider.dart';
@@ -62,16 +64,29 @@ class _ThemedApp extends StatelessWidget {
         MediaQuery.platformBrightnessOf(context);
     final brightness = settings.resolveBrightness(platformBrightness);
 
-    return CupertinoApp(
-      title: 'Notilus',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.themeFor(brightness),
-      localizationsDelegates: const [
-        DefaultMaterialLocalizations.delegate,
-        DefaultCupertinoLocalizations.delegate,
-        DefaultWidgetsLocalizations.delegate,
-      ],
-      home: const TransferRequestGate(child: HomeScreen()),
+    // Shad wraps Cupertino rather than replacing it: `ShadApp.custom` supplies
+    // the ShadTheme every Shad* widget needs, while the inner CupertinoApp
+    // keeps the not-yet-migrated Cupertino widgets working. Brightness stays
+    // driven by SettingsProvider — themeMode is derived from the already
+    // resolved value so there is still one source of truth.
+    return ShadApp.custom(
+      theme: AppTheme.shadThemeFor(Brightness.light),
+      darkTheme: AppTheme.shadThemeFor(Brightness.dark),
+      themeMode:
+          brightness == Brightness.dark ? ThemeMode.dark : ThemeMode.light,
+      appBuilder: (shadContext) => CupertinoApp(
+        title: 'Notilus',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.themeFor(brightness),
+        localizationsDelegates: const [
+          GlobalShadLocalizations.delegate,
+          DefaultMaterialLocalizations.delegate,
+          DefaultCupertinoLocalizations.delegate,
+          DefaultWidgetsLocalizations.delegate,
+        ],
+        builder: (_, child) => ShadAppBuilder(child: child!),
+        home: const TransferRequestGate(child: HomeScreen()),
+      ),
     );
   }
 }

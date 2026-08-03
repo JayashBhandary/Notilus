@@ -1,7 +1,14 @@
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/widgets.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
-import '../theme.dart';
+import '../theme.dart' show kMenuIconSize;
 
+/// One entry in a desktop context menu.
+///
+/// This stays the authoring model for call sites even though the menu is now
+/// rendered by [ShadContextMenu]: it keeps the ~19 declarations in
+/// `file_list_view.dart` free of shadcn's `.inset` / leading-padding details,
+/// and leaves one place ([_toShadItems]) that has to track the library API.
 class DeskMenuItem {
   DeskMenuItem({
     required this.label,
@@ -27,6 +34,9 @@ class DeskMenuItem {
   final String label;
   final IconData? icon;
   final IconData? trailing;
+
+  /// When non-null the row shows a checkmark in the leading slot instead of
+  /// [icon], so a toggle reads as on/off.
   final bool? checked;
   final bool enabled;
   final VoidCallback? onTap;
@@ -34,14 +44,49 @@ class DeskMenuItem {
   final bool isDivider;
 }
 
-const double _menuWidth = 220;
-const double _itemHeight = 28;
-const double _dividerHeight = 9;
+/// Minimum width, so short menus don't collapse to their longest label.
+const double _menuMinWidth = 220;
+
+/// Where a submenu opens relative to its parent row.
+///
+/// shadcn_ui 0.56 defaults a menu item's submenu to `ShadAnchorAuto` with
+/// `targetAnchor: topRight` / `followerAnchor: bottomRight`, which lands the
+/// submenu on top of the menu it came from; the parent's own rows then sit
+/// above it and swallow the click, so the submenu is unreachable. That
+/// reproduces with the library's documented `ShadContextMenuRegion` usage too —
+/// it is not a consequence of driving the menu from an overlay.
+///
+/// It has to be a plain [ShadAnchor] rather than [ShadAnchorAuto]: the auto
+/// variant recomputes placement from available space and ignores the requested
+/// alignments (overriding it moved the submenu by the offset delta only, and
+/// left it on the wrong side).
+///
+/// Putting the submenu's top-left at the row's top-right opens it rightward,
+/// which is what a desktop submenu does — and what this file's hand-rolled
+/// version used to do with its LayerLink.
+///
+/// Mind the parameter names, which read backwards: `childAlignment` is the
+/// point on the *overlay* and `overlayAlignment` the point on the *child*. That
+/// falls out of the class defaults — `topLeft`/`bottomLeft` is documented as
+/// "opens below", which only holds under this reading — and setting them the
+/// other way round pushed the submenu off the left edge of the screen.
+const ShadAnchorBase _submenuAnchor = ShadAnchor(
+  childAlignment: Alignment.topLeft,
+  overlayAlignment: Alignment.topRight,
+  offset: Offset(4, -6),
+);
 
 // The one context menu allowed on screen at a time. Opening a new one closes
 // any existing one, so overlapping triggers can never stack two menus.
 OverlayEntry? _activeMenu;
 
+/// Opens a context menu at [globalPosition].
+///
+/// Imperative rather than a [ShadContextMenuRegion] wrapping each row: the list
+/// and the grid already funnel every right-click through here, along with the
+/// arbitration that decides whether a row or the background claimed the
+/// gesture. Anchoring a [ShadContextMenu] in an overlay keeps all of that
+/// intact.
 Future<void> showDeskContextMenu(
   BuildContext context, {
   required Offset globalPosition,
@@ -61,7 +106,7 @@ Future<void> showDeskContextMenu(
   }
 
   entry = OverlayEntry(
-    builder: (ctx) => _DeskMenuLayer(
+    builder: (_) => _DeskMenuLayer(
       anchor: globalPosition,
       items: items,
       onDismiss: dismiss,
@@ -84,273 +129,107 @@ class _DeskMenuLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) => onDismiss(),
-          ),
-        ),
-        _MenuPositioned(
-          anchor: anchor,
-          width: _menuWidth,
-          itemCount: items.length,
-          dividerCount: items.where((i) => i.isDivider).length,
-          child: _DeskMenu(items: items, onDismiss: onDismiss),
-        ),
-      ],
+    // Dismissal is delegated to ShadContextMenu's own onTapOutside rather than
+    // a full-screen barrier of our own. The library coordinates the root menu
+    // and every open submenu through one TapRegion group, so it knows a click
+    // on a submenu is *inside*; an overlaid barrier steals that pointer-down
+    // and tears the tree down before the submenu item can fire.
+    //
+    // ShadGlobalAnchor positions the popover in screen space, so the trigger
+    // child carries no size and needs no placement. It also flips near a screen
+    // edge, so the manual viewport clamping this file used to do is gone.
+    return ShadContextMenu(
+      visible: true,
+      anchor: ShadGlobalAnchor(anchor),
+      constraints: const BoxConstraints(minWidth: _menuMinWidth),
+      onTapOutside: (_) => onDismiss(),
+      items: _toShadItems(items, onDismiss),
+      child: const SizedBox.shrink(),
     );
   }
 }
 
-class _MenuPositioned extends StatelessWidget {
-  const _MenuPositioned({
-    required this.anchor,
-    required this.width,
-    required this.itemCount,
-    required this.dividerCount,
-    required this.child,
-  });
+/// Maps [DeskMenuItem]s onto shadcn's menu widgets, recursing into submenus.
+List<Widget> _toShadItems(List<DeskMenuItem> items, VoidCallback dismiss) {
+  // Reserve the leading slot for every row only if some row actually uses it,
+  // otherwise a menu of plain labels carries a redundant 20px gutter.
+  final anyLeading =
+      items.any((i) => !i.isDivider && (i.icon != null || i.checked != null));
 
-  final Offset anchor;
-  final double width;
-  final int itemCount;
-  final int dividerCount;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final estHeight =
-        (itemCount - dividerCount) * _itemHeight + dividerCount * _dividerHeight + 12;
-    double left = anchor.dx;
-    double top = anchor.dy;
-    if (left + width > size.width - 8) left = size.width - width - 8;
-    if (top + estHeight > size.height - 8) top = size.height - estHeight - 8;
-    if (left < 8) left = 8;
-    if (top < 8) top = 8;
-    return Positioned(
-      left: left,
-      top: top,
-      width: width,
-      child: child,
-    );
-  }
+  return [
+    for (final item in items)
+      if (item.isDivider)
+        // Inset rather than edge-to-edge, and a tight vertical gap, so groups
+        // read as separated without the menu growing a band between each one.
+        const ShadSeparator.horizontal(
+          margin: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          thickness: 1,
+        )
+      else
+        _shadItem(item, dismiss, inset: !anyLeading),
+  ];
 }
 
-class _DeskMenu extends StatefulWidget {
-  const _DeskMenu({required this.items, required this.onDismiss});
-  final List<DeskMenuItem> items;
-  final VoidCallback onDismiss;
+Widget _shadItem(
+  DeskMenuItem item,
+  VoidCallback dismiss, {
+  required bool inset,
+}) {
+  final hasSubmenu = item.submenu != null;
 
-  @override
-  State<_DeskMenu> createState() => _DeskMenuState();
-}
+  // Sizes are pinned rather than inherited: the app-wide IconTheme is 16px,
+  // which towers over a 13px label.
+  final leading = switch (item) {
+    // A toggle shows a tick when on and an empty slot when off, so the label
+    // never shifts as it flips.
+    DeskMenuItem(checked: final bool checked) => checked
+        ? const Icon(LucideIcons.check, size: kMenuIconSize)
+        : const SizedBox.square(dimension: kMenuIconSize),
+    DeskMenuItem(icon: final IconData icon) =>
+      Icon(icon, size: kMenuIconSize),
+    _ => null,
+  };
 
-class _DeskMenuState extends State<_DeskMenu> {
-  int? _openSubmenuIndex;
+  final trailing = item.trailing != null
+      ? Icon(item.trailing, size: kMenuIconSize)
+      // Submenu chevrons read better a shade smaller than a content glyph.
+      : (hasSubmenu
+          ? const Icon(LucideIcons.chevronRight, size: kMenuIconSize - 2)
+          : null);
 
-  @override
-  Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
-    return Container(
-      decoration: BoxDecoration(
-        color: palette.cardBg,
-        border: Border.all(color: palette.divider),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x33000000),
-            blurRadius: 18,
-            offset: Offset(0, 6),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: List.generate(widget.items.length, (i) {
-          final item = widget.items[i];
-          if (item.isDivider) {
-            return Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Container(height: 1, color: palette.divider),
-            );
-          }
-          return _MenuRow(
-            item: item,
-            isSubmenuOpen: _openSubmenuIndex == i,
-            onHover: () {
-              if (item.submenu != null && _openSubmenuIndex != i) {
-                setState(() => _openSubmenuIndex = i);
-              } else if (item.submenu == null && _openSubmenuIndex != null) {
-                setState(() => _openSubmenuIndex = null);
-              }
-            },
-            onTap: () {
-              if (item.submenu != null) {
-                setState(() => _openSubmenuIndex = i);
-                return;
-              }
-              widget.onDismiss();
-              item.onTap?.call();
-            },
-            submenuBuilder: item.submenu == null
-                ? null
-                : () => _DeskMenu(
-                      items: item.submenu!,
-                      onDismiss: widget.onDismiss,
-                    ),
-          );
-        }),
-      ),
+  final label = Text(item.label, overflow: TextOverflow.ellipsis);
+
+  // A submenu parent must not dismiss on press — pressing it opens the
+  // submenu. Leaves dismiss to whichever leaf is eventually chosen.
+  final onPressed = hasSubmenu || !item.enabled || item.onTap == null
+      ? null
+      : () {
+          dismiss();
+          item.onTap!.call();
+        };
+
+  final subItems =
+      hasSubmenu ? _toShadItems(item.submenu!, dismiss) : const <Widget>[];
+
+  if (inset && leading == null) {
+    return ShadContextMenuItem.inset(
+      enabled: item.enabled,
+      trailing: trailing,
+      onPressed: onPressed,
+      items: subItems,
+      anchor: hasSubmenu ? _submenuAnchor : null,
+      constraints: const BoxConstraints(minWidth: _menuMinWidth),
+      child: label,
     );
   }
-}
-
-class _MenuRow extends StatefulWidget {
-  const _MenuRow({
-    required this.item,
-    required this.isSubmenuOpen,
-    required this.onHover,
-    required this.onTap,
-    this.submenuBuilder,
-  });
-
-  final DeskMenuItem item;
-  final bool isSubmenuOpen;
-  final VoidCallback onHover;
-  final VoidCallback onTap;
-  final Widget Function()? submenuBuilder;
-
-  @override
-  State<_MenuRow> createState() => _MenuRowState();
-}
-
-class _MenuRowState extends State<_MenuRow> {
-  bool _hover = false;
-  final LayerLink _link = LayerLink();
-  OverlayEntry? _submenuEntry;
-
-  @override
-  void didUpdateWidget(covariant _MenuRow oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.isSubmenuOpen && _submenuEntry == null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _showSubmenu());
-    } else if (!widget.isSubmenuOpen && _submenuEntry != null) {
-      _hideSubmenu();
-    }
-  }
-
-  @override
-  void dispose() {
-    _hideSubmenu();
-    super.dispose();
-  }
-
-  void _showSubmenu() {
-    if (widget.submenuBuilder == null) return;
-    if (!mounted) return;
-    final overlay = Overlay.of(context, rootOverlay: true);
-    _submenuEntry = OverlayEntry(
-      builder: (_) => Positioned(
-        width: _menuWidth,
-        child: CompositedTransformFollower(
-          link: _link,
-          showWhenUnlinked: false,
-          targetAnchor: Alignment.topRight,
-          followerAnchor: Alignment.topLeft,
-          offset: const Offset(2, -6),
-          child: widget.submenuBuilder!(),
-        ),
-      ),
-    );
-    overlay.insert(_submenuEntry!);
-  }
-
-  void _hideSubmenu() {
-    _submenuEntry?.remove();
-    _submenuEntry = null;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
-    final enabled = widget.item.enabled;
-    final highlight = enabled && (_hover || widget.isSubmenuOpen);
-    final textColor = enabled
-        ? (highlight ? CupertinoColors.white : palette.text)
-        : palette.subtleText.withValues(alpha: 0.55);
-    final iconColor = textColor;
-
-    return CompositedTransformTarget(
-      link: _link,
-      child: MouseRegion(
-        cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-        onEnter: (_) {
-          setState(() => _hover = true);
-          widget.onHover();
-        },
-        onExit: (_) => setState(() => _hover = false),
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: enabled ? widget.onTap : null,
-          child: Container(
-            height: _itemHeight,
-            margin: const EdgeInsets.symmetric(horizontal: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            decoration: BoxDecoration(
-              color: highlight ? palette.accent : null,
-              borderRadius: BorderRadius.circular(5),
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 18,
-                  child: widget.item.checked == true
-                      ? Icon(
-                          CupertinoIcons.check_mark,
-                          size: 13,
-                          color: iconColor,
-                        )
-                      : (widget.item.icon != null
-                          ? Icon(
-                              widget.item.icon,
-                              size: 14,
-                              color: iconColor,
-                            )
-                          : const SizedBox.shrink()),
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    widget.item.label,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: textColor,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                if (widget.item.trailing != null)
-                  Icon(
-                    widget.item.trailing,
-                    size: 12,
-                    color: iconColor,
-                  )
-                else if (widget.item.submenu != null)
-                  Icon(
-                    CupertinoIcons.chevron_right,
-                    size: 11,
-                    color: iconColor,
-                  ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  return ShadContextMenuItem(
+    enabled: item.enabled,
+    leading: leading,
+    trailing: trailing,
+    onPressed: onPressed,
+    items: subItems,
+    anchor: hasSubmenu ? _submenuAnchor : null,
+    constraints: const BoxConstraints(minWidth: _menuMinWidth),
+    child: label,
+  );
 }

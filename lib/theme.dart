@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 /// Resolved app palette. Two const instances ([light] and [dark]) are exposed.
 /// Use [AppColors.of] in widgets that should react to the active theme.
@@ -107,7 +108,98 @@ class AppColors {
   }
 }
 
+/// Label size inside menus. Matches the file listing and the panels rather than
+/// Shad's 14px default, so a menu doesn't read as a different app.
+const double kMenuFontSize = 13;
+
+/// Glyph size inside menus — a touch above [kMenuFontSize] so an icon's body
+/// matches the label's cap height, which is how the platform's own menus look.
+/// Shad would otherwise inherit the app-wide 16px IconTheme.
+const double kMenuIconSize = 14;
+
 class AppTheme {
+  /// Maps [AppPalette] onto shadcn's colour-scheme slots so Shad components
+  /// inherit the app's existing look instead of a stock zinc/slate scheme.
+  ///
+  /// Note the shadcn naming: `primary` is the brand colour, while `accent` is
+  /// the *subtle hover surface* — not the brand. Getting those two backwards
+  /// makes every hovered row light up bright blue.
+  static ShadColorScheme shadColorSchemeFor(Brightness brightness) {
+    final p = brightness == Brightness.dark
+        ? AppPalette.dark
+        : AppPalette.light;
+    const onAccent = Color(0xFFFFFFFF);
+    return ShadColorScheme(
+      background: p.contentBg,
+      foreground: p.text,
+      card: p.cardBg,
+      cardForeground: p.text,
+      popover: p.cardBg,
+      popoverForeground: p.text,
+      primary: p.accent,
+      primaryForeground: onAccent,
+      secondary: p.sidebarHover,
+      secondaryForeground: p.text,
+      muted: p.headerBg,
+      mutedForeground: p.subtleText,
+      accent: p.sidebarHover,
+      accentForeground: p.text,
+      destructive: p.danger,
+      destructiveForeground: onAccent,
+      border: p.divider,
+      input: p.divider,
+      ring: p.accent,
+      selection: p.accent.withValues(alpha: 0.3),
+    );
+  }
+
+  static ShadThemeData shadThemeFor(Brightness brightness) {
+    final palette = brightness == Brightness.dark
+        ? AppPalette.dark
+        : AppPalette.light;
+    return ShadThemeData(
+      brightness: brightness,
+      colorScheme: shadColorSchemeFor(brightness),
+      radius: BorderRadius.circular(8),
+      textTheme: ShadTextTheme(family: '.SF Pro Text'),
+      // The app is a desktop file manager — 13px is the established body size
+      // across every panel, so Shad's 14px default would break alignment with
+      // the not-yet-migrated widgets.
+      inputTheme: ShadInputTheme(
+        style: TextStyle(fontSize: 13, color: palette.text),
+        placeholderStyle: TextStyle(fontSize: 13, color: palette.subtleText),
+      ),
+      // Same reasoning for cards: Shad defaults to 24px padding, which is airy
+      // for a web page and wrong for panels that already sit inside a 16px
+      // gutter and stack several to a row.
+      cardTheme: const ShadCardTheme(padding: EdgeInsets.all(14)),
+      // Context menus default to 32px rows and 14px labels, which next to a
+      // 13px file listing reads as a different app. Tightened to the density
+      // the platform's own menus use: a 26px row, 13px label, and a hairline
+      // gap so a long menu doesn't run the height of the window.
+      contextMenuTheme: ShadContextMenuTheme(
+        height: 26,
+        textStyle: TextStyle(
+          fontSize: kMenuFontSize,
+          color: palette.text,
+          fontWeight: FontWeight.normal,
+        ),
+        itemPadding: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        leadingPadding: const EdgeInsetsDirectional.only(end: 8),
+        trailingPadding: const EdgeInsetsDirectional.only(start: 10),
+      ),
+      // A checkbox is 16px and inherits `radius` above, so the global 8 rounds
+      // it into a perfect circle — it reads as a radio button, i.e. as
+      // single-select, which is wrong wherever several can be ticked at once.
+      checkboxTheme: ShadCheckboxTheme(
+        decoration: ShadDecoration(
+          border: ShadBorder(radius: BorderRadius.circular(4)),
+        ),
+      ),
+    );
+  }
+
   static CupertinoThemeData themeFor(Brightness brightness) {
     final palette = brightness == Brightness.dark
         ? AppPalette.dark
