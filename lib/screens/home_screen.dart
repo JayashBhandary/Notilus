@@ -5,18 +5,22 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
+import '../commands/app_command.dart';
+import '../commands/command_registry.dart';
 import '../providers/browser_provider.dart';
 import '../providers/search_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/chat_panel.dart';
+import '../widgets/command_palette.dart';
 import '../widgets/file_list_view.dart';
 import '../widgets/file_op_progress.dart';
 import '../widgets/file_drag_drop.dart';
 import '../widgets/search_bar.dart';
 import '../widgets/info_panel.dart';
 import '../widgets/path_status_bar.dart';
+import '../widgets/shortcuts_dialog.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/terminal_panel.dart';
 import '../widgets/workflow_tab.dart';
@@ -51,7 +55,7 @@ class _FilesPane extends StatelessWidget {
             color: palette.headerBg,
             border: Border(bottom: BorderSide(color: palette.divider)),
           ),
-          child: const FolderSearchBar(),
+          child: FolderSearchBar(key: folderSearchKey),
         ),
         Expanded(
           child: searching
@@ -118,6 +122,20 @@ class _HomeScreenState extends State<HomeScreen> {
   // Keyed so the toolbar's refresh button can re-run the System Overview scan.
   final GlobalKey<SystemOverviewViewState> _overviewKey = GlobalKey();
 
+  /// Host-level actions the command registry needs. Panel visibility and
+  /// dialogs live here rather than in a provider, so commands reach them
+  /// through this seam.
+  late final HostActions _host = HostActions(
+    toggleTerminal: _toggleTerminal,
+    openSettings: _openSettings,
+    openPalette: _openPalette,
+    openShortcuts: _openShortcuts,
+    toggleSidebar: () => context.read<SettingsProvider>().toggleSidebar(),
+    toggleRightPanel: () =>
+        context.read<SettingsProvider>().toggleRightPanel(),
+    refreshCenter: _refreshCenter,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -130,21 +148,48 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // Cmd+J (macOS) / Ctrl+J (others) toggles the integrated terminal,
-  // matching VSCode's Toggle Panel shortcut. Runs ahead of focus dispatch
-  // so the terminal itself can't swallow the shortcut.
+  /// App-wide shortcuts, dispatched from the command registry.
+  ///
+  /// Registered on [HardwareKeyboard] so it runs *ahead* of focus dispatch —
+  /// that's what stops the embedded terminal from swallowing Cmd+J or Cmd+K.
+  /// Running first also means the two guards below matter: without them a
+  /// global binding would fire over a dialog, or while the user is mid-word in
+  /// a text field.
   bool _handleGlobalKey(KeyEvent event) {
-    if (event is! KeyDownEvent) return false;
-    if (event.logicalKey != LogicalKeyboardKey.keyJ) return false;
-    final modOk = Platform.isMacOS
-        ? HardwareKeyboard.instance.isMetaPressed
-        : HardwareKeyboard.instance.isControlPressed;
-    if (!modOk) return false;
-    _toggleTerminal();
-    return true;
+    if (event is! KeyDownEvent || !mounted) return false;
+
+    // A dialog or the preview route sitting on top owns the keyboard.
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return false;
+
+    return dispatchCommandKey(
+      event,
+      CommandScope.global,
+      context: context,
+      host: _host,
+      // Inline fields — the search box, the editable path — aren't modal, so
+      // the route check above can't see them.
+      isTyping: textFieldHasFocus,
+    );
   }
 
   void _openSettings() => showSettingsDialog(context);
+
+  void _openPalette() =>
+      showCommandPalette(hostContext: context, host: _host);
+
+  void _openShortcuts() => showShortcutsDialog(context);
+
+  /// Cmd+R refreshes whatever the centre pane is showing: System Overview
+  /// re-runs its scan, anything else re-lists the folder.
+  void _refreshCenter() {
+    final browser = context.read<BrowserProvider>();
+    if (browser.centerView == CenterView.systemOverview) {
+      _overviewKey.currentState?.refresh();
+    } else {
+      browser.refresh();
+    }
+  }
 
   void _toggleDrawer() => setState(() => _drawerOpen = !_drawerOpen);
   void _closeDrawer() {
@@ -178,9 +223,13 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
 
-    return CupertinoPageScaffold(
-      backgroundColor: palette.contentBg,
-      child: compact
+    // Publishes the host actions to the subtree so the file list's own scoped
+    // shortcuts can reach them.
+    return CommandHost(
+      actions: _host,
+      child: CupertinoPageScaffold(
+        backgroundColor: palette.contentBg,
+        child: compact
           ? _CompactLayout(
               tab: _compactTab,
               onTabChanged: (i) => setState(() => _compactTab = i),
@@ -188,6 +237,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onToggleDrawer: _toggleDrawer,
               onCloseDrawer: _closeDrawer,
               onSettings: _openSettings,
+              onPalette: _openPalette,
               terminalOpen: _terminalOpen,
               terminalHeight: _terminalHeight,
               onToggleTerminal: _toggleTerminal,
@@ -199,6 +249,7 @@ class _HomeScreenState extends State<HomeScreen> {
               rightTab: _rightTab,
               onRightTabChanged: (i) => setState(() => _rightTab = i),
               onSettings: _openSettings,
+              onPalette: _openPalette,
               terminalOpen: _terminalOpen,
               terminalHeight: _terminalHeight,
               onToggleTerminal: _toggleTerminal,
@@ -206,6 +257,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onResizeTerminal: _resizeTerminal,
               overviewKey: _overviewKey,
             ),
+      ),
     );
   }
 }
@@ -219,6 +271,7 @@ class _WideLayout extends StatelessWidget {
     required this.rightTab,
     required this.onRightTabChanged,
     required this.onSettings,
+    required this.onPalette,
     required this.terminalOpen,
     required this.terminalHeight,
     required this.onToggleTerminal,
@@ -230,6 +283,7 @@ class _WideLayout extends StatelessWidget {
   final int rightTab;
   final ValueChanged<int> onRightTabChanged;
   final VoidCallback onSettings;
+  final VoidCallback onPalette;
   final bool terminalOpen;
   final double terminalHeight;
   final VoidCallback onToggleTerminal;
@@ -281,6 +335,7 @@ class _WideLayout extends StatelessWidget {
                   children: [
                     _WideTopBar(
                       onSettings: onSettings,
+                      onPalette: onPalette,
                       onToggleTerminal: onToggleTerminal,
                       terminalOpen: terminalOpen,
                       sidebarCollapsed: sidebarCollapsed,
@@ -358,6 +413,7 @@ class _CompactLayout extends StatelessWidget {
     required this.onToggleDrawer,
     required this.onCloseDrawer,
     required this.onSettings,
+    required this.onPalette,
     required this.terminalOpen,
     required this.terminalHeight,
     required this.onToggleTerminal,
@@ -372,6 +428,7 @@ class _CompactLayout extends StatelessWidget {
   final VoidCallback onToggleDrawer;
   final VoidCallback onCloseDrawer;
   final VoidCallback onSettings;
+  final VoidCallback onPalette;
   final bool terminalOpen;
   final double terminalHeight;
   final VoidCallback onToggleTerminal;
@@ -397,6 +454,7 @@ class _CompactLayout extends StatelessWidget {
               _CompactTopBar(
                 onMenu: onToggleDrawer,
                 onSettings: onSettings,
+                onPalette: onPalette,
                 onToggleTerminal: onToggleTerminal,
                 terminalOpen: terminalOpen,
                 title: tab == 0 ? _centerTitle(centerView) : '',
@@ -475,6 +533,7 @@ class _CompactLayout extends StatelessWidget {
 class _WideTopBar extends StatelessWidget {
   const _WideTopBar({
     required this.onSettings,
+    required this.onPalette,
     required this.onToggleTerminal,
     required this.terminalOpen,
     required this.sidebarCollapsed,
@@ -485,6 +544,7 @@ class _WideTopBar extends StatelessWidget {
     required this.onRefreshOverview,
   });
   final VoidCallback onSettings;
+  final VoidCallback onPalette;
   final VoidCallback onToggleTerminal;
   final bool terminalOpen;
   final bool sidebarCollapsed;
@@ -592,6 +652,16 @@ class _WideTopBar extends StatelessWidget {
                 ],
               ],
               // Tail group: terminal, AI model, settings, panel toggle.
+              // The palette is the entry point to every command, so it gets a
+              // button: a Cmd+K-only feature is one nobody finds.
+              _ToolbarIconButton(
+                icon: CupertinoIcons.command,
+                tooltip:
+                    'Command Palette (${Platform.isMacOS ? "⌘" : "Ctrl"}+K)',
+                onPressed: onPalette,
+                size: 30,
+              ),
+              const SizedBox(width: 4),
               _ToolbarIconButton(
                 icon: CupertinoIcons.chevron_left_slash_chevron_right,
                 tooltip:
@@ -644,12 +714,14 @@ class _CompactTopBar extends StatelessWidget {
   const _CompactTopBar({
     required this.onMenu,
     required this.onSettings,
+    required this.onPalette,
     required this.onToggleTerminal,
     required this.terminalOpen,
     this.title = '',
   });
   final VoidCallback onMenu;
   final VoidCallback onSettings;
+  final VoidCallback onPalette;
   final VoidCallback onToggleTerminal;
   final bool terminalOpen;
 
@@ -693,6 +765,11 @@ class _CompactTopBar extends StatelessWidget {
                 : _CurrentFolderLabel(path: browser.currentPath),
           ),
           const SizedBox(width: 4),
+          _ToolbarIconButton(
+            icon: CupertinoIcons.command,
+            tooltip: 'Command Palette',
+            onPressed: onPalette,
+          ),
           _ToolbarIconButton(
             icon: CupertinoIcons.chevron_left_slash_chevron_right,
             tooltip: 'Terminal',

@@ -5,6 +5,12 @@ import '../providers/browser_provider.dart';
 import '../providers/search_provider.dart';
 import '../theme.dart';
 
+/// Lets the Cmd/Ctrl+F command reach the live search field. Follows the same
+/// pattern as `pathStatusBarKey`: the field is buried a few layers down inside
+/// the layout, and a shortcut needs to focus *that* instance.
+final GlobalKey<FolderSearchBarState> folderSearchKey =
+    GlobalKey<FolderSearchBarState>();
+
 /// Search field for the current folder subtree.
 ///
 /// Filename matching is on by default; the toggle also greps file contents.
@@ -14,10 +20,10 @@ class FolderSearchBar extends StatefulWidget {
   const FolderSearchBar({super.key});
 
   @override
-  State<FolderSearchBar> createState() => _FolderSearchBarState();
+  State<FolderSearchBar> createState() => FolderSearchBarState();
 }
 
-class _FolderSearchBarState extends State<FolderSearchBar> {
+class FolderSearchBarState extends State<FolderSearchBar> {
   final TextEditingController _controller = TextEditingController();
   final FocusNode _focusNode = FocusNode(debugLabel: 'FolderSearch');
 
@@ -26,6 +32,16 @@ class _FolderSearchBarState extends State<FolderSearchBar> {
     _controller.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  /// Focuses the field and selects whatever is already in it, so Cmd+F on an
+  /// active query replaces it by typing rather than appending.
+  void focusSearch() {
+    _focusNode.requestFocus();
+    _controller.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: _controller.text.length,
+    );
   }
 
   @override

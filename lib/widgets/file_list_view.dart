@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
+import '../commands/app_command.dart';
+import '../commands/command_registry.dart';
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../providers/file_ops_provider.dart';
@@ -19,7 +21,6 @@ import '../utils/responsive.dart';
 import 'desk_context_menu.dart';
 import 'file_drag_drop.dart';
 import 'file_icon_grid.dart';
-import 'path_status_bar.dart' show pathStatusBarKey;
 import 'marquee_selection.dart';
 
 final FileActionsService _actions = FileActionsService();
@@ -92,124 +93,24 @@ class _FileListViewState extends State<FileListView> {
     super.dispose();
   }
 
+  /// Editing and selection keys, dispatched from the command registry.
+  ///
+  /// These are deliberately focus-scoped rather than app-global: Cmd+A, Cmd+C
+  /// and Delete have to keep their normal meaning inside a text field, so they
+  /// only fire while the list itself holds focus and the centre pane is
+  /// showing files.
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final browser = context.read<BrowserProvider>();
-    if (browser.centerView != CenterView.files) return KeyEventResult.ignored;
-
-    final key = event.logicalKey;
-    final mod = HardwareKeyboard.instance.isMetaPressed ||
-        HardwareKeyboard.instance.isControlPressed;
-    final shift = HardwareKeyboard.instance.isShiftPressed;
-    final selected = _selectedEntries(browser);
-
-    if (mod) {
-      switch (key) {
-        case LogicalKeyboardKey.keyA:
-          browser.selectAll();
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.keyC:
-          if (selected.isEmpty) return KeyEventResult.ignored;
-          context
-              .read<FileOpsProvider>()
-              .copyToClipboard([for (final e in selected) e.path]);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.keyX:
-          if (selected.isEmpty) return KeyEventResult.ignored;
-          context
-              .read<FileOpsProvider>()
-              .cutToClipboard([for (final e in selected) e.path]);
-          return KeyEventResult.handled;
-        case LogicalKeyboardKey.keyV:
-          pasteIntoCurrentFolder(context, browser);
-          return KeyEventResult.handled;
-        // Cmd/Ctrl+L puts the status-bar path into edit mode — the Explorer
-        // and Nautilus binding.
-        case LogicalKeyboardKey.keyL:
-          pathStatusBarKey.currentState?.beginEditing();
-          return KeyEventResult.handled;
-        // Cmd/Ctrl+H toggles dotfiles, which needs a re-listing since the
-        // filter is applied natively during the directory read.
-        case LogicalKeyboardKey.keyH:
-          browser.setShowHidden(!browser.showHidden);
-          return KeyEventResult.handled;
-        // Cmd/Ctrl+Up goes to the parent folder.
-        case LogicalKeyboardKey.arrowUp:
-          browser.goUp();
-          return KeyEventResult.handled;
-      }
+    if (context.read<BrowserProvider>().centerView != CenterView.files) {
+      return KeyEventResult.ignored;
     }
-
-    switch (key) {
-      // Del / Backspace → Trash. With Shift, delete permanently.
-      case LogicalKeyboardKey.delete:
-      case LogicalKeyboardKey.backspace:
-        if (selected.isEmpty) return KeyEventResult.ignored;
-        confirmTrashAll(context, browser, selected, permanent: shift);
-        return KeyEventResult.handled;
-
-      case LogicalKeyboardKey.f2:
-        if (selected.length != 1) return KeyEventResult.ignored;
-        _renameEntry(context, browser, selected.first);
-        return KeyEventResult.handled;
-
-      // Enter opens: folders navigate, files launch in their default app.
-      case LogicalKeyboardKey.enter:
-      case LogicalKeyboardKey.numpadEnter:
-        if (selected.length != 1) return KeyEventResult.ignored;
-        final target = selected.first;
-        if (target.isDirectory) {
-          browser.navigateTo(target.path);
-        } else {
-          openFileInDefaultApp(context, browser, target);
-        }
-        return KeyEventResult.handled;
-
-      case LogicalKeyboardKey.space:
-        final sel = browser.primarySelection;
-        if (sel == null || sel.isDirectory) return KeyEventResult.ignored;
-        openFilePreview(context, browser, sel);
-        return KeyEventResult.handled;
-
-      case LogicalKeyboardKey.arrowUp:
-        _moveCursor(browser, -1, extend: shift);
-        return KeyEventResult.handled;
-      case LogicalKeyboardKey.arrowDown:
-        _moveCursor(browser, 1, extend: shift);
-        return KeyEventResult.handled;
-    }
-    return KeyEventResult.ignored;
-  }
-
-  /// Entries backing the current selection, in display order.
-  List<FileEntry> _selectedEntries(BrowserProvider browser) {
-    final paths = browser.selectedPaths;
-    if (paths.isEmpty) return const [];
-    return [
-      for (final e in browser.entries)
-        if (paths.contains(e.path)) e,
-    ];
-  }
-
-  /// Arrow-key navigation. Without Shift this replaces the selection; with
-  /// Shift it extends the range from the existing anchor.
-  void _moveCursor(BrowserProvider browser, int delta, {required bool extend}) {
-    final order = browser.entries;
-    if (order.isEmpty) return;
-
-    final current = browser.selectedPaths.isEmpty
-        ? -1
-        : order.indexWhere((e) => e.path == browser.selectedPaths.last);
-    // No selection yet: Down lands on the first row, Up on the last.
-    final next = current < 0
-        ? (delta > 0 ? 0 : order.length - 1)
-        : (current + delta).clamp(0, order.length - 1);
-
-    if (extend) {
-      browser.selectRange(order[next]);
-    } else {
-      browser.toggleSelect(order[next], additive: false);
-    }
+    final handled = dispatchCommandKey(
+      event,
+      CommandScope.fileList,
+      context: context,
+      host: CommandHost.maybeOf(context),
+    );
+    return handled ? KeyEventResult.handled : KeyEventResult.ignored;
   }
 
   @override
@@ -824,17 +725,17 @@ List<DeskMenuItem> _baseMenuItems(
       DeskMenuItem(
         label: 'Get Info',
         icon: CupertinoIcons.info_circle,
-        onTap: () => _showInfoDialog(context, target),
+        onTap: () => showInfoDialog(context, target),
       ),
       DeskMenuItem(
         label: 'Rename…',
         icon: CupertinoIcons.pencil,
-        onTap: () => _renameEntry(context, browser, target),
+        onTap: () => renameEntry(context, browser, target),
       ),
       DeskMenuItem(
         label: 'Duplicate',
         icon: CupertinoIcons.square_on_square,
-        onTap: () => _duplicateEntry(context, browser, target),
+        onTap: () => duplicateEntry(context, browser, target),
       ),
       DeskMenuItem.divider(),
       DeskMenuItem(
@@ -861,7 +762,7 @@ List<DeskMenuItem> _baseMenuItems(
       DeskMenuItem(
         label: _isIOS ? 'Open Parent Folder' : 'Reveal in Finder',
         icon: CupertinoIcons.arrow_up_right_diamond,
-        onTap: () => _revealEntry(context, browser, target),
+        onTap: () => revealEntry(context, browser, target),
       ),
       DeskMenuItem.divider(),
       DeskMenuItem(
@@ -890,13 +791,13 @@ List<DeskMenuItem> _baseMenuItems(
       label: 'New Folder',
       icon: CupertinoIcons.folder_badge_plus,
       enabled: browser.currentPath.isNotEmpty,
-      onTap: () => _newFolder(context, browser),
+      onTap: () => newFolderInFolder(context, browser),
     ),
     DeskMenuItem(
       label: 'New File',
       icon: CupertinoIcons.doc_text_search,
       enabled: browser.currentPath.isNotEmpty,
-      onTap: () => _newFile(context, browser),
+      onTap: () => newFileInFolder(context, browser),
     ),
     DeskMenuItem.divider(),
     DeskMenuItem(
@@ -917,7 +818,7 @@ List<DeskMenuItem> _baseMenuItems(
     DeskMenuItem(
       label: 'Show View Options',
       icon: CupertinoIcons.slider_horizontal_3,
-      onTap: () => _showViewOptions(context, browser),
+      onTap: () => showViewOptions(context, browser),
     ),
   ];
 }
@@ -992,7 +893,7 @@ List<DeskMenuItem> _sortSubmenu(BrowserProvider browser) {
 
 /// Creates an empty file in the current folder. Rust picks a collision-free
 /// name, so repeated use yields "untitled", "untitled copy", and so on.
-Future<void> _newFile(BuildContext context, BrowserProvider browser) async {
+Future<void> newFileInFolder(BuildContext context, BrowserProvider browser) async {
   final controller = TextEditingController(text: 'untitled.txt');
   final palette = AppColors.of(context);
   final name = await showCupertinoDialog<String?>(
@@ -1032,7 +933,7 @@ Future<void> _newFile(BuildContext context, BrowserProvider browser) async {
   await browser.refresh();
 }
 
-Future<void> _newFolder(BuildContext context, BrowserProvider browser) async {
+Future<void> newFolderInFolder(BuildContext context, BrowserProvider browser) async {
   final controller = TextEditingController(text: 'untitled folder');
   final palette = AppColors.of(context);
   final name = await showCupertinoDialog<String?>(
@@ -1082,7 +983,7 @@ Future<void> _newFolder(BuildContext context, BrowserProvider browser) async {
   }
 }
 
-void _showInfoDialog(BuildContext context, FileEntry entry) {
+void showInfoDialog(BuildContext context, FileEntry entry) {
   final palette = AppColors.of(context);
   String two(int n) => n.toString().padLeft(2, '0');
   final dt = entry.modified;
@@ -1176,7 +1077,7 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-void _showViewOptions(BuildContext context, BrowserProvider browser) {
+void showViewOptions(BuildContext context, BrowserProvider browser) {
   showCupertinoDialog<void>(
     context: context,
     builder: (ctx) {
@@ -1298,7 +1199,7 @@ class _ViewOptionsDialogState extends State<_ViewOptionsDialog> {
 // File action helpers (rename / duplicate / reveal / trash)
 // ──────────────────────────────────────────────────────────────────────
 
-Future<void> _renameEntry(
+Future<void> renameEntry(
   BuildContext context,
   BrowserProvider browser,
   FileEntry entry,
@@ -1341,7 +1242,7 @@ Future<void> _renameEntry(
   await browser.refresh();
 }
 
-Future<void> _duplicateEntry(
+Future<void> duplicateEntry(
   BuildContext context,
   BrowserProvider browser,
   FileEntry entry,
@@ -1359,7 +1260,7 @@ Future<void> _duplicateEntry(
   await browser.refresh();
 }
 
-Future<void> _revealEntry(
+Future<void> revealEntry(
   BuildContext context,
   BrowserProvider browser,
   FileEntry entry,

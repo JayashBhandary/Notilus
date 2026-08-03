@@ -10,6 +10,7 @@ import '../providers/browser_provider.dart';
 import '../services/thumbnail_service.dart';
 import '../theme.dart';
 import 'file_drag_drop.dart';
+import '../utils/gzipped_bytes.dart';
 import '../utils/responsive.dart';
 import 'file_list_view.dart' show openFilePreview, openFileInDefaultApp;
 import 'marquee_selection.dart';
@@ -376,20 +377,7 @@ class _SvgThumb extends StatelessWidget {
   final double size;
   final AppPalette palette;
 
-  Future<Uint8List> _bytes() async {
-    final raw = await File(entry.path).readAsBytes();
-    if (entry.name.toLowerCase().endsWith('.svgz') &&
-        raw.length >= 2 &&
-        raw[0] == 0x1F &&
-        raw[1] == 0x8B) {
-      try {
-        return Uint8List.fromList(gzip.decode(raw));
-      } catch (_) {
-        return raw;
-      }
-    }
-    return raw;
-  }
+  Future<Uint8List> _bytes() => readMaybeGzipped(entry.path);
 
   @override
   Widget build(BuildContext context) {

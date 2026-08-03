@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:archive/archive_io.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Material, SelectionArea;
@@ -14,8 +13,12 @@ import 'package:path/path.dart' as p;
 import 'package:pdfx/pdfx.dart';
 import 'package:video_player/video_player.dart';
 
+import '../commands/app_command.dart';
+import '../commands/command_registry.dart';
 import '../models/file_entry.dart';
+import '../services/native_core.dart' show ArchiveEntry, NativeCore;
 import '../theme.dart';
+import '../utils/gzipped_bytes.dart';
 
 /// Quick-Look-style full-screen viewer.
 ///
@@ -73,28 +76,21 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
     );
   }
 
+  /// Paging and info keys, dispatched from the command registry so the
+  /// shortcuts dialog can document them alongside everything else.
   KeyEventResult _onKey(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
-    final k = event.logicalKey;
-    if (k == LogicalKeyboardKey.arrowRight ||
-        k == LogicalKeyboardKey.arrowDown ||
-        k == LogicalKeyboardKey.space) {
-      _jump(1);
-      return KeyEventResult.handled;
-    }
-    if (k == LogicalKeyboardKey.arrowLeft || k == LogicalKeyboardKey.arrowUp) {
-      _jump(-1);
-      return KeyEventResult.handled;
-    }
-    if (k == LogicalKeyboardKey.escape) {
-      Navigator.of(context).maybePop();
-      return KeyEventResult.handled;
-    }
-    if (k == LogicalKeyboardKey.keyI) {
-      _showInfo();
-      return KeyEventResult.handled;
-    }
-    return KeyEventResult.ignored;
+    final handled = dispatchCommandKey(
+      event,
+      CommandScope.preview,
+      context: context,
+      preview: PreviewActions(
+        next: () => _jump(1),
+        previous: () => _jump(-1),
+        close: () => Navigator.of(context).maybePop(),
+        showInfo: _showInfo,
+      ),
+    );
+    return handled ? KeyEventResult.handled : KeyEventResult.ignored;
   }
 
   @override
@@ -469,13 +465,7 @@ class _SvgViewState extends State<_SvgView> {
     setState(() => _scale = 1.0);
   }
 
-  Future<Uint8List> _loadBytes() async {
-    final raw = await File(widget.file.path).readAsBytes();
-    if (widget.file.name.toLowerCase().endsWith('.svgz')) {
-      return Uint8List.fromList(GZipDecoder().decodeBytes(raw));
-    }
-    return raw;
-  }
+  Future<Uint8List> _loadBytes() => readMaybeGzipped(widget.file.path);
 
   @override
   Widget build(BuildContext context) {
@@ -1704,15 +1694,8 @@ class _ArchiveView extends StatefulWidget {
   State<_ArchiveView> createState() => _ArchiveViewState();
 }
 
-class _ArchiveEntry {
-  _ArchiveEntry(this.name, this.size, this.isDir);
-  final String name;
-  final int size;
-  final bool isDir;
-}
-
 class _ArchiveViewState extends State<_ArchiveView> {
-  Future<List<_ArchiveEntry>>? _future;
+  Future<List<ArchiveEntry>>? _future;
 
   @override
   void initState() {
@@ -1720,8 +1703,15 @@ class _ArchiveViewState extends State<_ArchiveView> {
     _future = _scan();
   }
 
-  Future<List<_ArchiveEntry>> _scan() =>
-      compute(_decodeArchive, widget.file.path);
+  /// Lists the archive in the Rust core, which returns entries already sorted
+  /// by name.
+  ///
+  /// This used to be a pure-Dart decode on a `compute` isolate, which had to
+  /// materialise the whole archive in memory and inflate it just to read the
+  /// entry table. The native path reads a zip's central directory instead, so
+  /// listing a multi-gigabyte archive touches a few KB.
+  Future<List<ArchiveEntry>> _scan() =>
+      NativeCore.instance.listArchive(widget.file.path);
 
   String _fmtSize(int b) {
     if (b < 1024) return '$b B';
@@ -1735,16 +1725,18 @@ class _ArchiveViewState extends State<_ArchiveView> {
   @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
-    return FutureBuilder<List<_ArchiveEntry>>(
+    return FutureBuilder<List<ArchiveEntry>>(
       future: _future,
       builder: (_, snap) {
         if (snap.connectionState != ConnectionState.done) {
           return const Center(child: CupertinoActivityIndicator());
         }
         if (snap.hasError) {
+          // The core's error is already a full sentence naming the path
+          // ("Couldn't read /x/y.zip: ..."), so prefixing it here would stutter.
           return _ErrorBox(
             icon: CupertinoIcons.archivebox,
-            message: 'Couldn\'t read this archive: ${snap.error}',
+            message: '${snap.error}',
             palette: palette,
           );
         }
@@ -1756,7 +1748,8 @@ class _ArchiveViewState extends State<_ArchiveView> {
             palette: palette,
           );
         }
-        final totalSize = entries.fold<int>(0, (a, b) => a + b.size);
+        // Sizes cross the FFI boundary as u64, so they arrive as BigInt.
+        final totalSize = entries.fold<int>(0, (a, b) => a + b.size.toInt());
         return ColoredBox(
           color: palette.scaffoldBg,
           child: Column(
@@ -1820,7 +1813,7 @@ class _ArchiveViewState extends State<_ArchiveView> {
                           ),
                           if (!e.isDir)
                             Text(
-                              _fmtSize(e.size),
+                              _fmtSize(e.size.toInt()),
                               style: TextStyle(
                                 fontSize: 11,
                                 color: palette.subtleText,
@@ -1838,51 +1831,6 @@ class _ArchiveViewState extends State<_ArchiveView> {
       },
     );
   }
-}
-
-/// Reads an archive at [path] and lists its entries.
-///
-/// Runs on a background isolate via [compute]. The pure-Dart inflate/bunzip2
-/// decoders are slow enough — and the whole file has to be materialised in
-/// memory to decode it — that doing this inline froze the UI for seconds on a
-/// large archive. Sync I/O is fine here: the isolate has nothing else to do.
-List<_ArchiveEntry> _decodeArchive(String path) {
-  final name = p.basename(path);
-  final lower = name.toLowerCase();
-  final bytes = File(path).readAsBytesSync();
-
-  Archive? archive;
-  try {
-    if (lower.endsWith('.zip') || lower.endsWith('.jar')) {
-      archive = ZipDecoder().decodeBytes(bytes);
-    } else if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) {
-      final gunz = GZipDecoder().decodeBytes(bytes);
-      archive = TarDecoder().decodeBytes(gunz);
-    } else if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2')) {
-      final bunz = BZip2Decoder().decodeBytes(bytes);
-      archive = TarDecoder().decodeBytes(bunz);
-    } else if (lower.endsWith('.tar')) {
-      archive = TarDecoder().decodeBytes(bytes);
-    } else if (lower.endsWith('.gz')) {
-      final gunz = GZipDecoder().decodeBytes(bytes);
-      return [
-        _ArchiveEntry(p.basenameWithoutExtension(name), gunz.length, false),
-      ];
-    } else if (lower.endsWith('.bz2')) {
-      final bunz = BZip2Decoder().decodeBytes(bytes);
-      return [
-        _ArchiveEntry(p.basenameWithoutExtension(name), bunz.length, false),
-      ];
-    }
-  } catch (e) {
-    throw 'Decode failed: $e';
-  }
-  if (archive == null) return const [];
-  final entries = archive
-      .map((f) => _ArchiveEntry(f.name, f.size, f.isFile == false))
-      .toList();
-  entries.sort((a, b) => a.name.compareTo(b.name));
-  return entries;
 }
 
 // ──────────────────────────────────────────────────────────────────────────

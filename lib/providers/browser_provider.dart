@@ -109,6 +109,19 @@ class BrowserProvider extends ChangeNotifier {
     return null;
   }
 
+  /// The selected entries in display order.
+  ///
+  /// Reads through [entries] rather than [selectedPaths] so callers get a
+  /// stable, on-screen ordering — a multi-file copy or trash should follow
+  /// what the user sees, not set iteration order.
+  List<FileEntry> get selectedEntries {
+    if (_selectedPaths.isEmpty) return const [];
+    return [
+      for (final e in entries)
+        if (_selectedPaths.contains(e.path)) e,
+    ];
+  }
+
   Future<void> init() async {
     _shortcuts = await _fileService.shortcuts();
     _drives = await _fileService.drives();
