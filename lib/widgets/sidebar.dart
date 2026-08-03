@@ -1,8 +1,8 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
-import 'package:flutter/material.dart' show Icons;
+import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../providers/browser_provider.dart';
 import '../services/file_service.dart';
@@ -33,6 +33,7 @@ class Sidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     final browser = context.watch<BrowserProvider>();
     final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final shortcuts = browser.shortcuts.entries
         .where((e) => e.value != null && e.value!.isNotEmpty)
         .toList();
@@ -62,7 +63,7 @@ class Sidebar extends StatelessWidget {
             const _SectionHeader(label: 'System'),
             _SidebarItem(
               label: 'System Overview',
-              icon: CupertinoIcons.gauge,
+              icon: LucideIcons.gauge,
               selected: browser.centerView == CenterView.systemOverview,
               onTap: () => after(
                 () => browser.showCenterView(CenterView.systemOverview),
@@ -70,7 +71,7 @@ class Sidebar extends StatelessWidget {
             ),
             _SidebarItem(
               label: 'Duplicate Finder',
-              icon: CupertinoIcons.doc_on_doc,
+              icon: LucideIcons.copy,
               selected: browser.centerView == CenterView.duplicates,
               onTap: () => after(
                 () => browser.showCenterView(CenterView.duplicates),
@@ -78,7 +79,7 @@ class Sidebar extends StatelessWidget {
             ),
             _SidebarItem(
               label: 'File Transfer',
-              icon: CupertinoIcons.arrow_up_arrow_down_circle,
+              icon: LucideIcons.arrowDownUp,
               selected: browser.centerView == CenterView.transfers,
               onTap: () => after(
                 () => browser.showCenterView(CenterView.transfers),
@@ -107,9 +108,10 @@ class Sidebar extends StatelessWidget {
                     vertical: 2,
                   ),
                   child: Icon(
-                    CupertinoIcons.arrow_clockwise,
+                    LucideIcons.refreshCw,
                     size: 12,
                     color: palette.sidebarHeader,
+                    semanticLabel: 'Refresh drives',
                   ),
                 ),
               ),
@@ -124,7 +126,7 @@ class Sidebar extends StatelessWidget {
                   'No drives detected',
                   style: TextStyle(
                     fontSize: 11,
-                    color: palette.subtleText,
+                    color: colors.mutedForeground,
                   ),
                 ),
               )
@@ -136,7 +138,7 @@ class Sidebar extends StatelessWidget {
                   label: d.name,
                   icon: _iconForDrive(d),
                   iconColor:
-                      d.isRoot ? palette.subtleText : palette.folderIcon,
+                      d.isRoot ? colors.mutedForeground : palette.folderIcon,
                   selected: selected,
                   onTap: () => after(() => browser.navigateTo(d.path)),
                 );
@@ -155,24 +157,20 @@ class Sidebar extends StatelessWidget {
   IconData _iconForShortcut(String name) {
     switch (name) {
       case 'Home':
-        return CupertinoIcons.house_fill;
+        return LucideIcons.house;
       case 'Desktop':
-        return CupertinoIcons.desktopcomputer;
+        return LucideIcons.monitor;
       case 'Documents':
-        return CupertinoIcons.doc_text_fill;
+        return LucideIcons.fileText;
       case 'Downloads':
-        return CupertinoIcons.arrow_down_circle_fill;
+        return LucideIcons.circleArrowDown;
       default:
-        return CupertinoIcons.folder_fill;
+        return LucideIcons.folder;
     }
   }
 
-  IconData _iconForDrive(DriveEntry d) {
-    if (d.isRoot) return CupertinoIcons.device_laptop;
-    // Material's storage icon reads as a stack of drives — closer to how
-    // Finder draws mounted volumes than the archivebox glyph.
-    return Icons.storage;
-  }
+  IconData _iconForDrive(DriveEntry d) =>
+      d.isRoot ? LucideIcons.laptop : LucideIcons.hardDrive;
 }
 
 class _TagSpec {
@@ -205,20 +203,23 @@ class _TagItemState extends State<_TagItem> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
+        // Intentionally inert: tag filtering does not exist yet (no tag field
+        // on FileEntry and nowhere to persist one). The rows are kept because
+        // they were already shipping, not because they do anything.
         onTap: () {},
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 6),
           padding:
               const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
-            color: _hover ? palette.sidebarHover : null,
+            color: _hover ? colors.accent : null,
             borderRadius: BorderRadius.circular(5),
           ),
           child: Row(
@@ -237,7 +238,7 @@ class _TagItemState extends State<_TagItem> {
                   widget.label,
                   style: TextStyle(
                     fontSize: 12.5,
-                    color: palette.text,
+                    color: colors.foreground,
                   ),
                 ),
               ),
@@ -304,12 +305,15 @@ class _SidebarItemState extends State<_SidebarItem> {
   @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
+    // sidebarSelected has no shadcn slot — colors.accent is the hover surface,
+    // so using it for both would erase the selected/hovered distinction.
     final bg = widget.selected
         ? palette.sidebarSelected
-        : (_hover ? palette.sidebarHover : null);
+        : (_hover ? colors.accent : null);
 
     final defaultIconColor =
-        widget.selected ? palette.accent : palette.subtleText;
+        widget.selected ? colors.primary : colors.mutedForeground;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -339,7 +343,7 @@ class _SidebarItemState extends State<_SidebarItem> {
                   widget.label,
                   style: TextStyle(
                     fontSize: 12.5,
-                    color: palette.text,
+                    color: colors.foreground,
                     fontWeight: widget.selected
                         ? FontWeight.w500
                         : FontWeight.normal,

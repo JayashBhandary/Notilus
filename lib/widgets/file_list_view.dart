@@ -6,12 +6,13 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../providers/file_ops_provider.dart';
 import '../services/native_core.dart';
-import '../screens/file_preview_screen.dart';
+import '../screens/preview/file_preview_screen.dart';
 import '../screens/transfer/send_to.dart';
 import '../services/file_actions_service.dart';
 import '../theme.dart';
@@ -796,7 +797,7 @@ List<DeskMenuItem> _baseMenuItems(
     fileItems.addAll([
       DeskMenuItem(
         label: 'Open',
-        icon: CupertinoIcons.arrow_up_right_square,
+        icon: LucideIcons.externalLink,
         onTap: () {
           if (isDir) {
             browser.navigateTo(target.path);
@@ -808,7 +809,7 @@ List<DeskMenuItem> _baseMenuItems(
       if (!isDir)
         DeskMenuItem(
           label: _isIOS ? 'Share…' : 'Open With',
-          icon: CupertinoIcons.square_arrow_up,
+          icon: LucideIcons.share2,
           submenu: _isIOS ? null : _openWithSubmenu(context, target),
           onTap: _isIOS
               ? () async => _actions.openWithChooser(target)
@@ -817,56 +818,56 @@ List<DeskMenuItem> _baseMenuItems(
       if (!isDir)
         DeskMenuItem(
           label: 'Send to…',
-          icon: CupertinoIcons.paperplane,
+          icon: LucideIcons.send,
           onTap: () => showSendToSheet(context, _sendPaths(browser, target)),
         ),
       DeskMenuItem.divider(),
       DeskMenuItem(
         label: 'Get Info',
-        icon: CupertinoIcons.info_circle,
+        icon: LucideIcons.info,
         onTap: () => _showInfoDialog(context, target),
       ),
       DeskMenuItem(
         label: 'Rename…',
-        icon: CupertinoIcons.pencil,
+        icon: LucideIcons.pencil,
         onTap: () => _renameEntry(context, browser, target),
       ),
       DeskMenuItem(
         label: 'Duplicate',
-        icon: CupertinoIcons.square_on_square,
+        icon: LucideIcons.copyPlus,
         onTap: () => _duplicateEntry(context, browser, target),
       ),
       DeskMenuItem.divider(),
       DeskMenuItem(
         label: _selectionLabel(browser, target, 'Copy'),
-        icon: CupertinoIcons.doc_on_doc,
+        icon: LucideIcons.copy,
         onTap: () => context
             .read<FileOpsProvider>()
             .copyToClipboard(_targetPaths(browser, target)),
       ),
       DeskMenuItem(
         label: _selectionLabel(browser, target, 'Cut'),
-        icon: CupertinoIcons.scissors,
+        icon: LucideIcons.scissors,
         onTap: () => context
             .read<FileOpsProvider>()
             .cutToClipboard(_targetPaths(browser, target)),
       ),
       DeskMenuItem(
         label: 'Copy Path',
-        icon: CupertinoIcons.doc_on_clipboard,
+        icon: LucideIcons.clipboard,
         onTap: () async {
           await _actions.copyPath(target);
         },
       ),
       DeskMenuItem(
         label: _isIOS ? 'Open Parent Folder' : 'Reveal in Finder',
-        icon: CupertinoIcons.arrow_up_right_diamond,
+        icon: LucideIcons.folderOpen,
         onTap: () => _revealEntry(context, browser, target),
       ),
       DeskMenuItem.divider(),
       DeskMenuItem(
         label: _isMacOS ? 'Move to Trash' : 'Delete',
-        icon: CupertinoIcons.trash,
+        icon: LucideIcons.trash,
         onTap: () => _confirmTrash(context, browser, target),
       ),
       DeskMenuItem.divider(),
@@ -881,20 +882,20 @@ List<DeskMenuItem> _baseMenuItems(
           ? 'Paste'
           : 'Paste ${pending.paths.length} Item'
               '${pending.paths.length == 1 ? '' : 's'}',
-      icon: CupertinoIcons.doc_on_clipboard_fill,
+      icon: LucideIcons.clipboardPaste,
       enabled: ops.hasClipboard && browser.currentPath.isNotEmpty,
       onTap: () => pasteIntoCurrentFolder(context, browser),
     ),
     DeskMenuItem.divider(),
     DeskMenuItem(
       label: 'New Folder',
-      icon: CupertinoIcons.folder_badge_plus,
+      icon: LucideIcons.folderPlus,
       enabled: browser.currentPath.isNotEmpty,
       onTap: () => _newFolder(context, browser),
     ),
     DeskMenuItem(
       label: 'New File',
-      icon: CupertinoIcons.doc_text_search,
+      icon: LucideIcons.filePlus,
       enabled: browser.currentPath.isNotEmpty,
       onTap: () => _newFile(context, browser),
     ),
@@ -916,7 +917,7 @@ List<DeskMenuItem> _baseMenuItems(
     DeskMenuItem.divider(),
     DeskMenuItem(
       label: 'Show View Options',
-      icon: CupertinoIcons.slider_horizontal_3,
+      icon: LucideIcons.settings2,
       onTap: () => _showViewOptions(context, browser),
     ),
   ];
@@ -951,7 +952,7 @@ List<DeskMenuItem> _openWithSubmenu(BuildContext context, FileEntry target) {
   return [
     DeskMenuItem(
       label: 'Default Application',
-      icon: CupertinoIcons.app,
+      icon: LucideIcons.appWindow,
       onTap: () async {
         final ok = await _actions.openInDefaultApp(target);
         if (!ok && context.mounted) _showError(context, 'Couldn\'t open.');
@@ -959,7 +960,7 @@ List<DeskMenuItem> _openWithSubmenu(BuildContext context, FileEntry target) {
     ),
     DeskMenuItem(
       label: 'Choose Application…',
-      icon: CupertinoIcons.app_badge,
+      icon: LucideIcons.ellipsis,
       onTap: () async {
         await _actions.openWithChooser(target);
       },
@@ -975,8 +976,8 @@ List<DeskMenuItem> _sortSubmenu(BrowserProvider browser) {
       checked: active,
       trailing: active
           ? (browser.sortAscending
-              ? CupertinoIcons.arrow_up
-              : CupertinoIcons.arrow_down)
+              ? LucideIcons.arrowUp
+              : LucideIcons.arrowDown)
           : null,
       onTap: () => browser.setSort(field),
     );
@@ -1177,13 +1178,43 @@ class _InfoRow extends StatelessWidget {
 }
 
 void _showViewOptions(BuildContext context, BrowserProvider browser) {
-  showCupertinoDialog<void>(
+  showShadDialog<void>(
     context: context,
-    builder: (ctx) {
-      return _ViewOptionsDialog(browser: browser);
-    },
+    builder: (ctx) => _ViewOptionsDialog(browser: browser),
   );
 }
+
+/// The three row densities the dialog offers.
+///
+/// The slider this replaced had nine positions but only ever reported three
+/// names, so most of a drag changed nothing the user could see. These are the
+/// values the old Compact/Default/Spacious thresholds already named.
+enum _Density {
+  compact('Compact', 0.85),
+  normal('Default', 1.0),
+  spacious('Spacious', 1.2);
+
+  const _Density(this.label, this.value);
+  final String label;
+  final double value;
+
+  /// Nearest step to a stored density, so a value written by the old slider
+  /// still lights up a button.
+  static _Density nearest(double v) {
+    var best = _Density.normal;
+    for (final d in _Density.values) {
+      if ((d.value - v).abs() < (best.value - v).abs()) best = d;
+    }
+    return best;
+  }
+}
+
+const Map<SortField, String> _sortFieldLabels = {
+  SortField.name: 'Name',
+  SortField.kind: 'Kind',
+  SortField.modified: 'Modified',
+  SortField.size: 'Size',
+};
 
 class _ViewOptionsDialog extends StatefulWidget {
   const _ViewOptionsDialog({required this.browser});
@@ -1196,101 +1227,141 @@ class _ViewOptionsDialog extends StatefulWidget {
 class _ViewOptionsDialogState extends State<_ViewOptionsDialog> {
   @override
   Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
+    // Listens to the provider it was handed rather than reading it from
+    // context: this is pushed on the root navigator, which in some hosts sits
+    // *above* the MultiProvider, so context.watch is not dependable here.
+    // Rebuilding off the object also means the controls reflect the real state
+    // even when something outside the dialog changes it.
+    return ListenableBuilder(
+      listenable: widget.browser,
+      builder: (context, _) => _build(context),
+    );
+  }
+
+  Widget _build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     final b = widget.browser;
-    return CupertinoAlertDialog(
+    final density = _Density.nearest(b.rowDensity);
+
+    return ShadDialog(
       title: const Text('View Options'),
-      content: Padding(
-        padding: const EdgeInsets.only(top: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(
-                  'Use Groups',
-                  style: TextStyle(fontSize: 13, color: palette.text),
-                ),
-                const Spacer(),
-                CupertinoSwitch(
-                  value: b.useGroups,
-                  onChanged: (v) {
-                    b.setUseGroups(v);
-                    setState(() {});
-                  },
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Sort by',
-              style: TextStyle(fontSize: 12, color: palette.subtleText),
-            ),
-            const SizedBox(height: 4),
-            CupertinoSlidingSegmentedControl<SortField>(
-              groupValue: b.sortField,
-              children: const {
-                SortField.name: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Text('Name', style: TextStyle(fontSize: 12)),
-                ),
-                SortField.kind: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Text('Kind', style: TextStyle(fontSize: 12)),
-                ),
-                SortField.modified: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Text('Modified', style: TextStyle(fontSize: 12)),
-                ),
-                SortField.size: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  child: Text('Size', style: TextStyle(fontSize: 12)),
-                ),
-              },
-              onValueChanged: (v) {
-                if (v != null) {
-                  if (b.sortField != v) b.setSort(v);
-                  setState(() {});
-                }
-              },
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Text(
-                  'Row density',
-                  style: TextStyle(fontSize: 12, color: palette.subtleText),
-                ),
-                const Spacer(),
-                Text(
-                  b.rowDensity < 0.95
-                      ? 'Compact'
-                      : (b.rowDensity > 1.1 ? 'Spacious' : 'Default'),
-                  style: TextStyle(fontSize: 12, color: palette.text),
-                ),
-              ],
-            ),
-            CupertinoSlider(
-              value: b.rowDensity,
-              min: 0.85,
-              max: 1.3,
-              divisions: 9,
-              onChanged: (v) {
-                b.setRowDensity(v);
-                setState(() {});
-              },
-            ),
-          ],
-        ),
-      ),
+      constraints: const BoxConstraints(maxWidth: 380),
       actions: [
-        CupertinoDialogAction(
-          isDefaultAction: true,
+        ShadButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Done'),
         ),
       ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Use Groups',
+                    style: TextStyle(fontSize: 13, color: colors.foreground),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ShadSwitch(
+                  value: b.useGroups,
+                  onChanged: b.setUseGroups,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _OptionLabel('Sort by', colors: colors),
+            const SizedBox(height: 6),
+            // Chips in a Wrap rather than a segmented control: the four labels
+            // did not fit the old dialog's width, so "Modified" rendered as
+            // "Modifi". These reflow onto another line instead of clipping.
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final entry in _sortFieldLabels.entries)
+                  _ChoiceChip(
+                    label: entry.value,
+                    selected: b.sortField == entry.key,
+                    // setSort() flips the direction when handed the field
+                    // already in use, so only call it on an actual change —
+                    // direction belongs to the context menu's Sort By submenu.
+                    onTap: () {
+                      if (b.sortField != entry.key) b.setSort(entry.key);
+                    },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _OptionLabel('Row density', colors: colors),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final d in _Density.values)
+                  _ChoiceChip(
+                    label: d.label,
+                    selected: density == d,
+                    onTap: () => b.setRowDensity(d.value),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
+  }
+}
+
+class _OptionLabel extends StatelessWidget {
+  const _OptionLabel(this.text, {required this.colors});
+  final String text;
+  final ShadColorScheme colors;
+
+  @override
+  Widget build(BuildContext context) => Align(
+        alignment: Alignment.centerLeft,
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: colors.foreground,
+          ),
+        ),
+      );
+}
+
+/// Single-select chip. [ShadBadge] carries the filled/outlined states and takes
+/// `onPressed` directly, so no gesture wrapper is needed.
+class _ChoiceChip extends StatelessWidget {
+  const _ChoiceChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Text(
+      label,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+      ),
+    );
+    return selected
+        ? ShadBadge(onPressed: onTap, child: text)
+        : ShadBadge.outline(onPressed: onTap, child: text);
   }
 }
 

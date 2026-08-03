@@ -1,13 +1,15 @@
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../models/transfer/contact.dart';
 import '../../providers/transfer_controller.dart';
 import '../../services/system_info_service.dart' show formatBytes;
 import '../../services/transfer/file_transfer.dart';
 import '../../theme.dart';
+import '../../widgets/shad_spinner.dart';
 
 /// Contacts + presence page (center view). Shows this machine's shareable
 /// identity (name, QR, code) and the saved peers with online/offline status.
@@ -17,13 +19,12 @@ class TransferScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.watch<TransferController>();
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
 
     Widget body;
     if (!t.isConfigured) {
-      body = _Hint(
-        palette: palette,
-        icon: CupertinoIcons.gear_alt,
+      body = const _Hint(
+        icon: LucideIcons.settings,
         title: 'Set up file transfer',
         message:
             'Fill in your Firebase details in\nlib/config/transfer_config.dart, '
@@ -31,49 +32,45 @@ class TransferScreen extends StatelessWidget {
       );
     } else if (t.error != null) {
       body = _Hint(
-        palette: palette,
-        icon: CupertinoIcons.exclamationmark_triangle,
+        icon: LucideIcons.triangleAlert,
         title: 'Couldn\'t connect',
         message: t.error!,
       );
     } else if (!t.ready) {
-      body = const Center(child: CupertinoActivityIndicator());
+      body = const Center(child: ShadSpinner(size: 22));
     } else {
-      body = _Ready(palette: palette);
+      body = const _Ready();
     }
 
-    return Container(color: palette.contentBg, child: body);
+    return Container(color: colors.background, child: body);
   }
 }
 
 class _Ready extends StatelessWidget {
-  const _Ready({required this.palette});
-  final AppPalette palette;
+  const _Ready();
 
   @override
   Widget build(BuildContext context) {
     final t = context.watch<TransferController>();
+    final colors = ShadTheme.of(context).colorScheme;
+    final sectionStyle = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w700,
+      letterSpacing: 0.3,
+      color: colors.mutedForeground,
+    );
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 40),
       children: [
-        _MyDeviceCard(palette: palette),
+        const _MyDeviceCard(),
         const SizedBox(height: 24),
         Row(
           children: [
-            Text(
-              'Contacts',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.3,
-                color: palette.subtleText,
-              ),
-            ),
+            Text('Contacts', style: sectionStyle),
             const Spacer(),
             _SmallButton(
-              icon: CupertinoIcons.person_add,
+              icon: LucideIcons.userPlus,
               label: 'Add',
-              palette: palette,
               onTap: () => _showAddContact(context),
             ),
           ],
@@ -85,40 +82,33 @@ class _Ready extends StatelessWidget {
             child: Text(
               'No contacts yet. Share your code with a friend, and paste '
               'theirs with “Add”.',
-              style: TextStyle(fontSize: 12.5, color: palette.subtleText, height: 1.4),
+              style: TextStyle(
+                fontSize: 12.5,
+                color: colors.mutedForeground,
+                height: 1.4,
+              ),
             ),
           )
         else
-          ...t.contacts.map((c) => _ContactTile(contact: c, palette: palette)),
+          ...t.contacts.map((c) => _ContactTile(contact: c)),
         if (t.transfers.isNotEmpty) ...[
           const SizedBox(height: 24),
           Row(
             children: [
-              Text(
-                'Transfers',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.3,
-                  color: palette.subtleText,
-                ),
-              ),
+              Text('Transfers', style: sectionStyle),
               const Spacer(),
               if (t.transfers.values.any((p) => p.isFinished))
                 _SmallButton(
-                  icon: CupertinoIcons.clear,
+                  icon: LucideIcons.x,
                   label: 'Clear finished',
-                  palette: palette,
                   onTap: t.clearFinishedTransfers,
                 ),
             ],
           ),
           const SizedBox(height: 8),
-          ...t.transfers.entries.map((e) => _TransferTile(
-                sessionId: e.key,
-                progress: e.value,
-                palette: palette,
-              )),
+          ...t.transfers.entries.map(
+            (e) => _TransferTile(sessionId: e.key, progress: e.value),
+          ),
         ],
       ],
     );
@@ -128,105 +118,103 @@ class _Ready extends StatelessWidget {
 /// One live or finished transfer: direction, overall bar, per-file lines, and a
 /// cancel button while it's still running.
 class _TransferTile extends StatelessWidget {
-  const _TransferTile({
-    required this.sessionId,
-    required this.progress,
-    required this.palette,
-  });
+  const _TransferTile({required this.sessionId, required this.progress});
 
   final String sessionId;
   final BatchProgress progress;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final active = !progress.isFinished;
     final n = progress.fileCount;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: palette.cardBg,
-        border: Border.all(color: palette.divider),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(
-                progress.sending
-                    ? CupertinoIcons.arrow_up_circle
-                    : CupertinoIcons.arrow_down_circle,
-                size: 16,
-                color: palette.accent,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '${progress.sending ? 'Sending' : 'Receiving'} '
-                  '$n file${n == 1 ? '' : 's'} · ${formatBytes(progress.totalBytes)}',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: palette.text,
-                  ),
-                ),
-              ),
-              Text(
-                _statusLabel(progress.status),
-                style: TextStyle(
-                  fontSize: 11,
-                  color: _statusColor(progress.status, palette),
-                ),
-              ),
-              if (active)
-                _IconTap(
-                  icon: CupertinoIcons.xmark_circle,
-                  palette: palette,
-                  onTap: () =>
-                      context.read<TransferController>().cancelTransfer(sessionId),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          _Bar(fraction: progress.fraction, palette: palette),
-          if (progress.error != null) ...[
-            const SizedBox(height: 6),
-            Text(
-              progress.error!,
-              style: const TextStyle(
-                fontSize: 11.5,
-                color: CupertinoColors.systemRed,
-              ),
-            ),
-          ],
-          for (final f in progress.files) ...[
-            const SizedBox(height: 6),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: ShadCard(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
             Row(
               children: [
-                Expanded(
-                  child: Text(
-                    f.name,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11.5, color: palette.subtleText),
-                  ),
+                Icon(
+                  progress.sending
+                      ? LucideIcons.circleArrowUp
+                      : LucideIcons.circleArrowDown,
+                  size: 16,
+                  color: colors.primary,
                 ),
                 const SizedBox(width: 8),
-                Text(
-                  f.error ?? '${(f.fraction * 100).round()}%',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: f.status == TransferStatus.failed
-                        ? CupertinoColors.systemRed
-                        : palette.subtleText,
+                Expanded(
+                  child: Text(
+                    '${progress.sending ? 'Sending' : 'Receiving'} '
+                    '$n file${n == 1 ? '' : 's'} · ${formatBytes(progress.totalBytes)}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: colors.foreground,
+                    ),
                   ),
                 ),
+                Text(
+                  _statusLabel(progress.status),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: _statusColor(progress.status, palette, colors),
+                  ),
+                ),
+                if (active)
+                  _IconTap(
+                    icon: LucideIcons.circleX,
+                    onTap: () => context
+                        .read<TransferController>()
+                        .cancelTransfer(sessionId),
+                  ),
               ],
             ),
+            const SizedBox(height: 8),
+            ShadProgress(
+              value: progress.fraction.clamp(0.0, 1.0),
+              minHeight: 5,
+            ),
+            if (progress.error != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                progress.error!,
+                style: TextStyle(fontSize: 11.5, color: colors.destructive),
+              ),
+            ],
+            for (final f in progress.files) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      f.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: colors.mutedForeground,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    f.error ?? '${(f.fraction * 100).round()}%',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: f.status == TransferStatus.failed
+                          ? colors.destructive
+                          : colors.mutedForeground,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -239,48 +227,29 @@ class _TransferTile extends StatelessWidget {
         TransferStatus.cancelled => 'Cancelled',
       };
 
-  static Color _statusColor(TransferStatus s, AppPalette palette) => switch (s) {
+  static Color _statusColor(
+    TransferStatus s,
+    AppPalette palette,
+    ShadColorScheme colors,
+  ) =>
+      switch (s) {
         TransferStatus.done => palette.success,
-        TransferStatus.failed => CupertinoColors.systemRed,
-        TransferStatus.cancelled => palette.subtleText,
-        _ => palette.accent,
+        TransferStatus.failed => colors.destructive,
+        TransferStatus.cancelled => colors.mutedForeground,
+        _ => colors.primary,
       };
 }
 
-class _Bar extends StatelessWidget {
-  const _Bar({required this.fraction, required this.palette});
-  final double fraction;
-  final AppPalette palette;
-  @override
-  Widget build(BuildContext context) => ClipRRect(
-        borderRadius: BorderRadius.circular(3),
-        child: Container(
-          height: 5,
-          color: palette.divider,
-          child: FractionallySizedBox(
-            alignment: Alignment.centerLeft,
-            widthFactor: fraction.clamp(0.0, 1.0),
-            child: Container(color: palette.accent),
-          ),
-        ),
-      );
-}
-
 class _MyDeviceCard extends StatelessWidget {
-  const _MyDeviceCard({required this.palette});
-  final AppPalette palette;
+  const _MyDeviceCard();
 
   @override
   Widget build(BuildContext context) {
     final t = context.watch<TransferController>();
+    final colors = ShadTheme.of(context).colorScheme;
     final code = t.myCode ?? '';
-    return Container(
+    return ShadCard(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: palette.cardBg,
-        border: Border.all(color: palette.divider),
-        borderRadius: BorderRadius.circular(12),
-      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -307,11 +276,14 @@ class _MyDeviceCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    _Dot(online: true, palette: palette),
+                    const _Dot(online: true),
                     const SizedBox(width: 6),
                     Text(
                       'This device',
-                      style: TextStyle(fontSize: 11, color: palette.subtleText),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.mutedForeground,
+                      ),
                     ),
                   ],
                 ),
@@ -325,14 +297,14 @@ class _MyDeviceCard extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w600,
-                          color: palette.text,
+                          color: colors.foreground,
                         ),
                       ),
                     ),
                     const SizedBox(width: 4),
                     _IconTap(
-                      icon: CupertinoIcons.pencil,
-                      palette: palette,
+                      icon: LucideIcons.pencil,
+                      tooltip: 'Rename this device',
                       onTap: () => _showEditName(context, t.myName),
                     ),
                   ],
@@ -340,10 +312,13 @@ class _MyDeviceCard extends StatelessWidget {
                 const SizedBox(height: 12),
                 Text(
                   'Your machine code — share it so friends can add you:',
-                  style: TextStyle(fontSize: 11, color: palette.subtleText),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colors.mutedForeground,
+                  ),
                 ),
                 const SizedBox(height: 6),
-                _CodeBox(code: code, palette: palette),
+                _CodeBox(code: code),
               ],
             ),
           ),
@@ -354,18 +329,19 @@ class _MyDeviceCard extends StatelessWidget {
 }
 
 class _CodeBox extends StatelessWidget {
-  const _CodeBox({required this.code, required this.palette});
+  const _CodeBox({required this.code});
   final String code;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
     return Container(
       padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
       decoration: BoxDecoration(
-        color: palette.contentBg,
-        border: Border.all(color: palette.divider),
-        borderRadius: BorderRadius.circular(8),
+        color: colors.background,
+        border: Border.all(color: colors.border),
+        borderRadius: theme.radius,
       ),
       child: Row(
         children: [
@@ -378,13 +354,13 @@ class _CodeBox extends StatelessWidget {
                 fontSize: 13,
                 fontFamily: 'Menlo',
                 fontWeight: FontWeight.w600,
-                color: palette.text,
+                color: colors.foreground,
               ),
             ),
           ),
           _IconTap(
-            icon: CupertinoIcons.doc_on_doc,
-            palette: palette,
+            icon: LucideIcons.copy,
+            tooltip: 'Copy code',
             onTap: () async {
               await Clipboard.setData(ClipboardData(text: code));
             },
@@ -395,57 +371,136 @@ class _CodeBox extends StatelessWidget {
   }
 }
 
-class _ContactTile extends StatelessWidget {
-  const _ContactTile({required this.contact, required this.palette});
+/// A saved peer. Stateful only to own the overflow popover's controller — the
+/// menu anchors to the … button, so it has to live in the tree beside it rather
+/// than being pushed as a route the way the old action sheet was.
+class _ContactTile extends StatefulWidget {
+  const _ContactTile({required this.contact});
   final Contact contact;
-  final AppPalette palette;
+
+  @override
+  State<_ContactTile> createState() => _ContactTileState();
+}
+
+class _ContactTileState extends State<_ContactTile> {
+  final _menu = ShadPopoverController();
+
+  @override
+  void dispose() {
+    _menu.dispose();
+    super.dispose();
+  }
+
+  Future<void> _rename() async {
+    _menu.hide();
+    final name = await _promptForName(
+      context,
+      title: 'Rename contact',
+      initial: widget.contact.name,
+    );
+    if (name == null || !mounted) return;
+    await context
+        .read<TransferController>()
+        .renameContact(widget.contact.code, name);
+  }
+
+  Future<void> _remove() async {
+    _menu.hide();
+    await context.read<TransferController>().removeContact(widget.contact.code);
+  }
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final t = context.watch<TransferController>();
-    final online = t.isOnline(contact.code);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: palette.cardBg,
-        border: Border.all(color: palette.divider),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          _Dot(online: online, palette: palette),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  contact.name,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: palette.text,
+    final online = t.isOnline(widget.contact.code);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: ShadCard(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            _Dot(online: online),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.contact.name,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: colors.foreground,
+                    ),
                   ),
-                ),
-                Text(
-                  '${online ? 'Online' : 'Offline'} · ${contact.code}',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontFamily: 'Menlo',
-                    color: online ? palette.success : palette.subtleText,
+                  Text(
+                    '${online ? 'Online' : 'Offline'} · ${widget.contact.code}',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'Menlo',
+                      color: online
+                          ? palette.success
+                          : colors.mutedForeground,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          _IconTap(
-            icon: CupertinoIcons.ellipsis,
-            palette: palette,
-            onTap: () => _showContactActions(context, contact),
-          ),
-        ],
+            ShadPopover(
+              controller: _menu,
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              popover: (_) => SizedBox(
+                width: 150,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _MenuItem(label: 'Rename', onPressed: _rename),
+                    _MenuItem(
+                      label: 'Remove',
+                      destructive: true,
+                      onPressed: _remove,
+                    ),
+                  ],
+                ),
+              ),
+              child: _IconTap(
+                icon: LucideIcons.ellipsis,
+                tooltip: 'More',
+                onTap: _menu.toggle,
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// One row of the contact overflow popover. Left-aligned and full-width, which
+/// `ShadButton.ghost` does not do by default.
+class _MenuItem extends StatelessWidget {
+  const _MenuItem({
+    required this.label,
+    required this.onPressed,
+    this.destructive = false,
+  });
+  final String label;
+  final VoidCallback onPressed;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    return ShadButton.ghost(
+      onPressed: onPressed,
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      mainAxisAlignment: MainAxisAlignment.start,
+      foregroundColor: destructive ? colors.destructive : colors.foreground,
+      child: Text(label, style: const TextStyle(fontSize: 13)),
     );
   }
 }
@@ -453,168 +508,200 @@ class _ContactTile extends StatelessWidget {
 // ── small shared bits ─────────────────────────────────────────────────────
 
 class _Dot extends StatelessWidget {
-  const _Dot({required this.online, required this.palette});
+  const _Dot({required this.online});
   final bool online;
-  final AppPalette palette;
   @override
-  Widget build(BuildContext context) => Container(
-        width: 9,
-        height: 9,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: online ? palette.success : palette.subtleText.withValues(alpha: 0.4),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
+    return Container(
+      width: 9,
+      height: 9,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: online
+            ? palette.success
+            : colors.mutedForeground.withValues(alpha: 0.4),
+      ),
+    );
+  }
 }
 
 class _IconTap extends StatelessWidget {
-  const _IconTap({required this.icon, required this.palette, required this.onTap});
+  const _IconTap({required this.icon, required this.onTap, this.tooltip});
   final IconData icon;
-  final AppPalette palette;
   final VoidCallback onTap;
+  final String? tooltip;
+
   @override
-  Widget build(BuildContext context) => CupertinoButton(
-        padding: const EdgeInsets.all(6),
-        minimumSize: Size.zero,
-        onPressed: onTap,
-        child: Icon(icon, size: 16, color: palette.subtleText),
-      );
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    final button = ShadIconButton.ghost(
+      width: 28,
+      height: 28,
+      padding: EdgeInsets.zero,
+      iconSize: 16,
+      foregroundColor: colors.mutedForeground,
+      onPressed: onTap,
+      icon: Icon(icon),
+    );
+    if (tooltip == null) return button;
+    return ShadTooltip(
+      builder: (_) => Text(tooltip!, style: const TextStyle(fontSize: 11.5)),
+      child: button,
+    );
+  }
 }
 
 class _SmallButton extends StatelessWidget {
   const _SmallButton({
     required this.icon,
     required this.label,
-    required this.palette,
     required this.onTap,
   });
   final IconData icon;
   final String label;
-  final AppPalette palette;
   final VoidCallback onTap;
+
   @override
-  Widget build(BuildContext context) => CupertinoButton(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        minimumSize: Size.zero,
+  Widget build(BuildContext context) => ShadButton.ghost(
         onPressed: onTap,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 14, color: palette.accent),
-            const SizedBox(width: 5),
-            Text(label, style: TextStyle(fontSize: 13, color: palette.accent)),
-          ],
-        ),
+        height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        leading: Icon(icon, size: 14),
+        child: Text(label, style: const TextStyle(fontSize: 13)),
       );
 }
 
+/// Full-pane empty/error state. Deliberately a centered column rather than a
+/// [ShadAlert]: an alert is an inline callout strip, which reads as a banner
+/// floating in dead space when it is the only thing in the pane.
 class _Hint extends StatelessWidget {
   const _Hint({
-    required this.palette,
     required this.icon,
     required this.title,
     required this.message,
   });
-  final AppPalette palette;
   final IconData icon;
   final String title;
   final String message;
+
   @override
-  Widget build(BuildContext context) => Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, size: 34, color: palette.subtleText),
-              const SizedBox(height: 12),
-              Text(
-                title,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: palette.text,
-                ),
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 34, color: colors.mutedForeground),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: colors.foreground,
               ),
-              const SizedBox(height: 8),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12.5, color: palette.subtleText, height: 1.5),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: colors.mutedForeground,
+                height: 1.5,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
-      );
+      ),
+    );
+  }
 }
 
-// ── dialogs / action sheets ────────────────────────────────────────────────
+// ── dialogs ───────────────────────────────────────────────────────────────
 
-Future<void> _showEditName(BuildContext context, String current) async {
-  final controller = TextEditingController(text: current);
-  final name = await showCupertinoDialog<String>(
+/// Shared single-field name prompt, used by both "rename this device" and
+/// "rename contact". Returns null on cancel or when the field is left blank.
+Future<String?> _promptForName(
+  BuildContext context, {
+  required String title,
+  required String initial,
+}) async {
+  final controller = TextEditingController(text: initial);
+  final name = await showShadDialog<String>(
     context: context,
-    builder: (ctx) => CupertinoAlertDialog(
-      title: const Text('Device name'),
-      content: Padding(
-        padding: const EdgeInsets.only(top: 10),
-        child: CupertinoTextField(controller: controller, autofocus: true),
-      ),
+    builder: (ctx) => ShadDialog.alert(
+      title: Text(title),
       actions: [
-        CupertinoDialogAction(
+        ShadButton.outline(
           onPressed: () => Navigator.pop(ctx),
           child: const Text('Cancel'),
         ),
-        CupertinoDialogAction(
-          isDefaultAction: true,
+        ShadButton(
           onPressed: () => Navigator.pop(ctx, controller.text),
           child: const Text('Save'),
         ),
       ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: ShadInput(controller: controller, autofocus: true),
+      ),
     ),
   );
-  if (name != null && name.trim().isNotEmpty && context.mounted) {
-    await context.read<TransferController>().setDisplayName(name);
-  }
+  final trimmed = name?.trim();
+  return (trimmed == null || trimmed.isEmpty) ? null : name;
+}
+
+Future<void> _showEditName(BuildContext context, String current) async {
+  final name = await _promptForName(
+    context,
+    title: 'Device name',
+    initial: current,
+  );
+  if (name == null || !context.mounted) return;
+  await context.read<TransferController>().setDisplayName(name);
 }
 
 Future<void> _showAddContact(BuildContext context) async {
   final nameCtl = TextEditingController();
   final codeCtl = TextEditingController();
-  final result = await showCupertinoDialog<bool>(
+  final result = await showShadDialog<bool>(
     context: context,
-    builder: (ctx) => CupertinoAlertDialog(
+    builder: (ctx) => ShadDialog.alert(
       title: const Text('Add contact'),
-      content: Padding(
-        padding: const EdgeInsets.only(top: 10),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CupertinoTextField(
-              controller: nameCtl,
-              placeholder: 'Name (e.g. Bob’s laptop)',
-              autofocus: true,
-            ),
-            const SizedBox(height: 8),
-            CupertinoTextField(
-              controller: codeCtl,
-              placeholder: 'Their machine code (a2:b1:c4:…)',
-              maxLines: 1,
-            ),
-          ],
-        ),
-      ),
       actions: [
-        CupertinoDialogAction(
+        ShadButton.outline(
           onPressed: () => Navigator.pop(ctx, false),
           child: const Text('Cancel'),
         ),
-        CupertinoDialogAction(
-          isDefaultAction: true,
+        ShadButton(
           onPressed: () => Navigator.pop(ctx, true),
           child: const Text('Add'),
         ),
       ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ShadInput(
+              controller: nameCtl,
+              placeholder: const Text('Name (e.g. Bob’s laptop)'),
+              autofocus: true,
+            ),
+            const SizedBox(height: 8),
+            ShadInput(
+              controller: codeCtl,
+              placeholder: const Text('Their machine code (a2:b1:c4:…)'),
+            ),
+          ],
+        ),
+      ),
     ),
   );
   if (result != true || !context.mounted) return;
@@ -622,29 +709,26 @@ Future<void> _showAddContact(BuildContext context) async {
   // Resolving a code hits the network (LAN broadcast, then Firebase), so show a
   // brief spinner while we look the peer up.
   final ctrl = context.read<TransferController>();
-  showCupertinoDialog<void>(
+  showShadDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => const CupertinoAlertDialog(
-      content: Padding(
-        padding: EdgeInsets.only(top: 8),
-        child: CupertinoActivityIndicator(),
+    builder: (_) => const ShadDialog.alert(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Center(child: ShadSpinner(size: 22)),
       ),
     ),
   );
   final err = await ctrl.addByCode(codeCtl.text, name: nameCtl.text);
   if (context.mounted) Navigator.of(context, rootNavigator: true).pop(); // spinner
   if (err != null && context.mounted) {
-    await showCupertinoDialog<void>(
+    await showShadDialog<void>(
       context: context,
-      builder: (ctx) => CupertinoAlertDialog(
+      builder: (ctx) => ShadDialog.alert(
         title: const Text('Couldn’t add contact'),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Text(err),
-        ),
+        description: Text(err),
         actions: [
-          CupertinoDialogAction(
+          ShadButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('OK'),
           ),
@@ -653,59 +737,3 @@ Future<void> _showAddContact(BuildContext context) async {
     );
   }
 }
-
-Future<void> _showContactActions(BuildContext context, Contact contact) async {
-  final action = await showCupertinoModalPopup<String>(
-    context: context,
-    builder: (ctx) => CupertinoActionSheet(
-      title: Text(contact.name),
-      actions: [
-        CupertinoActionSheetAction(
-          onPressed: () => Navigator.pop(ctx, 'rename'),
-          child: const Text('Rename'),
-        ),
-        CupertinoActionSheetAction(
-          isDestructiveAction: true,
-          onPressed: () => Navigator.pop(ctx, 'remove'),
-          child: const Text('Remove'),
-        ),
-      ],
-      cancelButton: CupertinoActionSheetAction(
-        onPressed: () => Navigator.pop(ctx),
-        child: const Text('Cancel'),
-      ),
-    ),
-  );
-  if (!context.mounted) return;
-  final ctrl = context.read<TransferController>();
-  if (action == 'remove') {
-    await ctrl.removeContact(contact.code);
-  } else if (action == 'rename') {
-    final nameCtl = TextEditingController(text: contact.name);
-    final name = await showCupertinoDialog<String>(
-      context: context,
-      builder: (ctx) => CupertinoAlertDialog(
-        title: const Text('Rename contact'),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 10),
-          child: CupertinoTextField(controller: nameCtl, autofocus: true),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            onPressed: () => Navigator.pop(ctx, nameCtl.text),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    if (name != null && name.trim().isNotEmpty) {
-      await ctrl.renameContact(contact.code, name);
-    }
-  }
-}
-

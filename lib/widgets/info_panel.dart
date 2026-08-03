@@ -1,11 +1,13 @@
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
+import '../services/system_info_service.dart' show formatBytes;
 import '../theme.dart';
 
 class InfoPanel extends StatelessWidget {
@@ -14,41 +16,37 @@ class InfoPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final browser = context.watch<BrowserProvider>();
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final entry = browser.primarySelection;
 
     return ColoredBox(
-      color: palette.contentBg,
+      color: colors.background,
       child: entry == null
-          ? _EmptyState(palette: palette)
-          : _Details(entry: entry, palette: palette),
+          ? const _EmptyState()
+          : _Details(entry: entry),
     );
   }
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.palette});
-  final AppPalette palette;
+  const _EmptyState();
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              CupertinoIcons.info_circle,
-              size: 32,
-              color: palette.subtleText,
-            ),
+            Icon(LucideIcons.info, size: 32, color: colors.mutedForeground),
             const SizedBox(height: 10),
             Text(
               'Select a file to see details',
               style: TextStyle(
                 fontSize: 13,
-                color: palette.subtleText,
+                color: colors.mutedForeground,
               ),
             ),
           ],
@@ -59,18 +57,8 @@ class _EmptyState extends StatelessWidget {
 }
 
 class _Details extends StatelessWidget {
-  const _Details({required this.entry, required this.palette});
+  const _Details({required this.entry});
   final FileEntry entry;
-  final AppPalette palette;
-
-  String _formatSize(int b) {
-    if (b < 1024) return '$b bytes';
-    if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB';
-    if (b < 1024 * 1024 * 1024) {
-      return '${(b / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(b / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
 
   String _formatDate(DateTime dt) {
     String two(int n) => n.toString().padLeft(2, '0');
@@ -91,6 +79,7 @@ class _Details extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     final ext = entry.extension;
     final modified = _formatDate(entry.modified);
 
@@ -100,9 +89,7 @@ class _Details extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // Preview
-          Center(
-            child: _Preview(entry: entry, palette: palette),
-          ),
+          Center(child: _Preview(entry: entry)),
           const SizedBox(height: 14),
           // Name (bold, centered)
           Text(
@@ -111,7 +98,7 @@ class _Details extends StatelessWidget {
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: palette.text,
+              color: colors.foreground,
             ),
           ),
           const SizedBox(height: 4),
@@ -119,42 +106,30 @@ class _Details extends StatelessWidget {
           Text(
             entry.isDirectory
                 ? _kind()
-                : '${_kind()} — ${_formatSize(entry.size)}',
+                : '${_kind()} — ${formatBytes(entry.size)}',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 11,
-              color: palette.subtleText,
+              color: colors.mutedForeground,
             ),
           ),
           const SizedBox(height: 20),
           // Information section
-          _SectionLabel('Information', palette: palette),
+          const _SectionLabel('Information'),
           const SizedBox(height: 6),
-          _Row(label: 'Modified', value: modified, palette: palette),
-          _Row(
-            label: 'Where',
-            value: p.dirname(entry.path),
-            palette: palette,
-            wrap: true,
-          ),
-          _Row(label: 'Kind', value: _kind(), palette: palette),
+          _Row(label: 'Modified', value: modified),
+          _Row(label: 'Where', value: p.dirname(entry.path), wrap: true),
+          _Row(label: 'Kind', value: _kind()),
           if (!entry.isDirectory)
-            _Row(
-              label: 'Size',
-              value: _formatSize(entry.size),
-              palette: palette,
-            ),
-          if (ext.isNotEmpty)
-            _Row(label: 'Extension', value: ext, palette: palette),
+            _Row(label: 'Size', value: formatBytes(entry.size)),
+          if (ext.isNotEmpty) _Row(label: 'Extension', value: ext),
           const SizedBox(height: 16),
-          _SectionLabel('Tags', palette: palette),
+          const _SectionLabel('Tags'),
           const SizedBox(height: 8),
+          // Inert, like the sidebar's Tags rows — there is no tag storage yet.
           Text(
             'Add Tags…',
-            style: TextStyle(
-              fontSize: 12,
-              color: palette.subtleText,
-            ),
+            style: TextStyle(fontSize: 12, color: colors.mutedForeground),
           ),
         ],
       ),
@@ -163,23 +138,19 @@ class _Details extends StatelessWidget {
 }
 
 class _Preview extends StatelessWidget {
-  const _Preview({required this.entry, required this.palette});
+  const _Preview({required this.entry});
   final FileEntry entry;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
     const size = 168.0;
     if (entry.isDirectory) {
       return SizedBox(
         width: size,
         height: size,
         child: Center(
-          child: Icon(
-            CupertinoIcons.folder_fill,
-            size: 140,
-            color: palette.folderIcon,
-          ),
+          child: Icon(LucideIcons.folder, size: 132, color: palette.folderIcon),
         ),
       );
     }
@@ -192,14 +163,22 @@ class _Preview extends StatelessWidget {
           height: size,
           fit: BoxFit.contain,
           cacheWidth: 400,
-          errorBuilder: (_, __, ___) => _placeholder(),
+          errorBuilder: (_, __, ___) => _Placeholder(entry: entry),
         ),
       );
     }
-    return _placeholder();
+    return _Placeholder(entry: entry);
   }
+}
 
-  Widget _placeholder() {
+class _Placeholder extends StatelessWidget {
+  const _Placeholder({required this.entry});
+  final FileEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
     final label = entry.extension.isEmpty
         ? ''
         : entry.extension.substring(1).toUpperCase();
@@ -207,18 +186,14 @@ class _Preview extends StatelessWidget {
       width: 168,
       height: 168,
       decoration: BoxDecoration(
-        color: palette.cardBg,
-        border: Border.all(color: palette.divider),
+        color: colors.muted,
+        border: Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            CupertinoIcons.doc,
-            size: 80,
-            color: palette.subtleText,
-          ),
+          Icon(LucideIcons.file, size: 72, color: colors.mutedForeground),
           if (label.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text(
@@ -226,7 +201,7 @@ class _Preview extends StatelessWidget {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: palette.subtleText,
+                color: colors.mutedForeground,
                 letterSpacing: 0.4,
               ),
             ),
@@ -238,9 +213,8 @@ class _Preview extends StatelessWidget {
 }
 
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text, {required this.palette});
+  const _SectionLabel(this.text);
   final String text;
-  final AppPalette palette;
   @override
   Widget build(BuildContext context) {
     return Text(
@@ -248,7 +222,7 @@ class _SectionLabel extends StatelessWidget {
       style: TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.w600,
-        color: palette.text,
+        color: ShadTheme.of(context).colorScheme.foreground,
         letterSpacing: 0.3,
       ),
     );
@@ -259,17 +233,16 @@ class _Row extends StatelessWidget {
   const _Row({
     required this.label,
     required this.value,
-    required this.palette,
     this.wrap = false,
   });
 
   final String label;
   final String value;
-  final AppPalette palette;
   final bool wrap;
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
@@ -282,7 +255,7 @@ class _Row extends StatelessWidget {
               textAlign: TextAlign.right,
               style: TextStyle(
                 fontSize: 11,
-                color: palette.subtleText,
+                color: colors.mutedForeground,
               ),
             ),
           ),
@@ -291,12 +264,8 @@ class _Row extends StatelessWidget {
             child: Text(
               value,
               maxLines: wrap ? 3 : 1,
-              overflow:
-                  wrap ? TextOverflow.ellipsis : TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 11,
-                color: palette.text,
-              ),
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11, color: colors.foreground),
             ),
           ),
         ],

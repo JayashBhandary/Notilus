@@ -1,9 +1,10 @@
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../providers/browser_provider.dart';
 import '../providers/search_provider.dart';
@@ -40,7 +41,7 @@ class _FilesPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final searching = context.select<SearchProvider, bool>((s) => s.isActive);
 
     return Column(
@@ -48,8 +49,8 @@ class _FilesPane extends StatelessWidget {
         Container(
           padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
           decoration: BoxDecoration(
-            color: palette.headerBg,
-            border: Border(bottom: BorderSide(color: palette.divider)),
+            color: colors.muted,
+            border: Border(bottom: BorderSide(color: colors.border)),
           ),
           child: const FolderSearchBar(),
         ),
@@ -167,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final width = MediaQuery.sizeOf(context).width;
     final compact = isCompactWidth(width);
 
@@ -178,8 +179,11 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
 
-    return CupertinoPageScaffold(
-      backgroundColor: palette.contentBg,
+    // A ColoredBox is enough in place of CupertinoPageScaffold: both layouts
+    // apply their own SafeArea, and a desktop file manager has no on-screen
+    // keyboard for the scaffold's inset handling to work around.
+    return ColoredBox(
+      color: colors.background,
       child: compact
           ? _CompactLayout(
               tab: _compactTab,
@@ -239,7 +243,7 @@ class _WideLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final settings = context.watch<SettingsProvider>();
     final width = MediaQuery.sizeOf(context).width;
     final browser = context.watch<BrowserProvider>();
@@ -271,7 +275,7 @@ class _WideLayout extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Sidebar(width: sidebarWidth),
-                          _VDivider(color: palette.divider),
+                          _VDivider(color: colors.border),
                         ],
                       ),
               ),
@@ -310,7 +314,7 @@ class _WideLayout extends StatelessWidget {
                     : Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _VDivider(color: palette.divider),
+                          _VDivider(color: colors.border),
                           SizedBox(
                             width: rightPanelWidth,
                             child: Column(
@@ -384,6 +388,7 @@ class _CompactLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final browser = context.watch<BrowserProvider>();
     final cwd = browser.currentPath;
     final centerView = browser.centerView;
@@ -454,7 +459,7 @@ class _CompactLayout extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: palette.sidebarBg,
-              border: Border(right: BorderSide(color: palette.divider)),
+              border: Border(right: BorderSide(color: colors.border)),
             ),
             child: Sidebar(
               width: _drawerWidth,
@@ -498,7 +503,7 @@ class _WideTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
     final browser = context.watch<BrowserProvider>();
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
 
     // When the sidebar is hidden this bar sits at the window's left edge,
     // under the macOS traffic lights — pad it clear of them.
@@ -507,8 +512,8 @@ class _WideTopBar extends StatelessWidget {
     return Container(
       height: 48,
       decoration: BoxDecoration(
-        color: palette.headerBg,
-        border: Border(bottom: BorderSide(color: palette.divider)),
+        color: colors.muted,
+        border: Border(bottom: BorderSide(color: colors.border)),
       ),
       padding: EdgeInsets.only(left: 6 + leadPad, right: 6),
       child: LayoutBuilder(
@@ -525,7 +530,7 @@ class _WideTopBar extends StatelessWidget {
           return Row(
             children: [
               _ToolbarIconButton(
-                icon: CupertinoIcons.sidebar_left,
+                icon: LucideIcons.panelLeft,
                 tooltip: sidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar',
                 onPressed: onToggleSidebar,
                 size: 30,
@@ -537,13 +542,13 @@ class _WideTopBar extends StatelessWidget {
               if (centerView == CenterView.files) ...[
                 if (showNav) ...[
                   _ToolbarIconButton(
-                    icon: CupertinoIcons.chevron_left,
+                    icon: LucideIcons.chevronLeft,
                     tooltip: 'Back',
                     onPressed: browser.canGoBack ? browser.goBack : null,
                     size: 30,
                   ),
                   _ToolbarIconButton(
-                    icon: CupertinoIcons.chevron_right,
+                    icon: LucideIcons.chevronRight,
                     tooltip: 'Forward',
                     onPressed:
                         browser.canGoForward ? browser.goForward : null,
@@ -553,7 +558,7 @@ class _WideTopBar extends StatelessWidget {
                   // they're the same kind of control, and the path itself
                   // lives in the status bar at the bottom.
                   _ToolbarIconButton(
-                    icon: CupertinoIcons.arrow_up,
+                    icon: LucideIcons.arrowUp,
                     tooltip: 'Up',
                     onPressed: browser.canGoUp ? browser.goUp : null,
                     size: 30,
@@ -577,13 +582,13 @@ class _WideTopBar extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: palette.text,
+                      color: colors.foreground,
                     ),
                   ),
                 ),
                 if (centerView == CenterView.systemOverview) ...[
                   _ToolbarIconButton(
-                    icon: CupertinoIcons.arrow_clockwise,
+                    icon: LucideIcons.refreshCw,
                     tooltip: 'Refresh',
                     onPressed: onRefreshOverview,
                     size: 30,
@@ -593,7 +598,7 @@ class _WideTopBar extends StatelessWidget {
               ],
               // Tail group: terminal, AI model, settings, panel toggle.
               _ToolbarIconButton(
-                icon: CupertinoIcons.chevron_left_slash_chevron_right,
+                icon: LucideIcons.terminal,
                 tooltip:
                     'Terminal (${Platform.isMacOS ? "⌘" : "Ctrl"}+J)',
                 onPressed: onToggleTerminal,
@@ -618,14 +623,14 @@ class _WideTopBar extends StatelessWidget {
                 ),
               const SizedBox(width: 4),
               _ToolbarIconButton(
-                icon: CupertinoIcons.settings,
+                icon: LucideIcons.settings,
                 tooltip: 'Settings',
                 onPressed: onSettings,
                 size: 30,
               ),
               const SizedBox(width: 4),
               _ToolbarIconButton(
-                icon: CupertinoIcons.sidebar_right,
+                icon: LucideIcons.panelRight,
                 tooltip:
                     rightPanelCollapsed ? 'Show Panel' : 'Hide Panel',
                 onPressed: onToggleRightPanel,
@@ -661,19 +666,19 @@ class _CompactTopBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
     final browser = context.watch<BrowserProvider>();
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
 
     return Container(
       height: 48,
       decoration: BoxDecoration(
-        color: palette.headerBg,
-        border: Border(bottom: BorderSide(color: palette.divider)),
+        color: colors.muted,
+        border: Border(bottom: BorderSide(color: colors.border)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
         children: [
           _ToolbarIconButton(
-            icon: CupertinoIcons.sidebar_left,
+            icon: LucideIcons.panelLeft,
             tooltip: 'Menu',
             onPressed: onMenu,
           ),
@@ -687,21 +692,21 @@ class _CompactTopBar extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w600,
-                      color: palette.text,
+                      color: colors.foreground,
                     ),
                   )
                 : _CurrentFolderLabel(path: browser.currentPath),
           ),
           const SizedBox(width: 4),
           _ToolbarIconButton(
-            icon: CupertinoIcons.chevron_left_slash_chevron_right,
+            icon: LucideIcons.terminal,
             tooltip: 'Terminal',
             onPressed: onToggleTerminal,
             highlighted: terminalOpen,
           ),
           _ConnectionDot(connected: settings.connected, onTap: onSettings),
           _ToolbarIconButton(
-            icon: CupertinoIcons.settings,
+            icon: LucideIcons.settings,
             tooltip: 'Settings',
             onPressed: onSettings,
           ),
@@ -717,7 +722,7 @@ class _CurrentFolderLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final name = _displayName(path);
     return Text(
       name,
@@ -726,7 +731,7 @@ class _CurrentFolderLabel extends StatelessWidget {
       style: TextStyle(
         fontSize: 15,
         fontWeight: FontWeight.w600,
-        color: palette.text,
+        color: colors.foreground,
       ),
     );
   }
@@ -747,17 +752,23 @@ class _ConnectionDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Container(
+    final colors = ShadTheme.of(context).colorScheme;
+    return ShadTooltip(
+      builder: (_) => Text(
+        connected ? 'Connected — open Settings' : 'Offline — open Settings',
+        style: const TextStyle(fontSize: 11.5),
+      ),
+      child: ShadIconButton.ghost(
+        width: 26,
+        height: 26,
+        padding: EdgeInsets.zero,
+        onPressed: onTap,
+        icon: Container(
           width: 10,
           height: 10,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: connected ? palette.success : palette.danger,
+            color: connected ? palette.success : colors.destructive,
           ),
         ),
       ),
@@ -775,19 +786,21 @@ class _CompactTabBar extends StatelessWidget {
   final ValueChanged<int> onChanged;
 
   static const _items = [
-    (CupertinoIcons.folder, 'Files'),
-    (CupertinoIcons.info_circle, 'Info'),
-    (CupertinoIcons.bubble_left, 'Chat'),
-    (CupertinoIcons.bolt, 'Flows'),
+    (LucideIcons.folder, 'Files'),
+    (LucideIcons.info, 'Info'),
+    (LucideIcons.messageSquare, 'Chat'),
+    (LucideIcons.zap, 'Flows'),
   ];
 
   @override
   Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
+    // Kept hand-rolled: shadcn ships no bottom-nav component, and ShadTabs is a
+    // horizontal pill bar with no icon-over-label form.
+    final colors = ShadTheme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: palette.headerBg,
-        border: Border(top: BorderSide(color: palette.divider)),
+        color: colors.muted,
+        border: Border(top: BorderSide(color: colors.border)),
       ),
       child: SizedBox(
         height: 52,
@@ -795,6 +808,8 @@ class _CompactTabBar extends StatelessWidget {
           children: List.generate(_items.length, (i) {
             final selected = i == index;
             final item = _items[i];
+            final tint =
+                selected ? colors.primary : colors.mutedForeground;
             return Expanded(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -802,11 +817,7 @@ class _CompactTabBar extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
-                      item.$1,
-                      size: 22,
-                      color: selected ? palette.accent : palette.subtleText,
-                    ),
+                    Icon(item.$1, size: 22, color: tint),
                     const SizedBox(height: 2),
                     Text(
                       item.$2,
@@ -814,7 +825,7 @@ class _CompactTabBar extends StatelessWidget {
                         fontSize: 10,
                         fontWeight:
                             selected ? FontWeight.w600 : FontWeight.w400,
-                        color: selected ? palette.accent : palette.subtleText,
+                        color: tint,
                       ),
                     ),
                   ],
@@ -846,25 +857,28 @@ class _ViewModeToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
+    // Kept hand-rolled: a joined pair with shared borders and per-end corner
+    // radii, sized to fit a 48px toolbar that already sheds controls for space.
+    // ShadTabs brings its own padding and reads noticeably chunkier here.
+    final colors = ShadTheme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: palette.cardBg,
-        border: Border.all(color: palette.divider),
+        color: colors.card,
+        border: Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         children: [
           _ViewModeButton(
-            icon: CupertinoIcons.square_grid_2x2,
+            icon: LucideIcons.layoutGrid,
             tooltip: 'Icons',
             selected: browser.viewMode == ViewMode.icons,
             onPressed: () => browser.setViewMode(ViewMode.icons),
             isFirst: true,
           ),
-          Container(width: 1, height: 18, color: palette.divider),
+          Container(width: 1, height: 18, color: colors.border),
           _ViewModeButton(
-            icon: CupertinoIcons.list_bullet,
+            icon: LucideIcons.list,
             tooltip: 'List',
             selected: browser.viewMode == ViewMode.list,
             onPressed: () => browser.setViewMode(ViewMode.list),
@@ -903,36 +917,44 @@ class _ViewModeButtonState extends State<_ViewModeButton> {
   @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final bg = widget.selected
         ? palette.sidebarSelected
-        : (_hover ? palette.sidebarHover : null);
+        : (_hover ? colors.accent : null);
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onPressed,
-        child: Container(
-          width: 32,
-          height: 26,
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.horizontal(
-              left: widget.isFirst
-                  ? const Radius.circular(5)
-                  : Radius.zero,
-              right: widget.isLast
-                  ? const Radius.circular(5)
-                  : Radius.zero,
+    // `tooltip` used to be dead — nothing here rendered it. ShadTooltip does.
+    return ShadTooltip(
+      builder: (_) =>
+          Text(widget.tooltip, style: const TextStyle(fontSize: 11.5)),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: widget.onPressed,
+          child: Container(
+            width: 32,
+            height: 26,
+            decoration: BoxDecoration(
+              color: bg,
+              borderRadius: BorderRadius.horizontal(
+                left: widget.isFirst
+                    ? const Radius.circular(5)
+                    : Radius.zero,
+                right: widget.isLast
+                    ? const Radius.circular(5)
+                    : Radius.zero,
+              ),
             ),
-          ),
-          alignment: Alignment.center,
-          child: Icon(
-            widget.icon,
-            size: 14,
-            color: widget.selected ? palette.text : palette.subtleText,
+            alignment: Alignment.center,
+            child: Icon(
+              widget.icon,
+              size: 14,
+              color: widget.selected
+                  ? colors.foreground
+                  : colors.mutedForeground,
+            ),
           ),
         ),
       ),
@@ -940,7 +962,11 @@ class _ViewModeButtonState extends State<_ViewModeButton> {
   }
 }
 
-class _ToolbarIconButton extends StatefulWidget {
+/// The toolbar's workhorse control. [ShadIconButton.ghost] supplies hover and
+/// press feedback, so the hand-rolled MouseRegion/hover state this used to
+/// carry is gone; only the "highlighted" (toggle-is-on) look needs overriding,
+/// since shadcn has no selected state for an icon button.
+class _ToolbarIconButton extends StatelessWidget {
   const _ToolbarIconButton({
     required this.icon,
     required this.onPressed,
@@ -956,51 +982,35 @@ class _ToolbarIconButton extends StatefulWidget {
   final bool highlighted;
 
   @override
-  State<_ToolbarIconButton> createState() => _ToolbarIconButtonState();
-}
-
-class _ToolbarIconButtonState extends State<_ToolbarIconButton> {
-  bool _hover = false;
-
-  @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
-    final enabled = widget.onPressed != null;
-    final iconSize = (widget.size * 0.5).clamp(14.0, 22.0);
-    final bg = widget.highlighted
-        ? palette.sidebarSelected
-        : (_hover && enabled ? palette.sidebarHover : null);
-    final iconColor = enabled
-        ? (widget.highlighted ? palette.accent : palette.subtleText)
-        : palette.subtleText.withValues(alpha: 0.4);
-    return MouseRegion(
-      cursor: enabled
-          ? SystemMouseCursors.click
-          : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onPressed,
-        behavior: HitTestBehavior.opaque,
-        child: Container(
-          width: widget.size,
-          height: widget.size,
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Icon(
-            widget.icon,
-            size: iconSize,
-            color: iconColor,
-          ),
-        ),
-      ),
+    final colors = ShadTheme.of(context).colorScheme;
+    final enabled = onPressed != null;
+
+    final button = ShadIconButton.ghost(
+      width: size,
+      height: size,
+      padding: EdgeInsets.zero,
+      iconSize: (size * 0.5).clamp(14.0, 22.0),
+      // ShadIconButton keys its disabled look off `enabled`, not off a null
+      // callback, so both have to be set.
+      enabled: enabled,
+      onPressed: onPressed,
+      backgroundColor: highlighted ? palette.sidebarSelected : null,
+      foregroundColor: highlighted ? colors.primary : colors.mutedForeground,
+      icon: Icon(icon),
+    );
+
+    // `tooltip` used to be dead: nothing rendered it at any of the call sites.
+    if (tooltip == null) return button;
+    return ShadTooltip(
+      builder: (_) => Text(tooltip!, style: const TextStyle(fontSize: 11.5)),
+      child: button,
     );
   }
 }
 
-class _ConnectionPill extends StatefulWidget {
+class _ConnectionPill extends StatelessWidget {
   const _ConnectionPill({
     required this.connected,
     required this.model,
@@ -1012,58 +1022,41 @@ class _ConnectionPill extends StatefulWidget {
   final VoidCallback onTap;
 
   @override
-  State<_ConnectionPill> createState() => _ConnectionPillState();
-}
-
-class _ConnectionPillState extends State<_ConnectionPill> {
-  bool _hover = false;
-
-  @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        behavior: HitTestBehavior.opaque,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: _hover ? palette.sidebarHover : palette.cardBg,
-            border: Border.all(color: palette.divider),
-            borderRadius: BorderRadius.circular(16),
+    final colors = ShadTheme.of(context).colorScheme;
+    return ShadBadge.outline(
+      onPressed: onTap,
+      hoverBackgroundColor: colors.accent,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: connected ? palette.success : colors.destructive,
+            ),
           ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: widget.connected ? palette.success : palette.danger,
-                ),
+          const SizedBox(width: 8),
+          // Self-limiting rather than Flexible: the pill sits in a Row that
+          // already has an Expanded (the title/folder label), and a second flex
+          // child would split the free space and leave dead air at the right.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: Text(
+              model ?? (connected ? 'connected' : 'offline'),
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                color: colors.foreground,
+                fontWeight: FontWeight.w500,
               ),
-              const SizedBox(width: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 160),
-                child: Text(
-                  widget.model ?? (widget.connected ? 'connected' : 'offline'),
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: palette.text,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -1075,32 +1068,36 @@ class _SegmentedHeader extends StatelessWidget {
   final int index;
   final ValueChanged<int> onChanged;
 
+  // "Flows" rather than "Workflows", matching the compact layout's bottom tab
+  // bar. A non-scrollable ShadTabs gives each tab an equal Expanded share and
+  // its label cannot ellipsize, so an over-long one overflows the bar outright.
+  // The right panel narrows to 320px below a 1100px window, which leaves ~69px
+  // of label room per tab — not enough for "Workflows" even at zero padding.
+  static const _labels = ['Info', 'Chat', 'Flows'];
+
   @override
   Widget build(BuildContext context) {
-    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: palette.headerBg,
-        border: Border(bottom: BorderSide(color: palette.divider)),
+        color: colors.muted,
+        border: Border(bottom: BorderSide(color: colors.border)),
       ),
-      child: CupertinoSlidingSegmentedControl<int>(
-        groupValue: index,
-        children: const {
-          0: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: Text('Info', style: TextStyle(fontSize: 13)),
-          ),
-          1: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: Text('Chat', style: TextStyle(fontSize: 13)),
-          ),
-          2: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            child: Text('Workflows', style: TextStyle(fontSize: 13)),
-          ),
-        },
-        onValueChanged: (v) => onChanged(v ?? 0),
+      child: ShadTabs<int>(
+        value: index,
+        gap: 0,
+        onChanged: onChanged,
+        tabs: [
+          for (var i = 0; i < _labels.length; i++)
+            ShadTab(
+              value: i,
+              // Trimmed from Shad's default 12 to buy back label room at the
+              // narrow (320px) panel width.
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Text(_labels[i], style: const TextStyle(fontSize: 13)),
+            ),
+        ],
       ),
     );
   }

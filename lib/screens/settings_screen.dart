@@ -1,21 +1,24 @@
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../providers/settings_provider.dart';
 import '../services/llm/llm_client.dart';
 import '../theme.dart';
+import '../widgets/shad_spinner.dart';
 
 /// Shows the settings as a centered modal dialog. Settings hold only a handful
 /// of controls, so a popup is lighter than a dedicated page. Presented with no
-/// transition — animating the barrier + card every open is wasted GPU work.
+/// transition — animating the barrier + card every open is wasted GPU work,
+/// hence the empty [animateIn]/[animateOut] effect lists.
 Future<void> showSettingsDialog(BuildContext context) {
-  return showGeneralDialog<void>(
+  return showShadDialog<void>(
     context: context,
-    barrierDismissible: true,
-    barrierLabel: 'Settings',
     barrierColor: const Color(0x66000000),
-    transitionDuration: Duration.zero,
-    pageBuilder: (_, __, ___) => const SettingsDialog(),
+    barrierLabel: 'Settings',
+    animateIn: const [],
+    animateOut: const [],
+    builder: (_) => const SettingsDialog(),
   );
 }
 
@@ -31,6 +34,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late TextEditingController _apiKeyCtrl;
   late TextEditingController _baseUrlCtrl;
   late TextEditingController _destCtrl;
+  late ShadSliderController _tempCtrl;
   bool _testing = false;
 
   @override
@@ -42,6 +46,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
         TextEditingController(text: settings.apiKeyFor(settings.provider));
     _baseUrlCtrl = TextEditingController(text: settings.compatBaseUrl);
     _destCtrl = TextEditingController(text: settings.transferDestination);
+    _tempCtrl = ShadSliderController(initialValue: settings.temperature);
   }
 
   @override
@@ -50,6 +55,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     _apiKeyCtrl.dispose();
     _baseUrlCtrl.dispose();
     _destCtrl.dispose();
+    _tempCtrl.dispose();
     super.dispose();
   }
 
@@ -96,37 +102,15 @@ class _SettingsDialogState extends State<SettingsDialog> {
     }
   }
 
-  Widget _settingsTextField({
-    required TextEditingController controller,
-    required String placeholder,
-    required AppPalette palette,
-    bool obscure = false,
-  }) {
-    return CupertinoTextField(
-      controller: controller,
-      placeholder: placeholder,
-      obscureText: obscure,
-      decoration: BoxDecoration(
-        color: palette.cardBg,
-        border: Border.all(color: palette.divider),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-      style: TextStyle(fontSize: 13, color: palette.text),
-    );
-  }
-
-  List<Widget> _providerFields(SettingsProvider settings, AppPalette palette) {
+  List<Widget> _providerFields(SettingsProvider settings) {
     switch (settings.provider) {
       case LlmProviderKind.ollama:
         return [
           _LabeledField(
             label: 'Host URL',
-            palette: palette,
-            child: _settingsTextField(
+            child: ShadInput(
               controller: _hostCtrl,
-              placeholder: 'http://localhost:11434',
-              palette: palette,
+              placeholder: const Text('http://localhost:11434'),
             ),
           ),
         ];
@@ -134,12 +118,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
         return [
           _LabeledField(
             label: 'Anthropic API key',
-            palette: palette,
-            child: _settingsTextField(
+            child: ShadInput(
               controller: _apiKeyCtrl,
-              placeholder: 'sk-ant-…',
-              palette: palette,
-              obscure: true,
+              placeholder: const Text('sk-ant-…'),
+              obscureText: true,
             ),
           ),
         ];
@@ -147,12 +129,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
         return [
           _LabeledField(
             label: 'Google AI API key',
-            palette: palette,
-            child: _settingsTextField(
+            child: ShadInput(
               controller: _apiKeyCtrl,
-              placeholder: 'AIza…',
-              palette: palette,
-              obscure: true,
+              placeholder: const Text('AIza…'),
+              obscureText: true,
             ),
           ),
         ];
@@ -160,12 +140,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
         return [
           _LabeledField(
             label: 'OpenAI API key',
-            palette: palette,
-            child: _settingsTextField(
+            child: ShadInput(
               controller: _apiKeyCtrl,
-              placeholder: 'sk-…',
-              palette: palette,
-              obscure: true,
+              placeholder: const Text('sk-…'),
+              obscureText: true,
             ),
           ),
         ];
@@ -173,422 +151,227 @@ class _SettingsDialogState extends State<SettingsDialog> {
         return [
           _LabeledField(
             label: 'Base URL (OpenAI-compatible)',
-            palette: palette,
-            child: _settingsTextField(
+            child: ShadInput(
               controller: _baseUrlCtrl,
-              placeholder: 'http://localhost:1234/v1',
-              palette: palette,
+              placeholder: const Text('http://localhost:1234/v1'),
             ),
           ),
           const SizedBox(height: 12),
           _LabeledField(
             label: 'API key (optional)',
-            palette: palette,
-            child: _settingsTextField(
+            child: ShadInput(
               controller: _apiKeyCtrl,
-              placeholder: 'Leave empty if the server has no auth',
-              palette: palette,
-              obscure: true,
+              placeholder: const Text('Leave empty if the server has no auth'),
+              obscureText: true,
             ),
           ),
         ];
     }
   }
 
-  void _showModelPicker(SettingsProvider settings) {
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (ctx) {
-        final initialIdx =
-            settings.availableModels.indexOf(settings.model ?? '');
-        int selected = initialIdx >= 0 ? initialIdx : 0;
-        return Container(
-          height: 280,
-          color: CupertinoColors.systemBackground.resolveFrom(ctx),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    CupertinoButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('Cancel'),
-                    ),
-                    CupertinoButton(
-                      onPressed: () {
-                        settings.setModel(settings.availableModels[selected]);
-                        Navigator.of(ctx).pop();
-                      },
-                      child: const Text('Done'),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: CupertinoPicker(
-                  itemExtent: 32,
-                  scrollController:
-                      FixedExtentScrollController(initialItem: selected),
-                  onSelectedItemChanged: (i) => selected = i,
-                  children: settings.availableModels
-                      .map((m) => Center(child: Text(m)))
-                      .toList(),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final settings = context.watch<SettingsProvider>();
+    final theme = ShadTheme.of(context);
+    final colors = theme.colorScheme;
     final palette = AppColors.of(context);
     final maxHeight = MediaQuery.sizeOf(context).height * 0.85;
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: 460, maxHeight: maxHeight),
-        child: Container(
-          margin: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: palette.scaffoldBg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: palette.divider),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+    return ShadDialog(
+      title: const Text('Settings'),
+      constraints: BoxConstraints(maxWidth: 460, maxHeight: maxHeight),
+      scrollable: true,
+      titlePinned: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _Section(
+            title: 'Appearance',
             children: [
-              _DialogHeader(
-                palette: palette,
-                onClose: () => Navigator.of(context).pop(),
+              _ThemeSelector(
+                current: settings.themeMode,
+                onChanged: settings.setThemeMode,
               ),
-              Flexible(
-                child: ListView(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 16,
-                    horizontal: 16,
-                  ),
-                  shrinkWrap: true,
-                  children: [
-                    _Section(
-                      title: 'Appearance',
-                      palette: palette,
-                      children: [
-                        _ThemeSelector(
-                          current: settings.themeMode,
-                          onChanged: settings.setThemeMode,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _Section(
-                      title: 'File Transfer',
-                      palette: palette,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Receive in the background',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: palette.text,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'Closing the window keeps Notilus in the '
-                                    'tray so friends can still send you files.',
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      color: palette.subtleText,
-                                      height: 1.3,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            CupertinoSwitch(
-                              value: settings.backgroundReception,
-                              onChanged: settings.setBackgroundReception,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Prefer local network',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: palette.text,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    'When a contact is on the same network, send '
-                                    'directly over the LAN (faster, no server). '
-                                    'Falls back automatically otherwise.',
-                                    style: TextStyle(
-                                      fontSize: 11.5,
-                                      color: palette.subtleText,
-                                      height: 1.3,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            CupertinoSwitch(
-                              value: settings.preferLocalNetwork,
-                              onChanged: settings.setPreferLocalNetwork,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        _LabeledField(
-                          label: 'Save received files to',
-                          palette: palette,
-                          child: CupertinoTextField(
-                            controller: _destCtrl,
-                            placeholder: '~/Downloads/Notilus (default)',
-                            onSubmitted: settings.setTransferDestination,
-                            onTapOutside: (_) =>
-                                settings.setTransferDestination(_destCtrl.text),
-                            decoration: BoxDecoration(
-                              color: palette.cardBg,
-                              border: Border.all(color: palette.divider),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 10,
-                            ),
-                            style: TextStyle(fontSize: 13, color: palette.text),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _Section(
-                      title: 'AI Provider',
-                      palette: palette,
-                      children: [
-                        CupertinoSlidingSegmentedControl<LlmProviderKind>(
-                          groupValue: settings.provider,
-                          children: {
-                            for (final k in LlmProviderKind.values)
-                              k: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 6,
-                                ),
-                                child: Text(
-                                  k.label,
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ),
-                          },
-                          onValueChanged: (v) {
-                            if (v != null) _selectProvider(settings, v);
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        ..._providerFields(settings, palette),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            CupertinoButton.filled(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 8,
-                              ),
-                              onPressed: _testing
-                                  ? null
-                                  : () => _saveAndTest(settings),
-                              child: _testing
-                                  ? const CupertinoActivityIndicator(
-                                      color: CupertinoColors.white,
-                                      radius: 8,
-                                    )
-                                  : const Text(
-                                      'Save & Test',
-                                      style: TextStyle(fontSize: 13),
-                                    ),
-                            ),
-                            const SizedBox(width: 12),
-                            Icon(
-                              settings.connected
-                                  ? CupertinoIcons.check_mark_circled_solid
-                                  : CupertinoIcons.xmark_circle_fill,
-                              color: settings.connected
-                                  ? palette.success
-                                  : palette.danger,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                settings.connected
-                                    ? 'Connected • ${settings.availableModels.length} models'
-                                    : settings.isConfigured(settings.provider)
-                                        ? 'Not connected'
-                                        : _unconfiguredHint(settings.provider),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: palette.subtleText,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _Section(
-                      title: 'Default Model',
-                      palette: palette,
-                      children: [
-                        if (settings.availableModels.isEmpty)
-                          Text(
-                            settings.isConfigured(settings.provider)
-                                ? 'No models available. Check the '
-                                    '${settings.provider.label} connection above.'
-                                : 'Configure ${settings.provider.label} above '
-                                    'to load its models.',
-                            style: TextStyle(
-                              color: palette.subtleText,
-                              fontSize: 12,
-                            ),
-                          )
-                        else
-                          GestureDetector(
-                            onTap: () => _showModelPicker(settings),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 12,
-                              ),
-                              decoration: BoxDecoration(
-                                color: palette.cardBg,
-                                border: Border.all(color: palette.divider),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      settings.model ?? 'Pick a model',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: settings.model == null
-                                            ? palette.subtleText
-                                            : palette.text,
-                                      ),
-                                    ),
-                                  ),
-                                  Icon(
-                                    CupertinoIcons.chevron_up_chevron_down,
-                                    size: 14,
-                                    color: palette.subtleText,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    _Section(
-                      title: 'Generation',
-                      palette: palette,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              'Temperature',
-                              style:
-                                  TextStyle(fontSize: 13, color: palette.text),
-                            ),
-                            const Spacer(),
-                            Text(
-                              settings.temperature.toStringAsFixed(2),
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: palette.subtleText,
-                              ),
-                            ),
-                          ],
-                        ),
-                        CupertinoSlider(
-                          value: settings.temperature,
-                          min: 0.0,
-                          max: 1.5,
-                          divisions: 30,
-                          onChanged: (v) => settings.setTemperature(v),
-                        ),
-                      ],
-                    ),
-                  ],
+            ],
+          ),
+          const SizedBox(height: 16),
+          _Section(
+            title: 'File Transfer',
+            children: [
+              // The label/sublabel slots are deliberately unused. They put the
+              // toggle on the left, and the only way to move it right is
+              // `direction: rtl` — which ShadSwitch also applies to the thumb's
+              // own stack, parking the thumb on the left while the track still
+              // reads as on. An explicit Row keeps the thumb correct.
+              _SwitchRow(
+                label: 'Receive in the background',
+                sublabel: 'Closing the window keeps Notilus in the tray so '
+                    'friends can still send you files.',
+                value: settings.backgroundReception,
+                onChanged: settings.setBackgroundReception,
+              ),
+              const SizedBox(height: 14),
+              _SwitchRow(
+                label: 'Prefer local network',
+                sublabel: 'When a contact is on the same network, send '
+                    'directly over the LAN (faster, no server). Falls back '
+                    'automatically otherwise.',
+                value: settings.preferLocalNetwork,
+                onChanged: settings.setPreferLocalNetwork,
+              ),
+              const SizedBox(height: 12),
+              _LabeledField(
+                label: 'Save received files to',
+                child: ShadInput(
+                  controller: _destCtrl,
+                  placeholder: const Text('~/Downloads/Notilus (default)'),
+                  onSubmitted: settings.setTransferDestination,
+                  onPressedOutside: (_) =>
+                      settings.setTransferDestination(_destCtrl.text),
                 ),
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DialogHeader extends StatelessWidget {
-  const _DialogHeader({required this.palette, required this.onClose});
-  final AppPalette palette;
-  final VoidCallback onClose;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(18, 14, 10, 14),
-      decoration: BoxDecoration(
-        color: palette.headerBg,
-        border: Border(bottom: BorderSide(color: palette.divider)),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-      ),
-      child: Row(
-        children: [
-          Text(
-            'Settings',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: palette.text,
-            ),
-          ),
-          const Spacer(),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onClose,
-            child: Padding(
-              padding: const EdgeInsets.all(4),
-              child: Icon(
-                CupertinoIcons.xmark,
-                size: 18,
-                color: palette.subtleText,
+          const SizedBox(height: 16),
+          _Section(
+            title: 'AI Provider',
+            children: [
+              // Five providers do not fit a 460px dialog side by side, so the
+              // tab bar scrolls rather than squeezing the labels.
+              ShadTabs<LlmProviderKind>(
+                value: settings.provider,
+                scrollable: true,
+                gap: 0,
+                onChanged: (v) => _selectProvider(settings, v),
+                tabs: [
+                  for (final k in LlmProviderKind.values)
+                    ShadTab(
+                      value: k,
+                      child: Text(
+                        k.label,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                ],
               ),
-            ),
+              const SizedBox(height: 12),
+              ..._providerFields(settings),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  ShadButton(
+                    onPressed: _testing ? null : () => _saveAndTest(settings),
+                    child: _testing
+                        ? ShadSpinner(
+                            size: 16,
+                            color: colors.primaryForeground,
+                          )
+                        : const Text(
+                            'Save & Test',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                  ),
+                  const SizedBox(width: 12),
+                  Icon(
+                    settings.connected
+                        ? LucideIcons.circleCheck
+                        : LucideIcons.circleX,
+                    color: settings.connected
+                        ? palette.success
+                        : colors.destructive,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      settings.connected
+                          ? 'Connected • ${settings.availableModels.length} models'
+                          : settings.isConfigured(settings.provider)
+                              ? 'Not connected'
+                              : _unconfiguredHint(settings.provider),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.mutedForeground,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _Section(
+            title: 'Default Model',
+            children: [
+              if (settings.availableModels.isEmpty)
+                Text(
+                  settings.isConfigured(settings.provider)
+                      ? 'No models available. Check the '
+                          '${settings.provider.label} connection above.'
+                      : 'Configure ${settings.provider.label} above '
+                          'to load its models.',
+                  style: TextStyle(
+                    color: colors.mutedForeground,
+                    fontSize: 12,
+                  ),
+                )
+              else
+                // ShadSelect is uncontrolled — it reads initialValue once. The
+                // key remounts it when the provider (and therefore the model)
+                // changes underneath, so the trigger never shows a stale model.
+                ShadSelect<String>(
+                  key: ValueKey('${settings.provider}:${settings.model}'),
+                  initialValue: settings.model,
+                  placeholder: const Text('Pick a model'),
+                  maxHeight: 240,
+                  onChanged: (v) {
+                    if (v != null) settings.setModel(v);
+                  },
+                  selectedOptionBuilder: (_, value) =>
+                      Text(value, style: const TextStyle(fontSize: 13)),
+                  options: [
+                    for (final m in settings.availableModels)
+                      ShadOption(
+                        value: m,
+                        child: Text(m, style: const TextStyle(fontSize: 13)),
+                      ),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _Section(
+            title: 'Generation',
+            children: [
+              Row(
+                children: [
+                  Text(
+                    'Temperature',
+                    style: TextStyle(fontSize: 13, color: colors.foreground),
+                  ),
+                  const Spacer(),
+                  Text(
+                    settings.temperature.toStringAsFixed(2),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: colors.mutedForeground,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // No `divisions` here: ShadSlider paints one tick mark per
+              // division, so the 30 steps this control had under Cupertino
+              // turn the track into a barcode. Snap in the callback instead —
+              // same 0.05 granularity, plain track.
+              ShadSlider(
+                controller: _tempCtrl,
+                min: 0.0,
+                max: 1.5,
+                onChanged: (v) => settings.setTemperature((v * 20).round() / 20),
+              ),
+            ],
           ),
         ],
       ),
@@ -604,25 +387,24 @@ class _ThemeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoSlidingSegmentedControl<AppThemeMode>(
-      groupValue: current,
-      children: const {
-        AppThemeMode.system: _ThemeChip(
-          icon: CupertinoIcons.gear_alt,
-          label: 'System',
+    return ShadTabs<AppThemeMode>(
+      value: current,
+      gap: 0,
+      onChanged: onChanged,
+      tabs: const [
+        ShadTab(
+          value: AppThemeMode.system,
+          child: _ThemeChip(icon: LucideIcons.settings, label: 'System'),
         ),
-        AppThemeMode.light: _ThemeChip(
-          icon: CupertinoIcons.sun_max,
-          label: 'Light',
+        ShadTab(
+          value: AppThemeMode.light,
+          child: _ThemeChip(icon: LucideIcons.sun, label: 'Light'),
         ),
-        AppThemeMode.dark: _ThemeChip(
-          icon: CupertinoIcons.moon,
-          label: 'Dark',
+        ShadTab(
+          value: AppThemeMode.dark,
+          child: _ThemeChip(icon: LucideIcons.moon, label: 'Dark'),
         ),
-      },
-      onValueChanged: (v) {
-        if (v != null) onChanged(v);
-      },
+      ],
     );
   }
 }
@@ -634,32 +416,71 @@ class _ThemeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14),
-          const SizedBox(width: 6),
-          Text(label, style: const TextStyle(fontSize: 13)),
-        ],
-      ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 13)),
+      ],
+    );
+  }
+}
+
+/// Label + description on the left, [ShadSwitch] on the right.
+class _SwitchRow extends StatelessWidget {
+  const _SwitchRow({
+    required this.label,
+    required this.sublabel,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final String sublabel;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: TextStyle(fontSize: 13, color: colors.foreground),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                sublabel,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: colors.mutedForeground,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 12),
+        ShadSwitch(value: value, onChanged: onChanged),
+      ],
     );
   }
 }
 
 class _Section extends StatelessWidget {
-  const _Section({
-    required this.title,
-    required this.children,
-    required this.palette,
-  });
+  const _Section({required this.title, required this.children});
   final String title;
   final List<Widget> children;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -671,7 +492,7 @@ class _Section extends StatelessWidget {
               fontSize: 11,
               letterSpacing: 0.5,
               fontWeight: FontWeight.w600,
-              color: palette.subtleText,
+              color: colors.mutedForeground,
             ),
           ),
         ),
@@ -682,26 +503,19 @@ class _Section extends StatelessWidget {
 }
 
 class _LabeledField extends StatelessWidget {
-  const _LabeledField({
-    required this.label,
-    required this.child,
-    required this.palette,
-  });
+  const _LabeledField({required this.label, required this.child});
   final String label;
   final Widget child;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: TextStyle(
-            fontSize: 12,
-            color: palette.subtleText,
-          ),
+          style: TextStyle(fontSize: 12, color: colors.mutedForeground),
         ),
         const SizedBox(height: 6),
         child,

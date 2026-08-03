@@ -14,6 +14,39 @@ import '../utils/responsive.dart';
 import 'file_list_view.dart' show openFilePreview, openFileInDefaultApp;
 import 'marquee_selection.dart';
 
+// ──────────────────────────────────────────────────────────────────────────
+// Tile metrics
+//
+// The grid delegate needs a cell height while the tile builds its own content,
+// so both have to agree or the tile either overflows or leaves dead space.
+// These are the single source of truth for that; all scale with row density.
+// ──────────────────────────────────────────────────────────────────────────
+
+/// Nominal cell width, which decides how many columns fit.
+const double kGridTileExtent = 96;
+
+/// Thumbnail edge.
+const double kGridIconSize = 44;
+
+/// Filename size. Sits just under the 11.5 used elsewhere for captions, since a
+/// grid label is centred and wraps to two lines.
+const double kGridLabelSize = 11;
+
+const double _kGridLabelLineHeight = 1.2;
+const int _kGridLabelLines = 2;
+const double _kGridIconLabelGap = 4;
+const double _kGridTilePadding = 2;
+
+/// Exact height a tile needs: thumbnail, gap, two lines of label, padding.
+///
+/// Kept as a function rather than a constant because every part scales with
+/// [BrowserProvider.rowDensity].
+double gridTileHeight(double density) =>
+    kGridIconSize * density +
+    _kGridIconLabelGap +
+    (kGridLabelSize * _kGridLabelLineHeight * _kGridLabelLines) +
+    _kGridTilePadding * 2;
+
 class FileIconGrid extends StatelessWidget {
   const FileIconGrid({super.key, required this.onSecondaryRowTap});
 
@@ -26,7 +59,13 @@ class FileIconGrid extends StatelessWidget {
     final palette = AppColors.of(context);
     final marquee = context.read<MarqueeController>();
     final groups = browser.groupedEntries();
-    final tile = 110.0 * browser.rowDensity;
+    final density = browser.rowDensity;
+    final tile = kGridTileExtent * density;
+    // Cells used to be forced square (childAspectRatio: 1.0) while their
+    // content is only ~76px tall, so every tile carried ~34px of dead space
+    // below its label — visible as a selection highlight that ran well past
+    // the text. Height is now derived from what a tile actually contains.
+    final tileHeight = gridTileHeight(density);
 
     final flat = <Widget>[];
     for (final g in groups) {
@@ -40,6 +79,12 @@ class FileIconGrid extends StatelessWidget {
             builder: (ctx, constraints) {
               final crossAxisCount =
                   (constraints.maxWidth / tile).floor().clamp(2, 12);
+              const spacing = 2.0;
+              // The delegate only accepts a ratio, so work back from the cell
+              // width this row will actually be given.
+              final cellWidth =
+                  (constraints.maxWidth - spacing * (crossAxisCount - 1)) /
+                      crossAxisCount;
               return GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -47,9 +92,9 @@ class FileIconGrid extends StatelessWidget {
                 gridDelegate:
                     SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: crossAxisCount,
-                  childAspectRatio: 1.0,
-                  mainAxisSpacing: 2,
-                  crossAxisSpacing: 2,
+                  childAspectRatio: cellWidth / tileHeight,
+                  mainAxisSpacing: spacing,
+                  crossAxisSpacing: spacing,
                 ),
                 itemCount: g.entries.length,
                 itemBuilder: (_, i) {
@@ -136,7 +181,7 @@ class _IconTileState extends State<_IconTile>
     final browser = context.read<BrowserProvider>();
     final palette = AppColors.of(context);
     final compact = isCompact(context);
-    final iconSize = 52.0 * widget.density;
+    final iconSize = kGridIconSize * widget.density;
     marqueeRegister();
 
     final hl = widget.selected
@@ -192,7 +237,10 @@ class _IconTileState extends State<_IconTile>
           widget.onSecondaryTap(d.globalPosition);
         },
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+          padding: const EdgeInsets.symmetric(
+            vertical: _kGridTilePadding,
+            horizontal: 2,
+          ),
           decoration: BoxDecoration(
             color: hl,
             borderRadius: BorderRadius.circular(6),
@@ -209,17 +257,17 @@ class _IconTileState extends State<_IconTile>
                   palette: palette,
                 ),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: _kGridIconLabelGap),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Text(
                   widget.entry.name,
                   textAlign: TextAlign.center,
-                  maxLines: 2,
+                  maxLines: _kGridLabelLines,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 11.5,
-                    height: 1.2,
+                    fontSize: kGridLabelSize,
+                    height: _kGridLabelLineHeight,
                     color: palette.text,
                   ),
                 ),

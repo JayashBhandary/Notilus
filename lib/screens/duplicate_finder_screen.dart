@@ -1,7 +1,9 @@
 import 'dart:io';
 
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/cupertino.dart' show CupertinoPageRoute;
+import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
@@ -14,8 +16,9 @@ import '../services/file_actions_service.dart';
 import '../services/settings_store.dart';
 import '../services/system_info_service.dart' show formatBytes;
 import '../theme.dart';
+import '../widgets/shad_spinner.dart';
 import '../widgets/skeleton.dart';
-import 'file_preview_screen.dart';
+import 'preview/file_preview_screen.dart';
 
 /// File-type categories the scan can be narrowed to.
 enum _FileType { all, images, videos, audio, documents }
@@ -210,18 +213,16 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
       targets.add(_ScanTarget(
         label: d.name,
         path: d.path,
-        icon: d.isRoot
-            ? CupertinoIcons.device_laptop
-            : CupertinoIcons.archivebox_fill,
+        icon: d.isRoot ? LucideIcons.laptop : LucideIcons.hardDrive,
         selected: true,
       ));
     }
     // Shortcut folders let users narrow the scan without a native picker.
     const shortcutIcons = {
-      'Home': CupertinoIcons.house_fill,
-      'Desktop': CupertinoIcons.desktopcomputer,
-      'Documents': CupertinoIcons.doc_text_fill,
-      'Downloads': CupertinoIcons.arrow_down_circle_fill,
+      'Home': LucideIcons.house,
+      'Desktop': LucideIcons.monitor,
+      'Documents': LucideIcons.fileText,
+      'Downloads': LucideIcons.circleArrowDown,
     };
     final seenPaths = targets.map((t) => t.path).toSet();
     browser.shortcuts.forEach((name, path) {
@@ -230,7 +231,7 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
       targets.add(_ScanTarget(
         label: name,
         path: path,
-        icon: shortcutIcons[name] ?? CupertinoIcons.folder_fill,
+        icon: shortcutIcons[name] ?? LucideIcons.folder,
       ));
     });
     _targets = targets;
@@ -375,22 +376,21 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
     }
     if (fileCount == 0) return;
 
-    final confirmed = await showCupertinoDialog<bool>(
+    final confirmed = await showShadDialog<bool>(
       context: context,
-      builder: (ctx) => CupertinoAlertDialog(
+      builder: (ctx) => ShadDialog.alert(
         title: const Text('Move duplicates to Trash?'),
-        content: Text(
-          '\nThis moves $fileCount file${fileCount == 1 ? '' : 's'} to the '
+        description: Text(
+          'This moves $fileCount file${fileCount == 1 ? '' : 's'} to the '
           'Trash across $scope, keeping the ${_keepStrategyLabels[_keepStrategy]!.toLowerCase()} '
           'copy in each group.\n\nReclaims about ${formatBytes(reclaim)}.',
         ),
         actions: [
-          CupertinoDialogAction(
+          ShadButton.outline(
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
+          ShadButton.destructive(
             onPressed: () => Navigator.of(ctx).pop(true),
             child: Text('Trash $fileCount'),
           ),
@@ -434,10 +434,9 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
     }
   }
 
-  _GroupCard _groupCardFor(DuplicateGroup g, AppPalette palette) => _GroupCard(
+  _GroupCard _groupCardFor(DuplicateGroup g) => _GroupCard(
         group: g,
         keepIndex: _keepIndex(g),
-        palette: palette,
         onReveal: _reveal,
         onTrash: (entry) => _trash(g, entry),
         onOpen: (entry) => _openPreview(g, entry),
@@ -447,11 +446,11 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
   /// Builds one lazily-materialised row of the group grid: up to [columns]
   /// cards side by side. Only rows scrolled into view are built, so off-screen
   /// thumbnails never decode — this is what keeps the page fast on big scans.
-  Widget _buildGroupRow(int rowIndex, int columns, AppPalette palette) {
+  Widget _buildGroupRow(int rowIndex, int columns) {
     if (columns <= 1) {
       return Padding(
         padding: const EdgeInsets.only(bottom: 10),
-        child: RepaintBoundary(child: _groupCardFor(_groups[rowIndex], palette)),
+        child: RepaintBoundary(child: _groupCardFor(_groups[rowIndex])),
       );
     }
     final start = rowIndex * columns;
@@ -461,7 +460,7 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
       final idx = start + c;
       children.add(Expanded(
         child: idx < _groups.length
-            ? RepaintBoundary(child: _groupCardFor(_groups[idx], palette))
+            ? RepaintBoundary(child: _groupCardFor(_groups[idx]))
             : const SizedBox.shrink(),
       ));
     }
@@ -486,21 +485,20 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
   }
 
   Future<void> _trash(DuplicateGroup group, FileEntry entry) async {
-    final confirmed = await showCupertinoDialog<bool>(
+    final confirmed = await showShadDialog<bool>(
       context: context,
-      builder: (ctx) => CupertinoAlertDialog(
+      builder: (ctx) => ShadDialog.alert(
         title: const Text('Move to Trash?'),
-        content: Text(
-          '\n${entry.name}\n\nThe other cop${group.files.length > 2 ? 'ies' : 'y'} '
+        description: Text(
+          '${entry.name}\n\nThe other cop${group.files.length > 2 ? 'ies' : 'y'} '
           'in this group will be kept.',
         ),
         actions: [
-          CupertinoDialogAction(
+          ShadButton.outline(
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
+          ShadButton.destructive(
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Move to Trash'),
           ),
@@ -527,14 +525,13 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
   }
 
   Future<void> _showError(String message) async {
-    await showCupertinoDialog<void>(
+    await showShadDialog<void>(
       context: context,
-      builder: (ctx) => CupertinoAlertDialog(
+      builder: (ctx) => ShadDialog.alert(
         title: const Text('Error'),
-        content: Text(message),
+        description: Text(message),
         actions: [
-          CupertinoDialogAction(
-            isDefaultAction: true,
+          ShadButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('OK'),
           ),
@@ -569,7 +566,6 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
                 targets: _targets,
                 enabled: !_scanning,
                 onToggle: (t) => setState(() => t.selected = !t.selected),
-                palette: palette,
               ),
               const SizedBox(height: 16),
               _FiltersCard(
@@ -601,41 +597,37 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
                   setState(() => _customExcludes.remove(name));
                   _savePrefs();
                 },
-                palette: palette,
               ),
               const SizedBox(height: 16),
               if (_scanning)
-                _ProgressCard(
-                    progress: _progress, onCancel: _cancelScan, palette: palette)
+                _ProgressCard(progress: _progress, onCancel: _cancelScan)
               else
                 _ScanButton(
                   enabled: _targets.any((t) => t.selected),
                   onPressed: _startScan,
-                  palette: palette,
                 ),
               const SizedBox(height: 16),
               // While scanning, sketch a few result cards so the area below the
               // progress bar reads as "results loading" instead of empty.
               if (_scanning) ...[
-                _SkeletonGroupCard(palette: palette),
+                const _SkeletonGroupCard(),
                 const SizedBox(height: 12),
-                _SkeletonGroupCard(palette: palette),
+                const _SkeletonGroupCard(),
                 const SizedBox(height: 12),
-                _SkeletonGroupCard(palette: palette),
+                const _SkeletonGroupCard(),
               ],
               if (!_scanning && _hasScanned) ...[
-                _ResultsHeader(groups: _groups, palette: palette),
+                _ResultsHeader(groups: _groups),
                 if (_lastScanAt != null) ...[
                   const SizedBox(height: 6),
                   _SavedBanner(
                     savedAt: _lastScanAt!,
                     restored: _restoredFromCache,
-                    palette: palette,
                   ),
                 ],
                 const SizedBox(height: 8),
                 if (_groups.isEmpty)
-                  _EmptyResults(palette: palette)
+                  const _EmptyResults()
                 else
                   _CleanupBar(
                     keepStrategy: _keepStrategy,
@@ -644,7 +636,6 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
                       _savePrefs();
                     },
                     onCleanupAll: _cleanupAll,
-                    palette: palette,
                   ),
                 const SizedBox(height: 10),
               ],
@@ -664,7 +655,7 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, rowIndex) =>
-                            _buildGroupRow(rowIndex, columns, palette),
+                            _buildGroupRow(rowIndex, columns),
                         childCount: rowCount,
                       ),
                     ),
@@ -680,28 +671,11 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
 
 // ──────────────────────────────────────────────────────────────────────────
 
-class _Card extends StatelessWidget {
-  const _Card({required this.child, required this.palette});
-  final Widget child;
-  final AppPalette palette;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: palette.cardBg,
-        border: Border.all(color: palette.divider),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: child,
-    );
-  }
-}
-
+/// The uppercase section label used as a [ShadCard] title. Shad styles card
+/// titles with `textTheme.h3`, which is far too loud for these dense panels.
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text, {required this.palette});
+  const _SectionLabel(this.text);
   final String text;
-  final AppPalette palette;
   @override
   Widget build(BuildContext context) {
     return Text(
@@ -710,7 +684,7 @@ class _SectionLabel extends StatelessWidget {
         fontSize: 11,
         letterSpacing: 0.5,
         fontWeight: FontWeight.w600,
-        color: palette.subtleText,
+        color: ShadTheme.of(context).colorScheme.mutedForeground,
       ),
     );
   }
@@ -721,41 +695,44 @@ class _ScopeCard extends StatelessWidget {
     required this.targets,
     required this.enabled,
     required this.onToggle,
-    required this.palette,
   });
   final List<_ScanTarget> targets;
   final bool enabled;
   final ValueChanged<_ScanTarget> onToggle;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
-    return _Card(
-      palette: palette,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _SectionLabel('Where to look', palette: palette),
-          const SizedBox(height: 4),
-          Text(
-            'Duplicates are matched by exact content (size + SHA-256), '
-            'regardless of file name.',
-            style: TextStyle(fontSize: 11.5, color: palette.subtleText, height: 1.4),
-          ),
-          const SizedBox(height: 10),
-          if (targets.isEmpty)
-            Text(
-              'No drives or folders detected.',
-              style: TextStyle(fontSize: 12, color: palette.subtleText),
-            )
-          else
-            ...targets.map((t) => _TargetRow(
-                  target: t,
-                  enabled: enabled,
-                  onToggle: () => onToggle(t),
-                  palette: palette,
-                )),
-        ],
+    final colors = ShadTheme.of(context).colorScheme;
+    return ShadCard(
+      title: const _SectionLabel('Where to look'),
+      description: Text(
+        'Duplicates are matched by exact content (size + SHA-256), '
+        'regardless of file name.',
+        style: TextStyle(
+          fontSize: 11.5,
+          color: colors.mutedForeground,
+          height: 1.4,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (targets.isEmpty)
+              Text(
+                'No drives or folders detected.',
+                style: TextStyle(fontSize: 12, color: colors.mutedForeground),
+              )
+            else
+              ...targets.map((t) => _TargetRow(
+                    target: t,
+                    enabled: enabled,
+                    onToggle: () => onToggle(t),
+                  )),
+          ],
+        ),
       ),
     );
   }
@@ -766,55 +743,46 @@ class _TargetRow extends StatelessWidget {
     required this.target,
     required this.enabled,
     required this.onToggle,
-    required this.palette,
   });
   final _ScanTarget target;
   final bool enabled;
   final VoidCallback onToggle;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: enabled ? onToggle : null,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.5,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 5),
-          child: Row(
-            children: [
-              Icon(
-                target.selected
-                    ? CupertinoIcons.checkmark_square_fill
-                    : CupertinoIcons.square,
-                size: 20,
-                color: target.selected ? palette.accent : palette.subtleText,
-              ),
-              const SizedBox(width: 10),
-              Icon(target.icon, size: 15, color: palette.folderIcon),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      target.label,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: palette.text,
-                      ),
-                    ),
-                    Text(
-                      target.path,
-                      style: TextStyle(fontSize: 10.5, color: palette.subtleText),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
+    // ShadCheckbox brings its own tap target covering the label, so the
+    // hand-rolled GestureDetector this row used to need is gone.
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: ShadCheckbox(
+        value: target.selected,
+        enabled: enabled,
+        onChanged: (_) => onToggle(),
+        crossAxisAlignment: CrossAxisAlignment.center,
+        label: Row(
+          children: [
+            Icon(target.icon, size: 15, color: palette.folderIcon),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                target.label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: colors.foreground,
                 ),
               ),
-            ],
+            ),
+          ],
+        ),
+        sublabel: Padding(
+          padding: const EdgeInsets.only(left: 23),
+          child: Text(
+            target.path,
+            style: TextStyle(fontSize: 10.5, color: colors.mutedForeground),
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ),
@@ -837,7 +805,6 @@ class _FiltersCard extends StatelessWidget {
     required this.onFileType,
     required this.onAddCustom,
     required this.onRemoveCustom,
-    required this.palette,
   });
 
   final bool enabled;
@@ -853,128 +820,102 @@ class _FiltersCard extends StatelessWidget {
   final ValueChanged<_FileType> onFileType;
   final VoidCallback onAddCustom;
   final ValueChanged<String> onRemoveCustom;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    final headingStyle = TextStyle(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+      color: colors.foreground,
+    );
     return Opacity(
       opacity: enabled ? 1 : 0.5,
       child: IgnorePointer(
         ignoring: !enabled,
-        child: _Card(
-          palette: palette,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _SectionLabel('Filters', palette: palette),
-              const SizedBox(height: 10),
-              _SwitchRow(
-                title: 'Skip dev & build folders',
-                subtitle:
-                    'node_modules, venv, __pycache__, .git, build, dist, '
-                    'target, Pods, vendor, .cache …',
-                value: skipDevFolders,
-                onChanged: onToggleDevFolders,
-                palette: palette,
-              ),
-              const SizedBox(height: 6),
-              _SwitchRow(
-                title: 'Treat app bundles & packages as one item',
-                subtitle: '.app, .framework, .photoslibrary … aren\'t opened '
-                    'up — their internal files are ignored.',
-                value: skipBundles,
-                onChanged: onToggleBundles,
-                palette: palette,
-              ),
-              const SizedBox(height: 6),
-              _SwitchRow(
-                title: 'Include hidden files & folders',
-                subtitle: 'Off by default — dot-files and dot-folders are '
-                    'skipped. Trash and Recycle Bin are always excluded.',
-                value: includeHidden,
-                onChanged: onToggleHidden,
-                palette: palette,
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'File type',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: palette.text,
+        child: ShadCard(
+          title: const _SectionLabel('Filters'),
+          child: Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _SwitchRow(
+                  title: 'Skip dev & build folders',
+                  subtitle:
+                      'node_modules, venv, __pycache__, .git, build, dist, '
+                      'target, Pods, vendor, .cache …',
+                  value: skipDevFolders,
+                  onChanged: onToggleDevFolders,
                 ),
-              ),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: _FileType.values.map((t) {
-                  return _FilterChip(
-                    label: _fileTypeSpecs[t]!.label,
-                    selected: t == fileType,
-                    onTap: () => onFileType(t),
-                    palette: palette,
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 14),
-              Text(
-                'Also skip folders named',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: palette.text,
+                const SizedBox(height: 6),
+                _SwitchRow(
+                  title: 'Treat app bundles & packages as one item',
+                  subtitle: '.app, .framework, .photoslibrary … aren\'t opened '
+                      'up — their internal files are ignored.',
+                  value: skipBundles,
+                  onChanged: onToggleBundles,
                 ),
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  Expanded(
-                    child: CupertinoTextField(
-                      controller: controller,
-                      placeholder: 'e.g. tmp, cache, .idea',
-                      style: TextStyle(fontSize: 13, color: palette.text),
-                      placeholderStyle:
-                          TextStyle(fontSize: 13, color: palette.subtleText),
-                      decoration: BoxDecoration(
-                        color: palette.headerBg,
-                        border: Border.all(color: palette.divider),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 8),
-                      onSubmitted: (_) => onAddCustom(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  CupertinoButton(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    color: palette.headerBg,
-                    minimumSize: const Size(0, 36),
-                    onPressed: onAddCustom,
-                    child: Text(
-                      'Add',
-                      style: TextStyle(fontSize: 13, color: palette.accent),
-                    ),
-                  ),
-                ],
-              ),
-              if (customExcludes.isNotEmpty) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
+                _SwitchRow(
+                  title: 'Include hidden files & folders',
+                  subtitle: 'Off by default — dot-files and dot-folders are '
+                      'skipped. Trash and Recycle Bin are always excluded.',
+                  value: includeHidden,
+                  onChanged: onToggleHidden,
+                ),
+                const SizedBox(height: 14),
+                Text('File type', style: headingStyle),
+                const SizedBox(height: 6),
+                // Kept as a Wrap rather than ShadTabs: the group grid clamps
+                // these cards to ~364px, and five labels in a tab bar would
+                // have to scroll, hiding options.
                 Wrap(
                   spacing: 6,
                   runSpacing: 6,
-                  children: customExcludes.map((name) {
-                    return _RemovableChip(
-                      label: name,
-                      onRemove: () => onRemoveCustom(name),
-                      palette: palette,
+                  children: _FileType.values.map((t) {
+                    return _FilterChip(
+                      label: _fileTypeSpecs[t]!.label,
+                      selected: t == fileType,
+                      onTap: () => onFileType(t),
                     );
                   }).toList(),
                 ),
+                const SizedBox(height: 14),
+                Text('Also skip folders named', style: headingStyle),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ShadInput(
+                        controller: controller,
+                        placeholder: const Text('e.g. tmp, cache, .idea'),
+                        onSubmitted: (_) => onAddCustom(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ShadButton.outline(
+                      onPressed: onAddCustom,
+                      child: const Text('Add', style: TextStyle(fontSize: 13)),
+                    ),
+                  ],
+                ),
+                if (customExcludes.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: customExcludes.map((name) {
+                      return _RemovableChip(
+                        label: name,
+                        onRemove: () => onRemoveCustom(name),
+                      );
+                    }).toList(),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -988,16 +929,18 @@ class _SwitchRow extends StatelessWidget {
     required this.subtitle,
     required this.value,
     required this.onChanged,
-    required this.palette,
   });
   final String title;
   final String subtitle;
   final bool value;
   final ValueChanged<bool> onChanged;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    // Built as an explicit Row rather than using ShadSwitch's label/sublabel:
+    // those put the toggle on the left, and `direction: rtl` also flips the
+    // thumb's own stack, parking it on the wrong side of an "on" track.
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1010,98 +953,79 @@ class _SwitchRow extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
-                  color: palette.text,
+                  color: colors.foreground,
                 ),
               ),
               const SizedBox(height: 2),
               Text(
                 subtitle,
                 style: TextStyle(
-                    fontSize: 10.5, color: palette.subtleText, height: 1.35),
+                  fontSize: 10.5,
+                  color: colors.mutedForeground,
+                  height: 1.35,
+                ),
               ),
             ],
           ),
         ),
         const SizedBox(width: 10),
-        CupertinoSwitch(value: value, onChanged: onChanged),
+        ShadSwitch(value: value, onChanged: onChanged),
       ],
     );
   }
 }
 
+/// Single-select file-type chip. [ShadBadge] carries the selected look and
+/// [ShadBadge.outline] the unselected one; both take `onPressed` directly, so
+/// no gesture wrapper is needed.
 class _FilterChip extends StatelessWidget {
   const _FilterChip({
     required this.label,
     required this.selected,
     required this.onTap,
-    required this.palette,
   });
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? palette.accent : palette.headerBg,
-          border: Border.all(
-              color: selected ? palette.accent : palette.divider),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            color: selected ? CupertinoColors.white : palette.text,
-          ),
-        ),
+    final text = Text(
+      label,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
       ),
     );
+    return selected
+        ? ShadBadge(onPressed: onTap, child: text)
+        : ShadBadge.outline(onPressed: onTap, child: text);
   }
 }
 
 class _RemovableChip extends StatelessWidget {
-  const _RemovableChip({
-    required this.label,
-    required this.onRemove,
-    required this.palette,
-  });
+  const _RemovableChip({required this.label, required this.onRemove});
   final String label;
   final VoidCallback onRemove;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.only(left: 10, right: 4, top: 4, bottom: 4),
-      decoration: BoxDecoration(
-        color: palette.headerBg,
-        border: Border.all(color: palette.divider),
-        borderRadius: BorderRadius.circular(14),
-      ),
+    final colors = ShadTheme.of(context).colorScheme;
+    return ShadBadge.secondary(
+      padding: const EdgeInsets.only(left: 10, right: 4, top: 2, bottom: 2),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            label,
-            style: TextStyle(fontSize: 12, color: palette.text),
-          ),
+          Text(label, style: const TextStyle(fontSize: 12)),
           const SizedBox(width: 2),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onRemove,
-            child: Icon(
-              CupertinoIcons.clear_circled_solid,
-              size: 15,
-              color: palette.subtleText,
-            ),
+          ShadIconButton.ghost(
+            width: 18,
+            height: 18,
+            padding: EdgeInsets.zero,
+            iconSize: 12,
+            foregroundColor: colors.mutedForeground,
+            onPressed: onRemove,
+            icon: const Icon(LucideIcons.x),
           ),
         ],
       ),
@@ -1110,56 +1034,46 @@ class _RemovableChip extends StatelessWidget {
 }
 
 class _ScanButton extends StatelessWidget {
-  const _ScanButton({
-    required this.enabled,
-    required this.onPressed,
-    required this.palette,
-  });
+  const _ScanButton({required this.enabled, required this.onPressed});
   final bool enabled;
   final VoidCallback onPressed;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
     return Align(
       alignment: Alignment.centerLeft,
-      child: CupertinoButton.filled(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      child: ShadButton(
         onPressed: enabled ? onPressed : null,
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(CupertinoIcons.search, size: 16, color: CupertinoColors.white),
-            SizedBox(width: 8),
-            Text('Find Duplicates', style: TextStyle(fontSize: 14)),
-          ],
-        ),
+        leading: const Icon(LucideIcons.search, size: 16),
+        child: const Text('Find Duplicates', style: TextStyle(fontSize: 14)),
       ),
     );
   }
 }
 
 class _ProgressCard extends StatelessWidget {
-  const _ProgressCard({
-    required this.progress,
-    required this.onCancel,
-    required this.palette,
-  });
+  const _ProgressCard({required this.progress, required this.onCancel});
   final ScanProgress? progress;
   final VoidCallback onCancel;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     final prog = progress;
-    return _Card(
-      palette: palette,
+    // The walk phase has no total to divide by, so it stays a spinner. Once
+    // hashing starts the service reports filesHashed/hashTotal, which is a
+    // real ratio worth showing as a bar.
+    final ratio = prog != null && prog.phase == 'Comparing' && prog.hashTotal > 0
+        ? (prog.filesHashed / prog.hashTotal).clamp(0.0, 1.0)
+        : null;
+    return ShadCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              const CupertinoActivityIndicator(radius: 9),
+              const ShadSpinner(size: 18),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -1171,22 +1085,25 @@ class _ProgressCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: palette.text,
+                    color: colors.foreground,
                   ),
                 ),
               ),
-              CupertinoButton(
-                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ShadButton.ghost(
                 onPressed: onCancel,
                 child: const Text('Cancel', style: TextStyle(fontSize: 13)),
               ),
             ],
           ),
+          if (ratio != null) ...[
+            const SizedBox(height: 8),
+            ShadProgress(value: ratio, minHeight: 6),
+          ],
           if (prog != null && prog.currentPath.isNotEmpty) ...[
             const SizedBox(height: 4),
             Text(
               prog.currentPath,
-              style: TextStyle(fontSize: 10.5, color: palette.subtleText),
+              style: TextStyle(fontSize: 10.5, color: colors.mutedForeground),
               overflow: TextOverflow.ellipsis,
               maxLines: 1,
             ),
@@ -1198,19 +1115,19 @@ class _ProgressCard extends StatelessWidget {
 }
 
 class _ResultsHeader extends StatelessWidget {
-  const _ResultsHeader({required this.groups, required this.palette});
+  const _ResultsHeader({required this.groups});
   final List<DuplicateGroup> groups;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     final reclaimable =
         groups.fold<int>(0, (a, g) => a + g.reclaimableBytes);
     final dupeCount =
         groups.fold<int>(0, (a, g) => a + (g.files.length - 1));
     return Row(
       children: [
-        _SectionLabel('Results', palette: palette),
+        const _SectionLabel('Results'),
         const Spacer(),
         if (groups.isNotEmpty)
           Text(
@@ -1220,7 +1137,7 @@ class _ResultsHeader extends StatelessWidget {
             style: TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w500,
-              color: palette.subtleText,
+              color: colors.mutedForeground,
             ),
           ),
       ],
@@ -1229,14 +1146,9 @@ class _ResultsHeader extends StatelessWidget {
 }
 
 class _SavedBanner extends StatelessWidget {
-  const _SavedBanner({
-    required this.savedAt,
-    required this.restored,
-    required this.palette,
-  });
+  const _SavedBanner({required this.savedAt, required this.restored});
   final DateTime savedAt;
   final bool restored;
-  final AppPalette palette;
 
   String _relative() {
     final diff = DateTime.now().difference(savedAt);
@@ -1250,21 +1162,22 @@ class _SavedBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     final text = restored
         ? 'Loaded saved results from ${_relative()}. Rescan for full accuracy.'
         : 'Last scanned ${_relative()}.';
     return Row(
       children: [
         Icon(
-          restored ? CupertinoIcons.clock : CupertinoIcons.checkmark_circle,
+          restored ? LucideIcons.clock : LucideIcons.circleCheck,
           size: 12,
-          color: palette.subtleText,
+          color: colors.mutedForeground,
         ),
         const SizedBox(width: 5),
         Expanded(
           child: Text(
             text,
-            style: TextStyle(fontSize: 11, color: palette.subtleText),
+            style: TextStyle(fontSize: 11, color: colors.mutedForeground),
           ),
         ),
       ],
@@ -1273,21 +1186,20 @@ class _SavedBanner extends StatelessWidget {
 }
 
 class _EmptyResults extends StatelessWidget {
-  const _EmptyResults({required this.palette});
-  final AppPalette palette;
+  const _EmptyResults();
   @override
   Widget build(BuildContext context) {
-    return _Card(
-      palette: palette,
+    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
+    return ShadCard(
       child: Row(
         children: [
-          Icon(CupertinoIcons.checkmark_seal_fill,
-              size: 20, color: palette.success),
+          Icon(LucideIcons.badgeCheck, size: 20, color: palette.success),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               'No duplicate files found in the selected locations.',
-              style: TextStyle(fontSize: 13, color: palette.text),
+              style: TextStyle(fontSize: 13, color: colors.foreground),
             ),
           ),
         ],
@@ -1301,68 +1213,52 @@ class _CleanupBar extends StatelessWidget {
     required this.keepStrategy,
     required this.onKeepStrategy,
     required this.onCleanupAll,
-    required this.palette,
   });
   final _KeepStrategy keepStrategy;
   final ValueChanged<_KeepStrategy> onKeepStrategy;
   final VoidCallback onCleanupAll;
-  final AppPalette palette;
 
   @override
   Widget build(BuildContext context) {
-    return _Card(
-      palette: palette,
+    final colors = ShadTheme.of(context).colorScheme;
+    final labelStyle = TextStyle(fontSize: 12, color: colors.mutedForeground);
+    return ShadCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              Text(
-                'Keep the',
-                style: TextStyle(fontSize: 12, color: palette.subtleText),
-              ),
+              Text('Keep the', style: labelStyle),
               const SizedBox(width: 8),
               Expanded(
-                child: CupertinoSlidingSegmentedControl<_KeepStrategy>(
-                  groupValue: keepStrategy,
-                  children: {
+                child: ShadTabs<_KeepStrategy>(
+                  value: keepStrategy,
+                  gap: 0,
+                  onChanged: onKeepStrategy,
+                  tabs: [
                     for (final s in _KeepStrategy.values)
-                      s: Padding(
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      ShadTab(
+                        value: s,
                         child: Text(
                           _keepStrategyLabels[s]!,
                           style: const TextStyle(fontSize: 11.5),
                         ),
                       ),
-                  },
-                  onValueChanged: (v) {
-                    if (v != null) onKeepStrategy(v);
-                  },
+                  ],
                 ),
               ),
               const SizedBox(width: 4),
-              Text(
-                'copy',
-                style: TextStyle(fontSize: 12, color: palette.subtleText),
-              ),
+              Text('copy', style: labelStyle),
             ],
           ),
           const SizedBox(height: 10),
-          CupertinoButton(
-            padding: const EdgeInsets.symmetric(vertical: 9),
-            color: palette.danger,
+          ShadButton.destructive(
             onPressed: onCleanupAll,
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(CupertinoIcons.delete, size: 15, color: CupertinoColors.white),
-                SizedBox(width: 8),
-                Text(
-                  'Clean up all groups',
-                  style: TextStyle(fontSize: 13, color: CupertinoColors.white),
-                ),
-              ],
+            leading: const Icon(LucideIcons.trash2, size: 15),
+            child: const Text(
+              'Clean up all groups',
+              style: TextStyle(fontSize: 13),
             ),
           ),
         ],
@@ -1374,14 +1270,13 @@ class _CleanupBar extends StatelessWidget {
 /// Placeholder duplicate-group card shown while a scan is in progress. Static
 /// (no shimmer) to avoid adding paint cost during the scan.
 class _SkeletonGroupCard extends StatelessWidget {
-  const _SkeletonGroupCard({required this.palette});
-  final AppPalette palette;
+  const _SkeletonGroupCard();
   @override
   Widget build(BuildContext context) {
-    return _Card(
-      palette: palette,
-      child: const Column(
+    return const ShadCard(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
@@ -1410,7 +1305,6 @@ class _GroupCard extends StatelessWidget {
   const _GroupCard({
     required this.group,
     required this.keepIndex,
-    required this.palette,
     required this.onReveal,
     required this.onTrash,
     required this.onOpen,
@@ -1418,7 +1312,6 @@ class _GroupCard extends StatelessWidget {
   });
   final DuplicateGroup group;
   final int keepIndex;
-  final AppPalette palette;
   final void Function(FileEntry) onReveal;
   final void Function(FileEntry) onTrash;
   final void Function(FileEntry) onOpen;
@@ -1426,22 +1319,22 @@ class _GroupCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _Card(
-      palette: palette,
+    final colors = ShadTheme.of(context).colorScheme;
+    return ShadCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              Icon(CupertinoIcons.doc_on_doc_fill,
-                  size: 15, color: palette.accent),
+              Icon(LucideIcons.copy, size: 15, color: colors.primary),
               const SizedBox(width: 8),
               Text(
                 '${group.files.length} copies',
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: palette.text,
+                  color: colors.foreground,
                 ),
               ),
               const Spacer(),
@@ -1449,19 +1342,23 @@ class _GroupCard extends StatelessWidget {
                 child: Text(
                   '${formatBytes(group.size)} each • '
                   '${formatBytes(group.reclaimableBytes)} reclaimable',
-                  style: TextStyle(fontSize: 11, color: palette.subtleText),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: colors.mutedForeground,
+                  ),
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.end,
                 ),
               ),
               const SizedBox(width: 4),
-              CupertinoButton(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                minimumSize: const Size(0, 28),
+              ShadButton.ghost(
+                height: 28,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                foregroundColor: colors.destructive,
                 onPressed: onCleanupGroup,
-                child: Text(
+                child: const Text(
                   'Trash extras',
-                  style: TextStyle(fontSize: 11.5, color: palette.danger),
+                  style: TextStyle(fontSize: 11.5),
                 ),
               ),
             ],
@@ -1476,7 +1373,6 @@ class _GroupCard extends StatelessWidget {
                 child: _FileTile(
                   entry: e.value,
                   keepHint: e.key == keepIndex,
-                  palette: palette,
                   onReveal: () => onReveal(e.value),
                   onTrash: () => onTrash(e.value),
                   onOpen: () => onOpen(e.value),
@@ -1496,29 +1392,29 @@ class _FileTile extends StatelessWidget {
   const _FileTile({
     required this.entry,
     required this.keepHint,
-    required this.palette,
     required this.onReveal,
     required this.onTrash,
     required this.onOpen,
   });
   final FileEntry entry;
   final bool keepHint;
-  final AppPalette palette;
   final VoidCallback onReveal;
   final VoidCallback onTrash;
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
     final canReveal = Platform.isMacOS;
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: palette.headerBg,
+        color: colors.muted,
         border: Border.all(
           color: keepHint
               ? palette.success.withValues(alpha: 0.5)
-              : palette.divider,
+              : colors.border,
         ),
         borderRadius: BorderRadius.circular(10),
       ),
@@ -1531,7 +1427,7 @@ class _FileTile extends StatelessWidget {
             onTap: onOpen,
             child: Stack(
               children: [
-                _TileThumbnail(entry: entry, palette: palette),
+                _TileThumbnail(entry: entry),
                 if (keepHint)
                   Positioned(
                     left: 4,
@@ -1543,12 +1439,12 @@ class _FileTile extends StatelessWidget {
                         color: palette.success,
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: const Text(
+                      child: Text(
                         'keep',
                         style: TextStyle(
                           fontSize: 9.5,
                           fontWeight: FontWeight.w700,
-                          color: CupertinoColors.white,
+                          color: colors.primaryForeground,
                         ),
                       ),
                     ),
@@ -1559,11 +1455,14 @@ class _FileTile extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.all(3),
                     decoration: BoxDecoration(
-                      color: palette.cardBg.withValues(alpha: 0.85),
+                      color: colors.card.withValues(alpha: 0.85),
                       borderRadius: BorderRadius.circular(6),
                     ),
-                    child: Icon(CupertinoIcons.eye_fill,
-                        size: 11, color: palette.accent),
+                    child: Icon(
+                      LucideIcons.eye,
+                      size: 11,
+                      color: colors.primary,
+                    ),
                   ),
                 ),
               ],
@@ -1575,7 +1474,7 @@ class _FileTile extends StatelessWidget {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: palette.text,
+              color: colors.foreground,
             ),
             overflow: TextOverflow.ellipsis,
             maxLines: 1,
@@ -1583,29 +1482,29 @@ class _FileTile extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             _formatDate(entry.modified),
-            style: TextStyle(fontSize: 9.5, color: palette.subtleText),
+            style: TextStyle(fontSize: 9.5, color: colors.mutedForeground),
           ),
           const SizedBox(height: 2),
           Row(
             children: [
               _IconAction(
-                icon: CupertinoIcons.eye,
+                icon: LucideIcons.eye,
                 tooltip: 'Preview',
-                color: palette.accent,
+                color: colors.primary,
                 onPressed: onOpen,
               ),
               if (canReveal)
                 _IconAction(
-                  icon: CupertinoIcons.folder,
+                  icon: LucideIcons.folderOpen,
                   tooltip: 'Reveal in Finder',
-                  color: palette.subtleText,
+                  color: colors.mutedForeground,
                   onPressed: onReveal,
                 ),
               const Spacer(),
               _IconAction(
-                icon: CupertinoIcons.delete,
+                icon: LucideIcons.trash2,
                 tooltip: 'Move to Trash',
-                color: palette.danger,
+                color: colors.destructive,
                 onPressed: onTrash,
               ),
             ],
@@ -1618,9 +1517,8 @@ class _FileTile extends StatelessWidget {
 
 /// Full-width square-ish thumbnail for a grid tile.
 class _TileThumbnail extends StatelessWidget {
-  const _TileThumbnail({required this.entry, required this.palette});
+  const _TileThumbnail({required this.entry});
   final FileEntry entry;
-  final AppPalette palette;
 
   static const _imageExts = {
     '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.heic', '.tif',
@@ -1631,20 +1529,21 @@ class _TileThumbnail extends StatelessWidget {
     const video = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.m4v'};
     const audio = {'.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg'};
     const doc = {'.pdf', '.doc', '.docx', '.txt', '.md', '.rtf', '.csv'};
-    if (video.contains(ext)) return CupertinoIcons.play_rectangle_fill;
-    if (audio.contains(ext)) return CupertinoIcons.music_note;
-    if (doc.contains(ext)) return CupertinoIcons.doc_text_fill;
-    return CupertinoIcons.doc_fill;
+    if (video.contains(ext)) return LucideIcons.film;
+    if (audio.contains(ext)) return LucideIcons.music;
+    if (doc.contains(ext)) return LucideIcons.fileText;
+    return LucideIcons.file;
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
     return AspectRatio(
       aspectRatio: 1.25,
       child: Container(
         decoration: BoxDecoration(
-          color: palette.cardBg,
-          border: Border.all(color: palette.divider),
+          color: colors.card,
+          border: Border.all(color: colors.border),
           borderRadius: BorderRadius.circular(8),
         ),
         clipBehavior: Clip.antiAlias,
@@ -1657,10 +1556,17 @@ class _TileThumbnail extends StatelessWidget {
                 height: double.infinity,
                 cacheWidth: 300,
                 gaplessPlayback: true,
-                errorBuilder: (_, __, ___) =>
-                    Icon(CupertinoIcons.photo, size: 34, color: palette.subtleText),
+                errorBuilder: (_, __, ___) => Icon(
+                  LucideIcons.image,
+                  size: 34,
+                  color: colors.mutedForeground,
+                ),
               )
-            : Icon(_glyphFor(entry.extension), size: 34, color: palette.subtleText),
+            : Icon(
+                _glyphFor(entry.extension),
+                size: 34,
+                color: colors.mutedForeground,
+              ),
       ),
     );
   }
@@ -1689,11 +1595,20 @@ class _IconAction extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CupertinoButton(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      minimumSize: const Size(30, 30),
-      onPressed: onPressed,
-      child: Icon(icon, size: 17, color: color),
+    // `tooltip` used to be dead: CupertinoButton has no tooltip slot, so the
+    // string was passed in and dropped. ShadTooltip finally renders it, and
+    // hover works because ShadIconButton implements ShadGestureDetector.
+    return ShadTooltip(
+      builder: (_) => Text(tooltip, style: const TextStyle(fontSize: 11.5)),
+      child: ShadIconButton.ghost(
+        width: 30,
+        height: 30,
+        padding: EdgeInsets.zero,
+        iconSize: 17,
+        foregroundColor: color,
+        onPressed: onPressed,
+        icon: Icon(icon),
+      ),
     );
   }
 }
