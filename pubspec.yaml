@@ -64,7 +64,7 @@ dependency_overrides:
   video_player_avfoundation: 2.6.5
 
 flutter:
-  uses-material-design: true
+  uses-material-design: false
   assets:
     - assets/icon/icon.png
     - assets/icon/tray_icon.ico

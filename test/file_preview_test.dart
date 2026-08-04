@@ -145,6 +145,23 @@ void main() {
       });
     }
 
+    // Height matters as much as width here: the top bar, filmstrip and info
+    // sheet all take a fixed slice, so a short window (a landscape phone, or a
+    // half-height desktop window) is where they run out of room.
+    for (final size in const [
+      Size(1200, 420),
+      Size(820, 360),
+      Size(600, 320),
+      Size(400, 300),
+    ]) {
+      testWidgets(
+          'lays out without overflow at ${size.width.toInt()}x'
+          '${size.height.toInt()}', (tester) async {
+        await pump(tester, size: size);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
     testWidgets('top bar shows identity, badges and position', (tester) async {
       await pump(tester);
 

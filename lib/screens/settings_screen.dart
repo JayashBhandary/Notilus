@@ -387,41 +387,85 @@ class _ThemeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ShadTabs<AppThemeMode>(
-      value: current,
-      gap: 0,
-      onChanged: onChanged,
-      tabs: const [
-        ShadTab(
-          value: AppThemeMode.system,
-          child: _ThemeChip(icon: LucideIcons.settings, label: 'System'),
-        ),
-        ShadTab(
-          value: AppThemeMode.light,
-          child: _ThemeChip(icon: LucideIcons.sun, label: 'Light'),
-        ),
-        ShadTab(
-          value: AppThemeMode.dark,
-          child: _ThemeChip(icon: LucideIcons.moon, label: 'Dark'),
-        ),
-      ],
+    // ShadTabs hands each tab an unbounded width and then squeezes the result
+    // into a third of the row, so a chip that doesn't fit overflows instead of
+    // ellipsising. Three icon+label chips need ~300px; below that the labels are
+    // dropped rather than clipped.
+    return LayoutBuilder(
+      builder: (ctx, c) {
+        // Normalised by the OS text scale for the same reason as the toolbar:
+        // the 300px figure assumes 13px labels.
+        final scale = MediaQuery.textScalerOf(context).scale(13) / 13;
+        final showLabels = !c.maxWidth.isFinite ||
+            c.maxWidth / (scale <= 0 ? 1 : scale) >= 300;
+        return ShadTabs<AppThemeMode>(
+          value: current,
+          gap: 0,
+          onChanged: onChanged,
+          tabs: [
+            ShadTab(
+              value: AppThemeMode.system,
+              child: _ThemeChip(
+                icon: LucideIcons.settings,
+                label: 'System',
+                showLabel: showLabels,
+              ),
+            ),
+            ShadTab(
+              value: AppThemeMode.light,
+              child: _ThemeChip(
+                icon: LucideIcons.sun,
+                label: 'Light',
+                showLabel: showLabels,
+              ),
+            ),
+            ShadTab(
+              value: AppThemeMode.dark,
+              child: _ThemeChip(
+                icon: LucideIcons.moon,
+                label: 'Dark',
+                showLabel: showLabels,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
 
 class _ThemeChip extends StatelessWidget {
-  const _ThemeChip({required this.icon, required this.label});
+  const _ThemeChip({
+    required this.icon,
+    required this.label,
+    this.showLabel = true,
+  });
   final IconData icon;
   final String label;
+  final bool showLabel;
 
   @override
   Widget build(BuildContext context) {
+    if (!showLabel) {
+      return ShadTooltip(
+        builder: (_) => Text(label),
+        child: Icon(icon, size: 14),
+      );
+    }
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 14),
         const SizedBox(width: 6),
-        Text(label, style: const TextStyle(fontSize: 13)),
+        Flexible(
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 13),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+            softWrap: false,
+          ),
+        ),
       ],
     );
   }

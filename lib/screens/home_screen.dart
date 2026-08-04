@@ -295,14 +295,31 @@ class _WideLayout extends StatelessWidget {
                       onRefreshOverview: () =>
                           overviewKey.currentState?.refresh(),
                     ),
-                    Expanded(child: _centerBody(centerView, overviewKey)),
-                    if (terminalOpen)
-                      TerminalPanel(
-                        cwd: cwd,
-                        height: terminalHeight,
-                        onResize: onResizeTerminal,
-                        onClose: onCloseTerminal,
+                    Expanded(
+                      // LayoutBuilder so the terminal knows how much room the
+                      // content area actually has: a Column child can't read
+                      // its own available height, and an unclamped fixed-height
+                      // panel overflows a short window.
+                      child: LayoutBuilder(
+                        builder: (ctx, c) => Column(
+                          children: [
+                            Expanded(
+                              child: _centerBody(centerView, overviewKey),
+                            ),
+                            if (terminalOpen)
+                              TerminalPanel(
+                                cwd: cwd,
+                                height: clampTerminalHeight(
+                                  terminalHeight,
+                                  c.maxHeight,
+                                ),
+                                onResize: onResizeTerminal,
+                                onClose: onCloseTerminal,
+                              ),
+                          ],
+                        ),
                       ),
+                    ),
                   ],
                 ),
               ),
@@ -407,23 +424,37 @@ class _CompactLayout extends StatelessWidget {
                 title: tab == 0 ? _centerTitle(centerView) : '',
               ),
               Expanded(
-                child: IndexedStack(
-                  index: tab,
-                  children: [
-                    _centerBody(centerView, overviewKey),
-                    const InfoPanel(),
-                    const ChatPanel(),
-                    const WorkflowTab(),
-                  ],
+                // Same reason as the wide layout: the terminal shares the
+                // content area rather than the chrome, so it can be measured
+                // against a known height and clamped.
+                child: LayoutBuilder(
+                  builder: (ctx, c) => Column(
+                    children: [
+                      Expanded(
+                        child: IndexedStack(
+                          index: tab,
+                          children: [
+                            _centerBody(centerView, overviewKey),
+                            const InfoPanel(),
+                            const ChatPanel(),
+                            const WorkflowTab(),
+                          ],
+                        ),
+                      ),
+                      if (terminalOpen)
+                        TerminalPanel(
+                          cwd: cwd,
+                          height: clampTerminalHeight(
+                            terminalHeight,
+                            c.maxHeight,
+                          ),
+                          onResize: onResizeTerminal,
+                          onClose: onCloseTerminal,
+                        ),
+                    ],
+                  ),
                 ),
               ),
-              if (terminalOpen)
-                TerminalPanel(
-                  cwd: cwd,
-                  height: terminalHeight,
-                  onResize: onResizeTerminal,
-                  onClose: onCloseTerminal,
-                ),
               const FileOpProgressBar(),
               PathStatusBar(key: pathStatusBarKey),
               SafeArea(
@@ -523,7 +554,13 @@ class _WideTopBar extends StatelessWidget {
           // never overflows. Priority, widest-first: full model pill →
           // grid/list toggle → back/forward nav. The sidebar/panel toggles,
           // terminal, connection dot and settings always stay.
-          final w = c.maxWidth;
+          // Measured against text-scale-normalised width: the thresholds were
+          // tuned for 13px labels, and at a 2x OS text size the pill and the
+          // folder label are twice as wide, so a bar that "fits" by raw pixels
+          // still overflows. Dividing by the scale sheds controls at the width
+          // where they would actually stop fitting.
+          final scale = MediaQuery.textScalerOf(context).scale(13) / 13;
+          final w = c.maxWidth / (scale <= 0 ? 1 : scale);
           final showFullPill = w >= 440;
           final showViewToggle = w >= 360;
           final showNav = w >= 290;
@@ -802,8 +839,11 @@ class _CompactTabBar extends StatelessWidget {
         color: colors.muted,
         border: Border(top: BorderSide(color: colors.border)),
       ),
-      child: SizedBox(
-        height: 52,
+      // minHeight, not a fixed height: the icon-over-label stack is 34px at the
+      // default text size but taller once the OS text size is scaled up, and a
+      // hard 52 clipped the label instead of letting the bar grow.
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 52),
         child: Row(
           children: List.generate(_items.length, (i) {
             final selected = i == index;
@@ -814,21 +854,28 @@ class _CompactTabBar extends StatelessWidget {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: () => onChanged(i),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(item.$1, size: 22, color: tint),
-                    const SizedBox(height: 2),
-                    Text(
-                      item.$2,
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight:
-                            selected ? FontWeight.w600 : FontWeight.w400,
-                        color: tint,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(item.$1, size: 22, color: tint),
+                      const SizedBox(height: 2),
+                      Text(
+                        item.$2,
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight:
+                              selected ? FontWeight.w600 : FontWeight.w400,
+                          color: tint,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             );
@@ -1074,10 +1121,20 @@ class _SegmentedHeader extends StatelessWidget {
   // The right panel narrows to 320px below a 1100px window, which leaves ~69px
   // of label room per tab — not enough for "Workflows" even at zero padding.
   static const _labels = ['Info', 'Chat', 'Flows'];
+  static const _icons = [
+    LucideIcons.info,
+    LucideIcons.messageSquare,
+    LucideIcons.zap,
+  ];
 
   @override
   Widget build(BuildContext context) {
     final colors = ShadTheme.of(context).colorScheme;
+    // A tab label can't ellipsize (see above), so at large accessibility text
+    // sizes the labels are swapped for their icons instead of overflowing the
+    // bar. 15px is where a three-label strip stops fitting a 320px panel.
+    final scaledLabel = MediaQuery.textScalerOf(context).scale(13);
+    final iconsOnly = scaledLabel > 15;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -1095,7 +1152,12 @@ class _SegmentedHeader extends StatelessWidget {
               // Trimmed from Shad's default 12 to buy back label room at the
               // narrow (320px) panel width.
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Text(_labels[i], style: const TextStyle(fontSize: 13)),
+              child: iconsOnly
+                  ? ShadTooltip(
+                      builder: (_) => Text(_labels[i]),
+                      child: Icon(_icons[i], size: 16),
+                    )
+                  : Text(_labels[i], style: const TextStyle(fontSize: 13)),
             ),
         ],
       ),
