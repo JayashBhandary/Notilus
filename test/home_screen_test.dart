@@ -177,5 +177,84 @@ void main() {
       expect(find.byIcon(LucideIcons.settings), findsOneWidget);
       expect(find.byIcon(LucideIcons.panelRight), findsNothing);
     });
+
+    // A landscape phone, a small floating window, and the smallest size a
+    // desktop window manager will let the user drag to. The chat pane is only
+    // ~100px tall at 568x320, which is where the empty state used to overflow.
+    for (final size in const [
+      Size(320, 568),
+      Size(568, 320),
+      Size(300, 300),
+    ]) {
+      testWidgets(
+          'lays out without overflow at ${size.width.toInt()}x'
+          '${size.height.toInt()}', (tester) async {
+        await pumpAt(tester, size);
+        expect(tester.takeException(), isNull);
+
+        for (final label in ['Info', 'Chat', 'Flows', 'Files']) {
+          final tab = find.text(label);
+          if (tab.evaluate().isEmpty) continue;
+          await tester.tap(tab.first, warnIfMissed: false);
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 300));
+          expect(tester.takeException(), isNull, reason: '$label at $size');
+        }
+      });
+    }
+  });
+
+  group('short windows', () {
+    // The terminal is a fixed-height panel in a Column, so a window shorter
+    // than its 280px default is where it used to push the layout past the
+    // viewport instead of being clamped.
+    for (final size in const [
+      Size(1920, 300),
+      Size(1024, 400),
+      Size(760, 400),
+      Size(568, 320),
+      Size(300, 300),
+    ]) {
+      testWidgets(
+          'terminal fits at ${size.width.toInt()}x${size.height.toInt()}',
+          (tester) async {
+        await pumpAt(tester, size);
+        final button = find.byIcon(LucideIcons.terminal);
+        expect(button, findsWidgets, reason: 'terminal toggle at $size');
+        await tester.tap(button.first, warnIfMissed: false);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    test('clampTerminalHeight keeps content visible', () {
+      // Room to spare: the requested height is honoured verbatim.
+      expect(clampTerminalHeight(280, 900), 280);
+      // Tight: capped so kMinContentHeight of the pane survives.
+      expect(clampTerminalHeight(280, 300), 300 - kMinContentHeight);
+      // Nothing sensible left to reserve — take the pane rather than overflow.
+      expect(clampTerminalHeight(280, 40), 40);
+      // Unbounded (a Column child measuring itself) can't be clamped.
+      expect(clampTerminalHeight(280, double.infinity), 280);
+    });
+  });
+
+  group('OS text scaling', () {
+    // Accessibility text sizes widen every label, so the toolbar's shed
+    // thresholds and the panel tab strip are measured against a
+    // scale-normalised width rather than raw pixels.
+    for (final scale in [1.3, 2.0]) {
+      for (final size in const [Size(1024, 768), Size(360, 640)]) {
+        testWidgets(
+            'no overflow at ${scale}x on ${size.width.toInt()}x'
+            '${size.height.toInt()}', (tester) async {
+          tester.platformDispatcher.textScaleFactorTestValue = scale;
+          addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+          await pumpAt(tester, size);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
   });
 }

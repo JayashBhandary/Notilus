@@ -34,34 +34,41 @@ class _FolderSearchBarState extends State<FolderSearchBar> {
     final search = context.watch<SearchProvider>();
     final browser = context.watch<BrowserProvider>();
 
-    return Row(
-      children: [
-        Expanded(
-          child: CupertinoSearchTextField(
-            controller: _controller,
-            focusNode: _focusNode,
-            placeholder: 'Search this folder',
-            style: TextStyle(fontSize: 12, color: palette.text),
-            backgroundColor: palette.contentBg,
-            onChanged: (value) =>
-                search.setQuery(value, root: browser.currentPath),
-            onSuffixTap: () {
-              _controller.clear();
-              search.clear();
-            },
+    // CupertinoSearchTextField lays its icon, field and clear button out in a
+    // Row that can't ellipsize, so at a 2x OS text size it overflows its own
+    // decoration. The bar is a fixed-height strip above the listing, so the
+    // scale is capped rather than letting the row grow unbounded.
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.3,
+      child: Row(
+        children: [
+          Expanded(
+            child: CupertinoSearchTextField(
+              controller: _controller,
+              focusNode: _focusNode,
+              placeholder: 'Search this folder',
+              style: TextStyle(fontSize: 12, color: palette.text),
+              backgroundColor: palette.contentBg,
+              onChanged: (value) =>
+                  search.setQuery(value, root: browser.currentPath),
+              onSuffixTap: () {
+                _controller.clear();
+                search.clear();
+              },
+            ),
           ),
-        ),
-        const SizedBox(width: 8),
-        _ContentToggle(
-          enabled: search.searchContent,
-          palette: palette,
-          onTap: () => search.setSearchContent(!search.searchContent),
-        ),
-        if (search.isRunning) ...[
           const SizedBox(width: 8),
-          const CupertinoActivityIndicator(radius: 7),
+          _ContentToggle(
+            enabled: search.searchContent,
+            palette: palette,
+            onTap: () => search.setSearchContent(!search.searchContent),
+          ),
+          if (search.isRunning) ...[
+            const SizedBox(width: 8),
+            const CupertinoActivityIndicator(radius: 7),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

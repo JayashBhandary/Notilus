@@ -130,4 +130,59 @@ void main() {
     );
     expect(settings.themeMode, AppThemeMode.dark);
   });
+
+  group('cramped viewports', () {
+    // The dialog is capped at 460px but shrinks with the viewport, and its
+    // three theme tabs split whatever is left. ShadTabs hands each tab an
+    // unbounded width, so a chip that doesn't fit overflows rather than
+    // ellipsising — below ~300px of content width the labels are dropped.
+    for (final size in const [
+      Size(320, 568),
+      Size(300, 300),
+      Size(480, 400),
+      Size(1920, 300),
+    ]) {
+      testWidgets(
+          'no overflow at ${size.width.toInt()}x${size.height.toInt()}',
+          (tester) async {
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+
+        await tester.pumpWidget(host(const SettingsDialog()));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.byType(ShadDialog), findsOneWidget);
+      });
+    }
+
+    testWidgets('theme labels are dropped on a narrow dialog', (tester) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(host(const SettingsDialog()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('System'), findsNothing);
+      expect(find.byIcon(LucideIcons.sun), findsOneWidget);
+      expect(find.byIcon(LucideIcons.moon), findsOneWidget);
+    });
+
+    testWidgets('no overflow at a 2x OS text size', (tester) async {
+      tester.view.physicalSize = const Size(1024, 768);
+      tester.view.devicePixelRatio = 1.0;
+      tester.platformDispatcher.textScaleFactorTestValue = 2.0;
+      addTearDown(() {
+        tester.view.reset();
+        tester.platformDispatcher.clearTextScaleFactorTestValue();
+      });
+
+      await tester.pumpWidget(host(const SettingsDialog()));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
+  });
 }

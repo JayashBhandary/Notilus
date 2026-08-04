@@ -272,38 +272,48 @@ class _ChatEmpty extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final palette = AppColors.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              CupertinoIcons.bubble_left_bubble_right,
-              size: 36,
-              color: palette.subtleText,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Ask AI anything',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: palette.text,
+    // Centred when there is room, scrollable when there isn't: the panel is
+    // barely 100px tall in the compact layout on a landscape phone, and a
+    // fixed Center/Column overflowed by more than its own height there.
+    return LayoutBuilder(
+      builder: (ctx, c) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: c.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    CupertinoIcons.bubble_left_bubble_right,
+                    size: 36,
+                    color: palette.subtleText,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Ask AI anything',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: palette.text,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Attach a file with the paperclip, or select one and tick '
+                    '“Include selection” to send it as context.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: palette.subtleText,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Attach a file with the paperclip, or select one and tick '
-              '“Include selection” to send it as context.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: palette.subtleText,
-                height: 1.4,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
