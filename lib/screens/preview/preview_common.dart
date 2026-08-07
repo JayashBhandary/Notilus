@@ -382,7 +382,9 @@ class PreviewMessage extends StatelessWidget {
     final colors = ShadTheme.of(context).colorScheme;
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        // 420 left the action button 332px of inner width, 13px short of
+        // "Open in external viewer" — every failed-render message overflowed.
+        constraints: const BoxConstraints(maxWidth: 460),
         child: Padding(
           padding: const EdgeInsets.all(28),
           child: Column(
@@ -420,7 +422,16 @@ class PreviewMessage extends StatelessWidget {
                 ShadButton(
                   onPressed: onAction,
                   leading: const Icon(LucideIcons.externalLink, size: 15),
-                  child: Text(actionLabel!),
+                  // Flexible as well as the wider box above: at a large OS
+                  // text size no fixed width is enough, and an ellipsis beats
+                  // an overflow stripe.
+                  child: Flexible(
+                    child: Text(
+                      actionLabel!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ),
               ],
             ],

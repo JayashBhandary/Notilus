@@ -4,7 +4,9 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import '../models/media_kind.dart';
 import '../providers/browser_provider.dart';
+import '../screens/media_screen.dart' show iconForMediaKind;
 import '../services/file_service.dart';
 import '../theme.dart';
 
@@ -97,6 +99,18 @@ class Sidebar extends StatelessWidget {
                 onTap: () => after(() => browser.navigateTo(e.value!)),
               );
             }),
+            const SizedBox(height: 14),
+            const _SectionHeader(label: 'Media'),
+            ...MediaKind.values.map(
+              (kind) => _SidebarItem(
+                label: kind.label,
+                icon: iconForMediaKind(kind),
+                selected: browser.centerView == centerViewForMedia(kind),
+                onTap: () => after(
+                  () => browser.showCenterView(centerViewForMedia(kind)),
+                ),
+              ),
+            ),
             const SizedBox(height: 14),
             _SectionHeader(
               label: 'Locations',

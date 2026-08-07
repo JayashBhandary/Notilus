@@ -1,3 +1,4 @@
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
@@ -792,14 +793,44 @@ class PopplerPdfViewer extends StatefulWidget {
 }
 
 class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
-  static const _maxPages = 100;
+  /// Hard ceiling on how many pages the viewer will list. Pages are rendered
+  /// on demand now, so this only bounds the scrollbar, not the work done.
+  static const _maxPages = 1000;
   static const _dpi = 110;
 
+  /// Kicked off as soon as the page count is known, before anything is
+  /// scrolled — enough that opening a document lands on a drawn first page.
+  static const _eagerPages = 3;
+
+  /// Pages rendered ahead of the one being looked at.
+  static const _prefetch = 2;
+
+  /// Concurrent `pdftoppm` processes. Two keeps a scroll filling quickly
+  /// without handing the whole machine to poppler.
+  static const _maxConcurrent = 2;
+
+  /// A single page that takes longer than this is abandoned, so one pathological
+  /// page can't wedge the render queue.
+  static const _pageTimeout = Duration(seconds: 30);
+
   Directory? _tmpDir;
-  List<File> _pages = const [];
+  int _pageCount = 0;
+
+  /// Width / height of the document's first page, used to size the placeholder
+  /// for pages that haven't been rendered yet. Mixed-orientation documents
+  /// letterbox inside this box rather than making the list jump as pages land.
+  double _pageAspect = 612 / 792;
+
+  final Map<int, File> _rendered = {};
+  final Set<int> _requested = {};
+  final Set<int> _failed = {};
+  final Queue<int> _queue = Queue<int>();
+  int _running = 0;
+
   bool _loading = true;
   bool _popplerMissing = false;
   String? _errorMsg;
+  bool _disposed = false;
 
   final ScrollController _scroll = ScrollController();
   final List<GlobalKey> _pageKeys = [];
@@ -810,11 +841,13 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
   void initState() {
     super.initState();
     _scroll.addListener(_onScroll);
-    _render();
+    _start();
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _queue.clear();
     _scroll
       ..removeListener(_onScroll)
       ..dispose();
@@ -843,44 +876,166 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
     }
   }
 
-  Future<void> _render() async {
+  /// Learns the document's shape, then paints immediately and fills pages in
+  /// behind the scroll.
+  ///
+  /// The viewer used to rasterise every page up front — a hundred-page
+  /// document meant a hundred pages of poppler before a single pixel appeared.
+  /// `pdfinfo` costs milliseconds and gives the page count and page size, which
+  /// is everything needed to lay out placeholders and render the rest lazily.
+  Future<void> _start() async {
     Directory tmp;
     try {
       tmp = await Directory.systemTemp.createTemp('notilus_pdf_');
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _errorMsg = 'Couldn\'t create temp dir: $e';
-        });
-      }
+      _fail('Couldn\'t create temp dir: $e');
       return;
     }
     _tmpDir = tmp;
 
+    final info = await _probeDocument();
+    if (_disposed) return;
+
+    if (info == null) {
+      // pdfinfo is in the same package as pdftoppm, so this is a strange
+      // machine rather than a normal one. Fall back to the old render-it-all
+      // path so the document still opens.
+      await _renderEverything();
+      return;
+    }
+
+    setState(() {
+      _pageCount = info.pages.clamp(1, _maxPages);
+      _pageAspect = info.aspect;
+      _pageKeys
+        ..clear()
+        ..addAll(List.generate(_pageCount, (_) => GlobalKey()));
+      _loading = false;
+    });
+
+    for (var page = 1; page <= _eagerPages && page <= _pageCount; page++) {
+      _request(page);
+    }
+  }
+
+  void _fail(String message) {
+    if (_disposed || !mounted) return;
+    setState(() {
+      _loading = false;
+      _errorMsg = message;
+    });
+  }
+
+  Future<PdfInfo?> _probeDocument() async {
     try {
-      final result = await Process.run('pdftoppm', [
+      final result = await Process.run('pdfinfo', [widget.file.path]);
+      if (result.exitCode != 0) return null;
+      return PdfInfo.parse('${result.stdout}');
+    } on ProcessException {
+      if (!_disposed && mounted) {
+        setState(() {
+          _loading = false;
+          _popplerMissing = true;
+        });
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Queues [page] for rendering unless it is already done, queued or known bad.
+  void _request(int page) {
+    if (page < 1 || page > _pageCount) return;
+    if (_requested.contains(page) || _failed.contains(page)) return;
+    _requested.add(page);
+    _queue.add(page);
+    _pump();
+  }
+
+  void _pump() {
+    while (!_disposed && _running < _maxConcurrent && _queue.isNotEmpty) {
+      final page = _queue.removeFirst();
+      _running++;
+      _renderPage(page).whenComplete(() {
+        _running--;
+        _pump();
+      });
+    }
+  }
+
+  Future<void> _renderPage(int page) async {
+    final tmp = _tmpDir;
+    if (tmp == null || _disposed) return;
+    // -singlefile fixes the output name: without it poppler pads the page
+    // number to the document's digit count, which differs per document.
+    final prefix = p.join(tmp.path, 'page-$page');
+    final out = File('$prefix.png');
+    try {
+      if (!await out.exists()) {
+        final code = await _runPoppler([
+          '-png',
+          '-r', '$_dpi',
+          '-f', '$page',
+          '-l', '$page',
+          '-singlefile',
+          widget.file.path,
+          prefix,
+        ]);
+        if (code != 0 || !await out.exists()) {
+          _requested.remove(page);
+          _failed.add(page);
+          return;
+        }
+      }
+      if (_disposed || !mounted) return;
+      setState(() => _rendered[page] = out);
+    } catch (_) {
+      _requested.remove(page);
+      _failed.add(page);
+    }
+  }
+
+  /// Runs pdftoppm, killing it if it outlives [_pageTimeout].
+  Future<int> _runPoppler(List<String> args) async {
+    Process? proc;
+    try {
+      proc = await Process.start('pdftoppm', args);
+      // Drained so a chatty page can't block on a full stderr pipe.
+      proc.stdout.drain<void>().catchError((_) {});
+      proc.stderr.drain<void>().catchError((_) {});
+      return await proc.exitCode.timeout(
+        _pageTimeout,
+        onTimeout: () {
+          proc?.kill(ProcessSignal.sigkill);
+          return -1;
+        },
+      );
+    } catch (_) {
+      return -1;
+    }
+  }
+
+  /// Last-resort path for a machine with pdftoppm but no pdfinfo: one batch,
+  /// capped, exactly as the viewer used to behave.
+  Future<void> _renderEverything() async {
+    final tmp = _tmpDir;
+    if (tmp == null) return;
+    try {
+      final code = await _runPoppler([
         '-png',
         '-r', '$_dpi',
         '-f', '1',
-        '-l', '$_maxPages',
+        '-l', '100',
         widget.file.path,
         p.join(tmp.path, 'p'),
       ]);
-      if (result.exitCode != 0) {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-            _errorMsg =
-                (result.stderr is String && (result.stderr as String).isNotEmpty)
-                    ? result.stderr as String
-                    : 'pdftoppm exited ${result.exitCode}';
-          });
-        }
+      if (code != 0) {
+        _fail('pdftoppm exited $code');
         return;
       }
     } on ProcessException {
-      if (mounted) {
+      if (!_disposed && mounted) {
         setState(() {
           _loading = false;
           _popplerMissing = true;
@@ -888,12 +1043,7 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
       }
       return;
     } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _errorMsg = '$e';
-        });
-      }
+      _fail('$e');
       return;
     }
 
@@ -903,26 +1053,49 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
         .cast<File>()
         .toList();
     pages.sort((a, b) => a.path.compareTo(b.path));
-    if (mounted) {
-      setState(() {
-        _pages = pages;
-        _pageKeys
-          ..clear()
-          ..addAll(List.generate(pages.length, (_) => GlobalKey()));
-        _loading = false;
-      });
-    }
+    if (_disposed || !mounted) return;
+    setState(() {
+      _pageCount = pages.length;
+      _rendered
+        ..clear()
+        ..addEntries([
+          for (var i = 0; i < pages.length; i++) MapEntry(i + 1, pages[i]),
+        ]);
+      _requested.addAll(_rendered.keys);
+      _pageKeys
+        ..clear()
+        ..addAll(List.generate(pages.length, (_) => GlobalKey()));
+      _loading = false;
+    });
   }
 
   Future<void> _goto(int page) async {
     if (page < 1 || page > _pageKeys.length) return;
     final ctx = _pageKeys[page - 1].currentContext;
-    if (ctx == null) return;
-    await Scrollable.ensureVisible(
-      ctx,
+    if (ctx != null) {
+      await Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+        alignment: 0,
+      );
+      return;
+    }
+
+    // Off-screen pages have no context to scroll to — the list only builds
+    // what's visible. Every page occupies the same box, so the offset is
+    // arithmetic. (Jumping to a distant page used to silently do nothing.)
+    _request(page);
+    final box = context.findRenderObject() as RenderBox?;
+    final width =
+        (box?.size.width ?? 0) - ((_showRail ? PreviewPageRail.width : 0) + 32);
+    if (width <= 0 || !_scroll.hasClients) return;
+    final pageHeight = width / _pageAspect;
+    final target = (page - 1) * (pageHeight + 12);
+    await _scroll.animateTo(
+      target.clamp(0.0, _scroll.position.maxScrollExtent),
       duration: const Duration(milliseconds: 280),
       curve: Curves.easeOutCubic,
-      alignment: 0,
     );
   }
 
@@ -930,16 +1103,33 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
     final picked = await promptForPage(
       context,
       current: _currentPage,
-      pageCount: _pages.length,
+      pageCount: _pageCount,
     );
     if (picked != null) await _goto(picked);
+  }
+
+  /// Requests [page] and the next few, from outside the build phase.
+  void _ensureRendered(int page) {
+    if (_rendered.containsKey(page) &&
+        _requested.containsAll([
+          for (var i = 1; i <= _prefetch; i++) page + i,
+        ])) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_disposed) return;
+      _request(page);
+      for (var i = 1; i <= _prefetch; i++) {
+        _request(page + i);
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = ShadTheme.of(context).colorScheme;
     if (_loading) {
-      return PreviewLoading(caption: 'Rendering ${widget.file.name}…');
+      return PreviewLoading(caption: 'Opening ${widget.file.name}…');
     }
     if (_popplerMissing) {
       return PreviewMessage(
@@ -951,7 +1141,7 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
         onAction: () => openPathExternally(widget.file.path),
       );
     }
-    if (_errorMsg != null || _pages.isEmpty) {
+    if (_errorMsg != null || _pageCount == 0) {
       return PreviewMessage(
         icon: LucideIcons.fileText,
         title: 'Couldn\'t render this PDF',
@@ -972,25 +1162,21 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
               16,
               80 + PreviewInsets.of(context),
             ),
-            itemCount: _pages.length,
+            itemCount: _pageCount,
             separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (_, i) => KeyedSubtree(
-              key: _pageKeys[i],
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFFFFF),
-                  border: Border.all(color: colors.border),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x22000000),
-                      blurRadius: 8,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
+            itemBuilder: (_, i) {
+              final page = i + 1;
+              _ensureRendered(page);
+              return KeyedSubtree(
+                key: _pageKeys[i],
+                child: _PdfPageSlot(
+                  file: _rendered[page],
+                  aspect: _pageAspect,
+                  failed: _failed.contains(page),
+                  border: colors.border,
                 ),
-                child: Image.file(_pages[i], fit: BoxFit.contain),
-              ),
-            ),
+              );
+            },
           ),
         ),
         if (_showRail)
@@ -999,20 +1185,33 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
             bottom: 0,
             left: 0,
             child: PreviewPageRail(
-              pageCount: _pages.length,
+              pageCount: _pageCount,
               currentPage: _currentPage,
               onSelect: _goto,
-              thumbnailBuilder: (_, page) => Image.file(
-                _pages[page - 1],
-                width: 84,
-                fit: BoxFit.contain,
-                gaplessPlayback: true,
-              ),
+              thumbnailBuilder: (_, page) {
+                final file = _rendered[page];
+                if (file == null) {
+                  // The rail is opt-in, so pulling its pages forward is a cost
+                  // the user asked for by opening it.
+                  _ensureRendered(page);
+                  return SizedBox(
+                    width: 84,
+                    height: 84 / _pageAspect,
+                    child: const Center(child: ShadSpinner(size: 14)),
+                  );
+                }
+                return Image.file(
+                  file,
+                  width: 84,
+                  fit: BoxFit.contain,
+                  gaplessPlayback: true,
+                );
+              },
             ),
           ),
         _PdfToolbar(
           page: _currentPage,
-          pageCount: _pages.length,
+          pageCount: _pageCount,
           railOpen: _showRail,
           onToggleRail: () => setState(() => _showRail = !_showRail),
           onGoto: _goto,
@@ -1020,6 +1219,95 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
         ),
       ],
     );
+  }
+}
+
+/// One page's box in the scrolling list: the rendered PNG once poppler has
+/// produced it, and a correctly-sized blank page before that.
+///
+/// The box keeps the document's page ratio whether or not the image has
+/// arrived, so pages landing behind the scroll never shift what is under the
+/// reader's eye.
+class _PdfPageSlot extends StatelessWidget {
+  const _PdfPageSlot({
+    required this.file,
+    required this.aspect,
+    required this.failed,
+    required this.border,
+  });
+
+  final File? file;
+  final double aspect;
+  final bool failed;
+  final Color border;
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: aspect,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFFFFF),
+          border: Border.all(color: border),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x22000000),
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: file != null
+            ? Image.file(file!, fit: BoxFit.contain, gaplessPlayback: true)
+            : Center(
+                child: failed
+                    ? const Icon(
+                        LucideIcons.fileWarning,
+                        size: 22,
+                        color: Color(0xFF9A9A9A),
+                      )
+                    : const ShadSpinner(size: 16),
+              ),
+      ),
+    );
+  }
+}
+
+/// The two facts `pdfinfo` supplies that the viewer needs before it can lay
+/// anything out.
+class PdfInfo {
+  const PdfInfo({required this.pages, required this.aspect});
+
+  final int pages;
+
+  /// Width / height of the first page.
+  final double aspect;
+
+  /// Parses `pdfinfo` output. Lines look like:
+  ///   Pages:           12
+  ///   Page size:       612 x 792 pts (letter)
+  static PdfInfo? parse(String output) {
+    int? pages;
+    double? aspect;
+
+    for (final line in output.split('\n')) {
+      if (pages == null && line.startsWith('Pages:')) {
+        pages = int.tryParse(line.substring(6).trim());
+      } else if (aspect == null && line.startsWith('Page size:')) {
+        final match =
+            RegExp(r'([\d.]+)\s*x\s*([\d.]+)').firstMatch(line.substring(10));
+        if (match != null) {
+          final w = double.tryParse(match.group(1)!);
+          final h = double.tryParse(match.group(2)!);
+          if (w != null && h != null && w > 0 && h > 0) aspect = w / h;
+        }
+      }
+    }
+
+    if (pages == null || pages < 1) return null;
+    // A rotated or malformed page size isn't worth failing over — letter is a
+    // close enough placeholder until the real page renders over it.
+    return PdfInfo(pages: pages, aspect: aspect ?? 612 / 792);
   }
 }
 

@@ -30,6 +30,7 @@ class _StubBrowser extends BrowserProvider {
   final CenterView view;
 
   int refreshDriveCalls = 0;
+  final List<CenterView> shownViews = [];
 
   @override
   List<DriveEntry> get drives => [
@@ -56,6 +57,9 @@ class _StubBrowser extends BrowserProvider {
 
   @override
   Future<void> refreshDrives() async => refreshDriveCalls++;
+
+  @override
+  void showCenterView(CenterView view) => shownViews.add(view);
 }
 
 void main() {
@@ -153,6 +157,7 @@ void main() {
       await pump(tester, const Sidebar(), _StubBrowser());
 
       expect(find.text('System'), findsOneWidget);
+      expect(find.text('Media'), findsOneWidget);
       expect(find.text('Favorites'), findsOneWidget);
       expect(find.text('Locations'), findsOneWidget);
       expect(find.text('Tags'), findsOneWidget);
@@ -161,6 +166,16 @@ void main() {
       expect(find.byIcon(LucideIcons.gauge), findsOneWidget);
       expect(find.byIcon(LucideIcons.copy), findsOneWidget);
       expect(find.byIcon(LucideIcons.arrowDownUp), findsOneWidget);
+      // Media libraries. "Documents" is deliberately ambiguous in the tree —
+      // the media page and the home-folder shortcut share the word — so the
+      // rows are matched by their glyphs.
+      expect(find.text('Images'), findsOneWidget);
+      expect(find.text('Videos'), findsOneWidget);
+      expect(find.text('Documents'), findsNWidgets(2));
+      expect(find.byIcon(LucideIcons.image), findsOneWidget);
+      expect(find.byIcon(LucideIcons.film), findsOneWidget);
+      // One for the media library, one for the Documents shortcut.
+      expect(find.byIcon(LucideIcons.fileText), findsNWidgets(2));
       // Shortcuts.
       expect(find.byIcon(LucideIcons.house), findsOneWidget);
       expect(find.byIcon(LucideIcons.monitor), findsOneWidget);
@@ -202,6 +217,34 @@ void main() {
       await tester.pump();
 
       expect(browser.refreshDriveCalls, 1);
+    });
+
+    testWidgets('a Media row switches the center pane to that library',
+        (tester) async {
+      final browser = _StubBrowser();
+      await pump(tester, const Sidebar(), browser);
+
+      await tester.tap(find.text('Videos'));
+      await tester.pump();
+
+      expect(browser.shownViews, [CenterView.mediaVideos]);
+    });
+
+    testWidgets('the active Media library is the only selected row',
+        (tester) async {
+      await pump(
+        tester,
+        const Sidebar(),
+        _StubBrowser(view: CenterView.mediaImages),
+      );
+
+      final selectedBg = AppPalette.light.sidebarSelected;
+      final selected = tester
+          .widgetList<Container>(find.byType(Container))
+          .where((c) => c.decoration is BoxDecoration)
+          .map((c) => (c.decoration! as BoxDecoration).color)
+          .where((c) => c == selectedBg);
+      expect(selected.length, 1);
     });
 
     testWidgets('Tags rows render but are inert', (tester) async {
