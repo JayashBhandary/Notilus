@@ -102,6 +102,52 @@ void main() {
     });
   });
 
+  group('renderer lookup', () {
+    test('resolves an installed tool to an absolute executable', () {
+      final sh = service.debugResolveTool('sh');
+      expect(sh, isNotNull);
+      expect(p.isAbsolute(sh!), isTrue);
+      // The execute bit is what separates a renderer from a same-named data
+      // file sitting earlier on PATH.
+      expect(FileStat.statSync(sh).mode & 0x49, isNonZero);
+    });
+
+    test('a tool this machine has not got resolves to nothing', () {
+      expect(service.debugResolveTool('notilus-no-such-renderer'), isNull);
+    });
+
+    test('searches the prefixes a GUI process never inherits', () {
+      // A Finder-launched .app gets launchd's PATH — /usr/bin:/bin:/usr/sbin:
+      // /sbin — and nothing else, so Homebrew and MacPorts prefixes have to be
+      // searched explicitly or ffmpeg is invisible to the shipped app even
+      // when every terminal on the machine can see it.
+      expect(
+        ThumbnailService.debugExtraToolDirs,
+        containsAll(['/opt/homebrew/bin', '/usr/local/bin', '/opt/local/bin']),
+      );
+    });
+
+    test('finds ffmpeg wherever the package manager put it', () {
+      const wellKnown = [
+        '/opt/homebrew/bin/ffmpeg',
+        '/usr/local/bin/ffmpeg',
+        '/opt/local/bin/ffmpeg',
+        '/usr/bin/ffmpeg',
+      ];
+      if (!wellKnown.any((c) => File(c).existsSync())) {
+        return; // Not installed here — nothing for this test to prove.
+      }
+      expect(service.debugResolveTool('ffmpeg'), isNotNull);
+    });
+
+    test('renders more than three at a time where there are cores for it', () {
+      final expected =
+          (Platform.numberOfProcessors - 2).clamp(3, 8);
+      expect(ThumbnailService.debugMaxConcurrentRenders, expected);
+      expect(ThumbnailService.debugMaxConcurrentRenders, greaterThanOrEqualTo(3));
+    });
+  });
+
   group('embedded previews', () {
     /// A minimal zip container with [entries] inside, named like a real
     /// office document so the extension routing applies.

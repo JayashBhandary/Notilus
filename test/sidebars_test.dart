@@ -14,6 +14,7 @@ import 'package:notilus/models/file_entry.dart';
 import 'package:notilus/providers/browser_provider.dart';
 import 'package:notilus/services/file_service.dart';
 import 'package:notilus/theme.dart';
+import 'package:notilus/widgets/file_thumbnail.dart';
 import 'package:notilus/widgets/info_panel.dart';
 import 'package:notilus/widgets/sidebar.dart';
 
@@ -357,6 +358,94 @@ void main() {
       expect(find.byType(Image), findsOneWidget);
       // The generic file glyph belongs to the placeholder path.
       expect(find.byIcon(LucideIcons.file), findsNothing);
+    });
+
+    // The preview used to be a fixed 168px square in a pane at least twice
+    // that wide. It is the one place in the app worth spending the space.
+    testWidgets('the preview grows to fill the panel width', (tester) async {
+      final f = File('${tmp.path}/thing.xyz')..writeAsBytesSync([1]);
+      await pump(
+        tester,
+        const SizedBox(width: 400, child: InfoPanel()),
+        _StubBrowser(selection: entryFor(f)),
+      );
+
+      final box = tester.getSize(find.byType(FilePreviewBuilder));
+      expect(box.width, greaterThan(168));
+      expect(box.height, box.width, reason: 'preview stays square');
+    });
+
+    testWidgets('a narrow panel shrinks the preview rather than overflowing',
+        (tester) async {
+      final f = File('${tmp.path}/thing.xyz')..writeAsBytesSync([1]);
+      await pump(
+        tester,
+        const SizedBox(width: 320, child: InfoPanel()),
+        _StubBrowser(selection: entryFor(f)),
+      );
+
+      // 320 pane less the panel's 16px padding either side.
+      expect(tester.getSize(find.byType(FilePreviewBuilder)).width, 288);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a video is marked playable even with no frame extracted',
+        (tester) async {
+      // Not really a video, so no renderer can produce a frame — the badge has
+      // to come from the format, not from the preview succeeding.
+      final f = File('${tmp.path}/clip.mp4')
+        ..writeAsStringSync('definitely not h264');
+      await pump(
+        tester,
+        const SizedBox(width: 400, child: InfoPanel()),
+        _StubBrowser(selection: entryFor(f)),
+      );
+
+      expect(find.byIcon(LucideIcons.play), findsOneWidget);
+      expect(find.text('MP4'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a text file shows its opening lines', (tester) async {
+      final f = File('${tmp.path}/notes.md')
+        ..writeAsStringSync('# Release notes\n\nfirst body line\n');
+
+      // The snippet is a real file read. It has to be both started and awaited
+      // outside the fake-async zone testWidgets installs, or the future is
+      // pinned to a clock that never advances and never completes.
+      tester.view.physicalSize = const Size(900, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(
+          host(
+            const SizedBox(width: 400, child: InfoPanel()),
+            _StubBrowser(selection: entryFor(f)),
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pump();
+
+      expect(find.textContaining('# Release notes'), findsOneWidget);
+      // The miniature replaces the generic glyph.
+      expect(find.byIcon(LucideIcons.file), findsNothing);
+    });
+
+    testWidgets('a PDF gets a preview box, not the generic file glyph',
+        (tester) async {
+      // Whether a page renders depends on poppler/pdfx being present, so what
+      // is guarded here is the routing: a PDF goes down the preview path.
+      final f = File('${tmp.path}/paper.pdf')..writeAsBytesSync([1, 2, 3]);
+      await pump(
+        tester,
+        const SizedBox(width: 400, child: InfoPanel()),
+        _StubBrowser(selection: entryFor(f)),
+      );
+
+      expect(find.byType(FilePreviewBuilder), findsOneWidget);
+      expect(find.text('PDF'), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('an unknown type falls back to a glyph plus extension badge',

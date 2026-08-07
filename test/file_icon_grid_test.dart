@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart'
-    show CupertinoApp, DefaultCupertinoLocalizations;
+    show CupertinoApp, CupertinoIcons, DefaultCupertinoLocalizations;
 import 'package:flutter/material.dart'
     show ThemeMode, DefaultMaterialLocalizations;
 import 'package:flutter/widgets.dart';
@@ -188,6 +188,23 @@ void main() {
     // Only the thumbnail scales, so a denser setting is not proportionally
     // taller — the label is a fixed two lines.
     expect(gridTileHeight(1.4), lessThan(gridTileHeight(1.0) * 1.4));
+  });
+
+  testWidgets('a video tile is marked playable and falls back to a glyph',
+      (tester) async {
+    // The frame comes from ThumbnailService, which shells out to ffmpeg and
+    // may find nothing here — a fixture that is not really h264, or a machine
+    // with no renderer. Either way the tile has to read as a video straight
+    // away, which is what the badge over the placeholder is for.
+    final clip = entryFor(
+      File('${tmp.path}/clip.mp4')..writeAsStringSync('not really a video'),
+    );
+    await pump(tester, _StubBrowser(items: [clip]));
+
+    expect(find.byIcon(CupertinoIcons.play_fill), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.film), findsOneWidget);
+    expect(find.text('MP4'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a long name wraps to two lines without changing tile height',
