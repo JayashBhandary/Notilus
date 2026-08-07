@@ -109,6 +109,7 @@ class _MediaViewState extends State<MediaView> {
             onToggleDirection: () => media.toggleSortDirection(_kind),
             onGroupMode: (m) => media.setGroupMode(_kind, m),
             onViewMode: (m) => media.setViewMode(_kind, m),
+            onToggleLabels: () => media.toggleLabels(_kind),
             onToggleSelecting: () =>
                 media.setSelecting(_kind, !st.selecting),
           ),
@@ -578,6 +579,7 @@ class _Controls extends StatelessWidget {
     required this.onToggleDirection,
     required this.onGroupMode,
     required this.onViewMode,
+    required this.onToggleLabels,
     required this.onToggleSelecting,
   });
 
@@ -589,6 +591,7 @@ class _Controls extends StatelessWidget {
   final VoidCallback onToggleDirection;
   final ValueChanged<MediaGroupMode> onGroupMode;
   final ValueChanged<MediaViewMode> onViewMode;
+  final VoidCallback onToggleLabels;
   final VoidCallback onToggleSelecting;
 
   static const _sortLabels = {
@@ -669,6 +672,27 @@ class _Controls extends StatelessWidget {
             onChanged: onGroupMode,
           ),
           _ViewToggle(mode: state.viewMode, onChanged: onViewMode),
+          // Only offered in the grid: a list row *is* its label, so hiding
+          // labels there would leave nothing behind.
+          if (state.viewMode == MediaViewMode.grid)
+            ShadTooltip(
+              builder: (_) => Text(
+                state.showLabels ? 'Hide names and dates' : 'Show names',
+                style: const TextStyle(fontSize: 11.5),
+              ),
+              child: ShadIconButton.outline(
+                width: 28,
+                height: 28,
+                padding: EdgeInsets.zero,
+                iconSize: 14,
+                onPressed: onToggleLabels,
+                icon: Icon(
+                  state.showLabels
+                      ? LucideIcons.captions
+                      : LucideIcons.captionsOff,
+                ),
+              ),
+            ),
           ShadButton.outline(
             height: 28,
             padding: const EdgeInsets.symmetric(horizontal: 10),
@@ -1027,14 +1051,19 @@ class _Listing extends StatelessWidget {
   }
 
   Widget _gridSliver(List<FileEntry> entries, int start) {
+    final labelled = state.showLabels;
     return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      padding: labelled
+          ? const EdgeInsets.fromLTRB(12, 10, 12, 4)
+          : const EdgeInsets.fromLTRB(4, 6, 4, 2),
       sliver: SliverGrid.builder(
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        // Without labels the tile is nothing but the thumbnail, so it goes
+        // square and the gaps close up into a photo wall.
+        gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
           maxCrossAxisExtent: 176,
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          childAspectRatio: 0.82,
+          mainAxisSpacing: labelled ? 10 : 4,
+          crossAxisSpacing: labelled ? 10 : 4,
+          childAspectRatio: labelled ? 0.82 : 1,
         ),
         itemCount: entries.length,
         itemBuilder: (context, i) {
@@ -1042,6 +1071,7 @@ class _Listing extends StatelessWidget {
           return _GridTile(
             entry: entry,
             kind: kind,
+            showLabels: labelled,
             selecting: state.selecting,
             selected: state.selected.contains(entry.path),
             onTap: () => state.selecting
@@ -1116,6 +1146,7 @@ class _GridTile extends StatelessWidget {
   const _GridTile({
     required this.entry,
     required this.kind,
+    required this.showLabels,
     required this.selecting,
     required this.selected,
     required this.onTap,
@@ -1124,6 +1155,7 @@ class _GridTile extends StatelessWidget {
 
   final FileEntry entry;
   final MediaKind kind;
+  final bool showLabels;
   final bool selecting;
   final bool selected;
   final VoidCallback onTap;
@@ -1140,61 +1172,92 @@ class _GridTile extends StatelessWidget {
       onLongPress: onToggleSelect,
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
-        child: Container(
-          padding: const EdgeInsets.all(5),
-          decoration: BoxDecoration(
-            color: selected ? colors.accent : null,
-            border: Border.all(
-              color: selected ? colors.primary : colors.border,
+        child: showLabels ? _labelled(colors) : _gallery(colors),
+      ),
+    );
+  }
+
+  /// Bare thumbnail. With the card gone, selection has to read off the image
+  /// itself — a ring plus a tint, not a change of background.
+  Widget _gallery(ShadColorScheme colors) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        _Thumbnail(entry: entry, kind: kind, radius: 4),
+        if (selected)
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: colors.primary.withValues(alpha: 0.22),
+                border: Border.all(color: colors.primary, width: 2),
+                borderRadius: BorderRadius.circular(4),
+              ),
             ),
-            borderRadius: BorderRadius.circular(10),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: _Thumbnail(entry: entry, kind: kind),
-                    ),
-                    if (selecting)
-                      Positioned(
-                        left: 4,
-                        top: 4,
-                        child: _SelectionDot(selected: selected),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                entry.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                  color: colors.foreground,
-                ),
-              ),
-              // The two label lines used to sit flush against each other and
-              // against the thumbnail, which read as one cramped block.
-              const SizedBox(height: 4),
-              Text(
-                '${_formatDate(entry.modified)} · ${formatBytes(entry.size)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 10,
-                  color: colors.mutedForeground,
-                ),
-              ),
-              const SizedBox(height: 2),
-            ],
+        if (selecting)
+          Positioned(
+            left: 4,
+            top: 4,
+            child: _SelectionDot(selected: selected),
           ),
+      ],
+    );
+  }
+
+  Widget _labelled(ShadColorScheme colors) {
+    return Container(
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: selected ? colors.accent : null,
+        border: Border.all(
+          color: selected ? colors.primary : colors.border,
         ),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: _Thumbnail(entry: entry, kind: kind),
+                ),
+                if (selecting)
+                  Positioned(
+                    left: 4,
+                    top: 4,
+                    child: _SelectionDot(selected: selected),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            entry.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: colors.foreground,
+            ),
+          ),
+          // The two label lines used to sit flush against each other and
+          // against the thumbnail, which read as one cramped block.
+          const SizedBox(height: 4),
+          Text(
+            '${_formatDate(entry.modified)} · ${formatBytes(entry.size)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 10,
+              color: colors.mutedForeground,
+            ),
+          ),
+          const SizedBox(height: 2),
+        ],
       ),
     );
   }
@@ -1337,11 +1400,16 @@ class _Thumbnail extends StatelessWidget {
     required this.entry,
     required this.kind,
     this.compact = false,
+    this.radius,
   });
 
   final FileEntry entry;
   final MediaKind kind;
   final bool compact;
+
+  /// Corner rounding. Defaults to the card radius; the gallery grid passes a
+  /// tighter one so abutting tiles read as a single wall.
+  final double? radius;
 
   static int dimFor(bool compact) => compact ? 96 : 320;
 
@@ -1375,7 +1443,7 @@ class _Thumbnail extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.muted,
         border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(compact ? 6 : 8),
+        borderRadius: BorderRadius.circular(radius ?? (compact ? 6 : 8)),
       ),
       clipBehavior: Clip.antiAlias,
       alignment: Alignment.center,

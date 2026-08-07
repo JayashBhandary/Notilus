@@ -185,4 +185,28 @@ void main() {
       expect(media.state(MediaKind.documents).viewMode, MediaViewMode.list);
     });
   });
+
+  group('labels', () {
+    test('are on by default', () {
+      expect(media.state(MediaKind.images).showLabels, isTrue);
+    });
+
+    test('toggle independently per kind', () {
+      media.toggleLabels(MediaKind.images);
+
+      expect(media.state(MediaKind.images).showLabels, isFalse);
+      expect(media.state(MediaKind.videos).showLabels, isTrue);
+
+      media.toggleLabels(MediaKind.images);
+      expect(media.state(MediaKind.images).showLabels, isTrue);
+    });
+
+    test('hiding labels leaves the listing itself alone', () {
+      media.setShowLabels(MediaKind.images, false);
+
+      // Purely a presentation switch — nothing about what is shown changes.
+      expect(media.state(MediaKind.images).visibleCount, 4);
+      expect(media.state(MediaKind.images).viewMode, MediaViewMode.grid);
+    });
+  });
 }

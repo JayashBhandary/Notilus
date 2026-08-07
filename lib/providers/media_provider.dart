@@ -58,6 +58,10 @@ class MediaKindState {
   MediaGroupMode _groupMode = MediaGroupMode.all;
   MediaViewMode _viewMode;
 
+  /// Grid only. Off turns the tiles into a plain wall of square thumbnails —
+  /// the list view is nothing but labels, so it ignores this.
+  bool _showLabels = true;
+
   bool _selecting = false;
   final Set<String> _selected = {};
 
@@ -85,6 +89,7 @@ class MediaKindState {
   bool get ascending => _ascending;
   MediaGroupMode get groupMode => _groupMode;
   MediaViewMode get viewMode => _viewMode;
+  bool get showLabels => _showLabels;
   bool get selecting => _selecting;
   Set<String> get selected => _selected;
 
@@ -488,6 +493,17 @@ class MediaProvider extends ChangeNotifier {
     st._viewMode = mode;
     notifyListeners();
   }
+
+  /// Shows or hides the name and date under each grid tile.
+  void setShowLabels(MediaKind kind, bool value) {
+    final st = state(kind);
+    if (st._showLabels == value) return;
+    st._showLabels = value;
+    notifyListeners();
+  }
+
+  void toggleLabels(MediaKind kind) =>
+      setShowLabels(kind, !state(kind)._showLabels);
 
   // ── selection ────────────────────────────────────────────────────────────
 

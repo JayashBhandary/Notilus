@@ -305,6 +305,79 @@ void main() {
     });
   });
 
+  group('label toggle', () {
+    testWidgets('hides the name and date, leaving a wall of thumbnails',
+        (tester) async {
+      seedImages();
+      await pump(tester, MediaKind.images);
+
+      expect(find.text('beach.png'), findsOneWidget);
+
+      await tester.tap(find.byIcon(LucideIcons.captions));
+      await tester.pumpAndSettle();
+
+      expect(find.text('beach.png'), findsNothing);
+      expect(find.text('alps.png'), findsNothing);
+      // The thumbnails themselves stay — this hides labels, not content.
+      expect(find.byType(Image), findsNWidgets(3));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('toggles back', (tester) async {
+      seedImages();
+      await pump(tester, MediaKind.images);
+
+      await tester.tap(find.byIcon(LucideIcons.captions));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(LucideIcons.captionsOff));
+      await tester.pumpAndSettle();
+
+      expect(find.text('beach.png'), findsOneWidget);
+    });
+
+    testWidgets('selection still reads on a bare tile', (tester) async {
+      seedImages();
+      await pump(tester, MediaKind.images);
+
+      await tester.tap(find.byIcon(LucideIcons.captions));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Select'));
+      await tester.pump();
+      await tester.tap(find.text('Select all'));
+      await tester.pump();
+
+      expect(find.text('3 selected'), findsOneWidget);
+      // One check mark per selected tile, drawn over the image.
+      expect(find.byIcon(LucideIcons.check), findsNWidgets(4)); // +Done button
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the list view offers no label toggle', (tester) async {
+      media.seedEntries(MediaKind.documents, [
+        entryFor(png('notes.pdf'), DateTime(2026, 5, 1)),
+      ]);
+      await pump(tester, MediaKind.documents);
+
+      // A row is nothing but its label, so the control would be a no-op.
+      expect(find.byIcon(LucideIcons.captions), findsNothing);
+
+      await tester.tap(find.byIcon(LucideIcons.layoutGrid));
+      await tester.pumpAndSettle();
+      expect(find.byIcon(LucideIcons.captions), findsOneWidget);
+    });
+
+    testWidgets('gallery tiles lay out without overflow when narrow',
+        (tester) async {
+      seedImages();
+      await pump(tester, MediaKind.images, size: const Size(420, 800));
+
+      await tester.tap(find.byIcon(LucideIcons.captions));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('empty states', () {
     testWidgets('a library with nothing in it points at the folder settings',
         (tester) async {
