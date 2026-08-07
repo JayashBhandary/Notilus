@@ -20,6 +20,7 @@ import '../widgets/info_panel.dart';
 import '../widgets/path_status_bar.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/terminal_panel.dart';
+import '../widgets/window_chrome.dart';
 import '../widgets/workflow_tab.dart';
 import 'duplicate_finder_screen.dart';
 import 'settings_screen.dart';
@@ -152,8 +153,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_drawerOpen) setState(() => _drawerOpen = false);
   }
 
-  void _toggleTerminal() =>
-      setState(() => _terminalOpen = !_terminalOpen);
+  void _toggleTerminal() => setState(() => _terminalOpen = !_terminalOpen);
   void _closeTerminal() {
     if (_terminalOpen) setState(() => _terminalOpen = false);
   }
@@ -532,13 +532,7 @@ class _WideTopBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final settings = context.watch<SettingsProvider>();
-    final browser = context.watch<BrowserProvider>();
     final colors = ShadTheme.of(context).colorScheme;
-
-    // When the sidebar is hidden this bar sits at the window's left edge,
-    // under the macOS traffic lights — pad it clear of them.
-    final leadPad = (sidebarCollapsed && Platform.isMacOS) ? 72.0 : 0.0;
 
     return Container(
       height: 48,
@@ -546,138 +540,158 @@ class _WideTopBar extends StatelessWidget {
         color: colors.muted,
         border: Border(bottom: BorderSide(color: colors.border)),
       ),
-      padding: EdgeInsets.only(left: 6 + leadPad, right: 6),
-      child: LayoutBuilder(
-        builder: (ctx, c) {
-          // Progressively shed non-essential controls as the center pane
-          // narrows (both side panels open on a small window), so the row
-          // never overflows. Priority, widest-first: full model pill →
-          // grid/list toggle → back/forward nav. The sidebar/panel toggles,
-          // terminal, connection dot and settings always stay.
-          // Measured against text-scale-normalised width: the thresholds were
-          // tuned for 13px labels, and at a 2x OS text size the pill and the
-          // folder label are twice as wide, so a bar that "fits" by raw pixels
-          // still overflows. Dividing by the scale sheds controls at the width
-          // where they would actually stop fitting.
-          final scale = MediaQuery.textScalerOf(context).scale(13) / 13;
-          final w = c.maxWidth / (scale <= 0 ? 1 : scale);
-          final showFullPill = w >= 440;
-          final showViewToggle = w >= 360;
-          final showNav = w >= 290;
-          return Row(
-            children: [
-              _ToolbarIconButton(
-                icon: LucideIcons.panelLeft,
-                tooltip: sidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar',
-                onPressed: onToggleSidebar,
-                size: 30,
-                highlighted: !sidebarCollapsed,
-              ),
-              const SizedBox(width: 4),
-              // Middle section: file controls when browsing files, otherwise a
-              // contextual page header (title + page actions).
-              if (centerView == CenterView.files) ...[
-                if (showNav) ...[
-                  _ToolbarIconButton(
-                    icon: LucideIcons.chevronLeft,
-                    tooltip: 'Back',
-                    onPressed: browser.canGoBack ? browser.goBack : null,
-                    size: 30,
-                  ),
-                  _ToolbarIconButton(
-                    icon: LucideIcons.chevronRight,
-                    tooltip: 'Forward',
-                    onPressed:
-                        browser.canGoForward ? browser.goForward : null,
-                    size: 30,
-                  ),
-                  // Up sits with Back/Forward rather than on its own row —
-                  // they're the same kind of control, and the path itself
-                  // lives in the status bar at the bottom.
-                  _ToolbarIconButton(
-                    icon: LucideIcons.arrowUp,
-                    tooltip: 'Up',
-                    onPressed: browser.canGoUp ? browser.goUp : null,
-                    size: 30,
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: _CurrentFolderLabel(path: browser.currentPath),
+      // Doubles as the window's title bar. With the sidebar shown the macOS
+      // traffic lights sit over the sidebar, which reserves the space itself,
+      // so only the collapsed case needs the gap here.
+      child: WindowTitleBar(
+        atWindowEdge: sidebarCollapsed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: _controls(context),
+        ),
+      ),
+    );
+  }
+
+  Widget _controls(BuildContext context) {
+    final settings = context.watch<SettingsProvider>();
+    final browser = context.watch<BrowserProvider>();
+    final colors = ShadTheme.of(context).colorScheme;
+
+    return LayoutBuilder(
+      builder: (ctx, c) {
+        // Progressively shed non-essential controls as the center pane
+        // narrows (both side panels open on a small window), so the row
+        // never overflows. Priority, widest-first: full model pill →
+        // grid/list toggle → back/forward nav. The sidebar/panel toggles,
+        // terminal, connection dot and settings always stay.
+        // Measured against text-scale-normalised width: the thresholds were
+        // tuned for 13px labels, and at a 2x OS text size the pill and the
+        // folder label are twice as wide, so a bar that "fits" by raw pixels
+        // still overflows. Dividing by the scale sheds controls at the width
+        // where they would actually stop fitting.
+        final scale = MediaQuery.textScalerOf(context).scale(13) / 13;
+        final w = c.maxWidth / (scale <= 0 ? 1 : scale);
+        final showFullPill = w >= 440;
+        final showViewToggle = w >= 360;
+        final showNav = w >= 290;
+        return Row(
+          children: [
+            _ToolbarIconButton(
+              icon: LucideIcons.panelLeft,
+              tooltip: sidebarCollapsed ? 'Show Sidebar' : 'Hide Sidebar',
+              onPressed: onToggleSidebar,
+              size: 30,
+              highlighted: !sidebarCollapsed,
+            ),
+            const SizedBox(width: 4),
+            // Middle section: file controls when browsing files, otherwise a
+            // contextual page header (title + page actions).
+            if (centerView == CenterView.files) ...[
+              if (showNav) ...[
+                _ToolbarIconButton(
+                  icon: LucideIcons.chevronLeft,
+                  tooltip: 'Back',
+                  onPressed: browser.canGoBack ? browser.goBack : null,
+                  size: 30,
+                ),
+                _ToolbarIconButton(
+                  icon: LucideIcons.chevronRight,
+                  tooltip: 'Forward',
+                  onPressed: browser.canGoForward ? browser.goForward : null,
+                  size: 30,
+                ),
+                // Up sits with Back/Forward rather than on its own row —
+                // they're the same kind of control, and the path itself
+                // lives in the status bar at the bottom.
+                _ToolbarIconButton(
+                  icon: LucideIcons.arrowUp,
+                  tooltip: 'Up',
+                  onPressed: browser.canGoUp ? browser.goUp : null,
+                  size: 30,
                 ),
                 const SizedBox(width: 8),
-                if (showViewToggle) ...[
-                  _ViewModeToggle(browser: browser),
-                  const SizedBox(width: 4),
-                ],
-              ] else ...[
-                Expanded(
-                  child: Text(
-                    _centerTitle(centerView),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: colors.foreground,
-                    ),
-                  ),
-                ),
-                if (centerView == CenterView.systemOverview) ...[
-                  _ToolbarIconButton(
-                    icon: LucideIcons.refreshCw,
-                    tooltip: 'Refresh',
-                    onPressed: onRefreshOverview,
-                    size: 30,
-                  ),
-                  const SizedBox(width: 4),
-                ],
               ],
-              // Tail group: terminal, AI model, settings, panel toggle.
-              _ToolbarIconButton(
-                icon: LucideIcons.terminal,
-                tooltip:
-                    'Terminal (${Platform.isMacOS ? "⌘" : "Ctrl"}+J)',
-                onPressed: onToggleTerminal,
-                size: 30,
-                highlighted: terminalOpen,
+              Expanded(
+                child: _CurrentFolderLabel(path: browser.currentPath),
               ),
-              const SizedBox(width: 4),
-              // Not wrapped in Flexible: a second flex child would split the
-              // free space with the title/label Expanded and leave dead space
-              // at the far right. The pill self-limits (maxWidth + ellipsis)
-              // and collapses to a dot on narrow windows.
-              if (showFullPill)
-                _ConnectionPill(
-                  connected: settings.connected,
-                  model: settings.model,
-                  onTap: onSettings,
-                )
-              else
-                _ConnectionDot(
-                  connected: settings.connected,
-                  onTap: onSettings,
+              const SizedBox(width: 8),
+              if (showViewToggle) ...[
+                _ViewModeToggle(browser: browser),
+                const SizedBox(width: 4),
+              ],
+            ] else ...[
+              Expanded(
+                child: Text(
+                  _centerTitle(centerView),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: colors.foreground,
+                  ),
                 ),
-              const SizedBox(width: 4),
-              _ToolbarIconButton(
-                icon: LucideIcons.settings,
-                tooltip: 'Settings',
-                onPressed: onSettings,
-                size: 30,
               ),
-              const SizedBox(width: 4),
-              _ToolbarIconButton(
-                icon: LucideIcons.panelRight,
-                tooltip:
-                    rightPanelCollapsed ? 'Show Panel' : 'Hide Panel',
-                onPressed: onToggleRightPanel,
-                size: 30,
-                highlighted: !rightPanelCollapsed,
-              ),
+              if (centerView == CenterView.systemOverview) ...[
+                _ToolbarIconButton(
+                  icon: LucideIcons.refreshCw,
+                  tooltip: 'Refresh',
+                  onPressed: onRefreshOverview,
+                  size: 30,
+                ),
+                const SizedBox(width: 4),
+              ],
             ],
-          );
-        },
-      ),
+            // Tail group: terminal, AI model, settings, panel toggle.
+            _ToolbarIconButton(
+              icon: LucideIcons.terminal,
+              tooltip: 'Terminal (${Platform.isMacOS ? "⌘" : "Ctrl"}+J)',
+              onPressed: onToggleTerminal,
+              size: 30,
+              highlighted: terminalOpen,
+            ),
+            const SizedBox(width: 4),
+            // Not wrapped in Flexible: a second flex child would split the
+            // free space with the title/label Expanded and leave dead space
+            // at the far right. The pill self-limits (maxWidth + ellipsis)
+            // and collapses to a dot on narrow windows.
+            if (showFullPill)
+              _ConnectionPill(
+                connected: settings.connected,
+                model: settings.model,
+                onTap: onSettings,
+              )
+            else
+              _ConnectionDot(
+                connected: settings.connected,
+                onTap: onSettings,
+              ),
+            const SizedBox(width: 4),
+            _ToolbarIconButton(
+              icon: LucideIcons.settings,
+              tooltip: 'Settings',
+              onPressed: onSettings,
+              size: 30,
+            ),
+            const SizedBox(width: 4),
+            _ToolbarIconButton(
+              icon: LucideIcons.panelRight,
+              tooltip: rightPanelCollapsed ? 'Show Panel' : 'Hide Panel',
+              onPressed: onToggleRightPanel,
+              size: 30,
+              highlighted: !rightPanelCollapsed,
+            ),
+            // Windows and Linux have no native caption left, so the window's
+            // own controls live at the trailing edge. Renders nothing on
+            // macOS, where AppKit still draws the traffic lights.
+            if (windowButtons == WindowButtons.drawn) ...[
+              const SizedBox(width: 6),
+              const WindowControls(),
+            ],
+          ],
+        );
+      },
     );
   }
 }
@@ -711,44 +725,65 @@ class _CompactTopBar extends StatelessWidget {
         color: colors.muted,
         border: Border(bottom: BorderSide(color: colors.border)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        children: [
-          _ToolbarIconButton(
-            icon: LucideIcons.panelLeft,
-            tooltip: 'Menu',
-            onPressed: onMenu,
-          ),
-          const SizedBox(width: 4),
-          Expanded(
-            child: title.isNotEmpty
-                ? Text(
-                    title,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: colors.foreground,
-                    ),
-                  )
-                : _CurrentFolderLabel(path: browser.currentPath),
-          ),
-          const SizedBox(width: 4),
-          _ToolbarIconButton(
-            icon: LucideIcons.terminal,
-            tooltip: 'Terminal',
-            onPressed: onToggleTerminal,
-            highlighted: terminalOpen,
-          ),
-          _ConnectionDot(connected: settings.connected, onTap: onSettings),
-          _ToolbarIconButton(
-            icon: LucideIcons.settings,
-            tooltip: 'Settings',
-            onPressed: onSettings,
-          ),
-        ],
+      // Also the window's title bar. There is no sidebar beside this one, so
+      // it always sits at the window's leading edge and always has to clear
+      // the macOS traffic lights — previously it did not, and they overlapped
+      // the menu button.
+      child: WindowTitleBar(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: _controls(context, settings, browser, colors),
+        ),
       ),
+    );
+  }
+
+  Widget _controls(
+    BuildContext context,
+    SettingsProvider settings,
+    BrowserProvider browser,
+    ShadColorScheme colors,
+  ) {
+    return Row(
+      children: [
+        _ToolbarIconButton(
+          icon: LucideIcons.panelLeft,
+          tooltip: 'Menu',
+          onPressed: onMenu,
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: title.isNotEmpty
+              ? Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: colors.foreground,
+                  ),
+                )
+              : _CurrentFolderLabel(path: browser.currentPath),
+        ),
+        const SizedBox(width: 4),
+        _ToolbarIconButton(
+          icon: LucideIcons.terminal,
+          tooltip: 'Terminal',
+          onPressed: onToggleTerminal,
+          highlighted: terminalOpen,
+        ),
+        _ConnectionDot(connected: settings.connected, onTap: onSettings),
+        _ToolbarIconButton(
+          icon: LucideIcons.settings,
+          tooltip: 'Settings',
+          onPressed: onSettings,
+        ),
+        if (windowButtons == WindowButtons.drawn) ...[
+          const SizedBox(width: 4),
+          const WindowControls(),
+        ],
+      ],
     );
   }
 }
@@ -848,8 +883,7 @@ class _CompactTabBar extends StatelessWidget {
           children: List.generate(_items.length, (i) {
             final selected = i == index;
             final item = _items[i];
-            final tint =
-                selected ? colors.primary : colors.mutedForeground;
+            final tint = selected ? colors.primary : colors.mutedForeground;
             return Expanded(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -986,21 +1020,16 @@ class _ViewModeButtonState extends State<_ViewModeButton> {
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.horizontal(
-                left: widget.isFirst
-                    ? const Radius.circular(5)
-                    : Radius.zero,
-                right: widget.isLast
-                    ? const Radius.circular(5)
-                    : Radius.zero,
+                left: widget.isFirst ? const Radius.circular(5) : Radius.zero,
+                right: widget.isLast ? const Radius.circular(5) : Radius.zero,
               ),
             ),
             alignment: Alignment.center,
             child: Icon(
               widget.icon,
               size: 14,
-              color: widget.selected
-                  ? colors.foreground
-                  : colors.mutedForeground,
+              color:
+                  widget.selected ? colors.foreground : colors.mutedForeground,
             ),
           ),
         ),

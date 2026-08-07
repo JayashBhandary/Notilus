@@ -18,6 +18,19 @@ import 'package:notilus/screens/preview/preview_info_panel.dart';
 import 'package:notilus/screens/preview/preview_viewers.dart';
 import 'package:notilus/theme.dart';
 import 'package:notilus/widgets/shad_spinner.dart';
+import 'package:notilus/widgets/window_chrome.dart';
+
+class _RecordingWindowActions implements WindowActions {
+  final List<String> calls = [];
+  @override
+  Future<void> startDragging() async => calls.add('drag');
+  @override
+  Future<void> toggleMaximize() async => calls.add('toggleMaximize');
+  @override
+  Future<void> minimize() async => calls.add('minimize');
+  @override
+  Future<void> close() async => calls.add('close');
+}
 
 /// The redesigned preview: a shell that owns all chrome (top bar, info side
 /// panel, sibling filmstrip) with viewers that only render content.
@@ -450,4 +463,49 @@ void main() {
       expect(previewKindFor(entry), PreviewKind.archive);
     });
   });
+
+  group('window chrome', () {
+    // The preview fills the window, so while it is open its top bar *is* the
+    // title bar. Before this, opening a preview left the window unmovable and
+    // put the Back button under the macOS traffic lights.
+    testWidgets('the top bar can move the window', (tester) async {
+      debugWindowButtons = WindowButtons.native;
+      addTearDown(() => debugWindowButtons = null);
+      final actions = _RecordingWindowActions();
+      WindowActions.debugReplace(actions);
+      addTearDown(WindowActions.debugReset);
+
+      await pump(tester);
+
+      expect(find.byType(WindowDragRegion), findsWidgets);
+      // Drag from the middle of the bar, clear of its buttons.
+      await tester.dragFrom(const Offset(600, 26), const Offset(80, 0));
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(actions.calls, contains('drag'));
+    });
+
+    testWidgets('the Back button clears the macOS traffic lights',
+        (tester) async {
+      debugWindowButtons = WindowButtons.native;
+      addTearDown(() => debugWindowButtons = null);
+
+      await pump(tester);
+
+      final back = tester.getRect(find.byIcon(LucideIcons.arrowLeft).first);
+      expect(back.left, greaterThanOrEqualTo(kTrafficLightInset));
+    });
+
+    testWidgets('platforms without overlaid buttons get no gap',
+        (tester) async {
+      debugWindowButtons = WindowButtons.drawn;
+      addTearDown(() => debugWindowButtons = null);
+
+      await pump(tester);
+
+      final back = tester.getRect(find.byIcon(LucideIcons.arrowLeft).first);
+      expect(back.left, lessThan(kTrafficLightInset));
+    });
+  });
+
 }

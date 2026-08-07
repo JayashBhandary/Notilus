@@ -13,7 +13,14 @@ class MainFlutterWindow: NSWindow {
     self.titlebarAppearsTransparent = true
     self.titleVisibility = .hidden
     self.styleMask.insert(.fullSizeContentView)
-    self.isMovableByWindowBackground = true
+
+    // Deliberately NOT isMovableByWindowBackground. That made every pixel the
+    // Flutter view did not consume into a window drag handle: dragging a
+    // scrollbar, a marquee selection or a list row moved the whole window
+    // instead. The app declares its own drag region on the toolbar (see
+    // lib/widgets/window_chrome.dart), which is the only place that should
+    // move the window.
+    self.isMovableByWindowBackground = false
     // Use textured background so the title bar adapts to system appearance
     // (avoids a hard white seam when the app runs in dark mode).
     self.backgroundColor = NSColor.windowBackgroundColor
