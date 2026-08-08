@@ -5,6 +5,7 @@ import '../models/workflow.dart';
 import '../models/workflow_step.dart';
 import '../providers/workflow_provider.dart';
 import '../theme.dart';
+import '../widgets/window_chrome.dart';
 
 class WorkflowEditorScreen extends StatefulWidget {
   const WorkflowEditorScreen({super.key, this.workflow});
@@ -97,29 +98,37 @@ class _WorkflowEditorScreenState extends State<WorkflowEditorScreen> {
     final palette = AppColors.of(context);
     return CupertinoPageScaffold(
       backgroundColor: palette.scaffoldBg,
-      navigationBar: CupertinoNavigationBar(
-        backgroundColor: palette.headerBg,
-        border: Border(bottom: BorderSide(color: palette.divider)),
-        middle: Text(isNew ? 'New Workflow' : 'Edit Workflow'),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (!isNew)
+      navigationBar: _WindowDraggableNavigationBar(
+        bar: CupertinoNavigationBar(
+          backgroundColor: palette.headerBg,
+          border: Border(bottom: BorderSide(color: palette.divider)),
+          // This editor fills the window, so its bar sits where the macOS
+          // traffic lights are drawn — without the gap they cover the back
+          // button.
+          padding: EdgeInsetsDirectional.only(
+            start: windowLeadingInset(atWindowEdge: true),
+          ),
+          middle: Text(isNew ? 'New Workflow' : 'Edit Workflow'),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!isNew)
+                CupertinoButton(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  onPressed: _confirmDelete,
+                  child: Icon(
+                    CupertinoIcons.trash,
+                    color: palette.danger,
+                    size: 20,
+                  ),
+                ),
               CupertinoButton(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                onPressed: _confirmDelete,
-                child: Icon(
-                  CupertinoIcons.trash,
-                  color: palette.danger,
-                  size: 20,
-                ),
+                onPressed: _save,
+                child: const Text('Save'),
               ),
-            CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              onPressed: _save,
-              child: const Text('Save'),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       child: SafeArea(
@@ -230,8 +239,7 @@ class _WorkflowEditorScreenState extends State<WorkflowEditorScreen> {
                               CupertinoIcons.minus_circle,
                               size: 18,
                               color: _stepCtrls.length <= 1
-                                  ? palette.subtleText
-                                      .withValues(alpha: 0.4)
+                                  ? palette.subtleText.withValues(alpha: 0.4)
                                   : palette.danger,
                             ),
                           ),
@@ -366,5 +374,35 @@ class _StepCtrls {
   void dispose() {
     nameCtrl.dispose();
     promptCtrl.dispose();
+  }
+}
+
+/// Lets a [CupertinoPageScaffold]'s navigation bar move the window.
+///
+/// The scaffold measures its navigation bar through
+/// [ObstructingPreferredSizeWidget], so the bar cannot simply be wrapped in a
+/// [Stack] — the type has to be preserved. This delegates both parts of that
+/// contract to [bar] and slips the drag layer underneath it. The bar's own
+/// background is a DecoratedBox, which paints without absorbing pointers, so
+/// the gaps between its buttons still reach the layer below.
+class _WindowDraggableNavigationBar extends StatelessWidget
+    implements ObstructingPreferredSizeWidget {
+  const _WindowDraggableNavigationBar({required this.bar});
+
+  final ObstructingPreferredSizeWidget bar;
+
+  @override
+  Size get preferredSize => bar.preferredSize;
+
+  @override
+  bool shouldFullyObstruct(BuildContext context) =>
+      bar.shouldFullyObstruct(context);
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [const WindowDragRegion(), bar],
+    );
   }
 }

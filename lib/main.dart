@@ -27,6 +27,25 @@ Future<void> main() async {
   // keep receiving transfers in the background (Phase 8).
   if (!kIsWeb && (Platform.isMacOS || Platform.isWindows || Platform.isLinux)) {
     await windowManager.ensureInitialized();
+
+    // One 48px bar on every platform: the OS caption is hidden and the app's
+    // own toolbar is the title bar. macOS carries on drawing its traffic
+    // lights over the full-size content view; Windows and Linux have no
+    // native buttons left, so the toolbar draws its own (see
+    // widgets/window_chrome.dart).
+    await windowManager.waitUntilReadyToShow(
+      const WindowOptions(
+        titleBarStyle: TitleBarStyle.hidden,
+        // macOS-only, and already the default — spelled out because hiding the
+        // title bar without it would leave that window with no controls at all.
+        windowButtonVisibility: true,
+      ),
+      () async {
+        await windowManager.show();
+        await windowManager.focus();
+      },
+    );
+
     final backgroundEnabled = await SettingsStore().getBackgroundReception();
     await TrayService.instance.init(backgroundEnabled: backgroundEnabled);
     await NotificationService.instance.init();

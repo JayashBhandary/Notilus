@@ -3,6 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../models/file_entry.dart';
+import '../../widgets/window_chrome.dart';
 import 'preview_common.dart';
 import 'preview_filmstrip.dart';
 import 'preview_info_panel.dart';
@@ -161,7 +162,8 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                 onOpenExternally: () => openPathExternally(current.path),
                 onClose: () => Navigator.of(context).maybePop(),
               ),
-              const ShadSeparator.horizontal(margin: EdgeInsets.zero, thickness: 1),
+              const ShadSeparator.horizontal(
+                  margin: EdgeInsets.zero, thickness: 1),
               Expanded(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -239,101 +241,114 @@ class _TopBar extends StatelessWidget {
     return Container(
       height: 52,
       color: colors.muted,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: LayoutBuilder(
-        builder: (_, c) {
-          // Shed the least useful things first as the window narrows: the
-          // format/size badges, then the sibling counter.
-          final showBadges = c.maxWidth >= 560;
-          final showCounter = c.maxWidth >= 420 && total > 1;
-          return Row(
-            children: [
-              _BarButton(
-                icon: LucideIcons.arrowLeft,
-                tooltip: 'Back (Esc)',
-                onPressed: onClose,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        file.name,
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: colors.foreground,
-                        ),
-                      ),
-                    ),
-                    if (showBadges) ...[
-                      const SizedBox(width: 8),
-                      if (ext.isNotEmpty) ...[
-                        ShadBadge.secondary(child: Text(ext)),
-                        const SizedBox(width: 4),
-                      ],
-                      ShadBadge.outline(
-                        child: Text(formatPreviewBytes(file.size)),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              if (total > 1) ...[
-                _BarButton(
-                  icon: LucideIcons.chevronLeft,
-                  tooltip: 'Previous (←)',
-                  onPressed: onPrev,
-                ),
-                if (showCounter)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
+      // The preview fills the window, so while it is open this bar *is* the
+      // window's title bar: it has to be draggable and has to clear whatever
+      // buttons the OS draws over the content, or the window is stuck and the
+      // Back button sits under the macOS traffic lights.
+      child: WindowTitleBar(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: _bar(context, colors, ext),
+        ),
+      ),
+    );
+  }
+
+  Widget _bar(BuildContext context, ShadColorScheme colors, String ext) {
+    return LayoutBuilder(
+      builder: (_, c) {
+        // Shed the least useful things first as the window narrows: the
+        // format/size badges, then the sibling counter.
+        final showBadges = c.maxWidth >= 560;
+        final showCounter = c.maxWidth >= 420 && total > 1;
+        return Row(
+          children: [
+            _BarButton(
+              icon: LucideIcons.arrowLeft,
+              tooltip: 'Back (Esc)',
+              onPressed: onClose,
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
                     child: Text(
-                      '${index + 1} / $total',
+                      file.name,
+                      overflow: TextOverflow.ellipsis,
+                      maxLines: 1,
                       style: TextStyle(
-                        fontSize: 11.5,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                        color: colors.mutedForeground,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: colors.foreground,
                       ),
                     ),
                   ),
-                _BarButton(
-                  icon: LucideIcons.chevronRight,
-                  tooltip: 'Next (→)',
-                  onPressed: onNext,
+                  if (showBadges) ...[
+                    const SizedBox(width: 8),
+                    if (ext.isNotEmpty) ...[
+                      ShadBadge.secondary(child: Text(ext)),
+                      const SizedBox(width: 4),
+                    ],
+                    ShadBadge.outline(
+                      child: Text(formatPreviewBytes(file.size)),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (total > 1) ...[
+              _BarButton(
+                icon: LucideIcons.chevronLeft,
+                tooltip: 'Previous (←)',
+                onPressed: onPrev,
+              ),
+              if (showCounter)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    '${index + 1} / $total',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      color: colors.mutedForeground,
+                    ),
+                  ),
                 ),
-                const SizedBox(width: 4),
-              ],
-              if (onToggleStrip != null)
-                _BarButton(
-                  icon: LucideIcons.galleryHorizontalEnd,
-                  tooltip: stripOpen ? 'Hide filmstrip (F)' : 'Show filmstrip (F)',
-                  selected: stripOpen,
-                  onPressed: onToggleStrip,
-                ),
               _BarButton(
-                icon: LucideIcons.info,
-                tooltip: 'Info (I)',
-                selected: infoOpen,
-                onPressed: onToggleInfo,
+                icon: LucideIcons.chevronRight,
+                tooltip: 'Next (→)',
+                onPressed: onNext,
               ),
-              _BarButton(
-                icon: LucideIcons.externalLink,
-                tooltip: 'Open in external app',
-                onPressed: onOpenExternally,
-              ),
-              _BarButton(
-                icon: LucideIcons.x,
-                tooltip: 'Close (Esc)',
-                onPressed: onClose,
-              ),
+              const SizedBox(width: 4),
             ],
-          );
-        },
-      ),
+            if (onToggleStrip != null)
+              _BarButton(
+                icon: LucideIcons.galleryHorizontalEnd,
+                tooltip:
+                    stripOpen ? 'Hide filmstrip (F)' : 'Show filmstrip (F)',
+                selected: stripOpen,
+                onPressed: onToggleStrip,
+              ),
+            _BarButton(
+              icon: LucideIcons.info,
+              tooltip: 'Info (I)',
+              selected: infoOpen,
+              onPressed: onToggleInfo,
+            ),
+            _BarButton(
+              icon: LucideIcons.externalLink,
+              tooltip: 'Open in external app',
+              onPressed: onOpenExternally,
+            ),
+            _BarButton(
+              icon: LucideIcons.x,
+              tooltip: 'Close (Esc)',
+              onPressed: onClose,
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -364,8 +379,7 @@ class _BarButton extends StatelessWidget {
         enabled: onPressed != null,
         onPressed: onPressed,
         backgroundColor: selected ? colors.accent : null,
-        foregroundColor:
-            selected ? colors.primary : colors.mutedForeground,
+        foregroundColor: selected ? colors.primary : colors.mutedForeground,
         icon: Icon(icon),
       ),
     );
