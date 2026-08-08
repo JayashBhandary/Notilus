@@ -7,6 +7,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'providers/browser_provider.dart';
 import 'providers/chat_provider.dart';
 import 'providers/file_ops_provider.dart';
+import 'providers/media_provider.dart';
 import 'providers/search_provider.dart';
 import 'providers/settings_provider.dart';
 import 'providers/transfer_controller.dart';
@@ -38,6 +39,11 @@ class NotilusApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => SearchProvider(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) =>
+              MediaProvider(fileService: fileService, store: settingsStore)
+                ..init(),
         ),
         ChangeNotifierProvider(
           create: (_) => ChatProvider(),

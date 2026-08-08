@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import '../models/media_kind.dart';
 import '../providers/browser_provider.dart';
 import '../providers/search_provider.dart';
 import '../providers/settings_provider.dart';
@@ -22,6 +23,7 @@ import '../widgets/sidebar.dart';
 import '../widgets/terminal_panel.dart';
 import '../widgets/workflow_tab.dart';
 import 'duplicate_finder_screen.dart';
+import 'media_screen.dart';
 import 'settings_screen.dart';
 import 'system_overview_screen.dart';
 import 'transfer/transfer_screen.dart';
@@ -79,6 +81,15 @@ Widget _centerBody(
       return const DuplicateFinderView();
     case CenterView.transfers:
       return const TransferScreen();
+    case CenterView.mediaImages:
+    case CenterView.mediaVideos:
+    case CenterView.mediaDocuments:
+      // Keyed by kind so switching libraries rebuilds the page's State rather
+      // than reusing one page's scroll position and search box for another.
+      return MediaView(
+        key: ValueKey(view),
+        kind: view.mediaKind!,
+      );
   }
 }
 
@@ -93,6 +104,12 @@ String _centerTitle(CenterView view) {
       return 'Duplicate Finder';
     case CenterView.transfers:
       return 'File Transfer';
+    case CenterView.mediaImages:
+    case CenterView.mediaVideos:
+    case CenterView.mediaDocuments:
+      // Empty would make the compact bar fall back to the current *folder*
+      // name, which has nothing to do with the page being shown.
+      return view.mediaKind!.label;
   }
 }
 

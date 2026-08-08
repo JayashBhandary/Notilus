@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -7,9 +5,9 @@ import 'package:provider/provider.dart';
 
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
-import '../services/thumbnail_service.dart';
 import '../theme.dart';
 import 'file_drag_drop.dart';
+import 'file_thumbnail.dart';
 import '../utils/responsive.dart';
 import 'file_list_view.dart' show openFilePreview, openFileInDefaultApp;
 import 'marquee_selection.dart';
@@ -292,20 +290,6 @@ class _Thumbnail extends StatelessWidget {
   final double size;
   final AppPalette palette;
 
-  static const _svgExts = {'.svg', '.svgz'};
-  static const _pdfExts = {'.pdf'};
-  static const _textExts = {
-    '.txt', '.md', '.markdown', '.mdown', '.log',
-    '.json', '.yaml', '.yml', '.xml', '.csv', '.tsv',
-    '.html', '.htm', '.css', '.scss', '.less',
-    '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
-    '.dart', '.py', '.rb', '.go', '.rs', '.c', '.cpp', '.cc', '.h', '.hpp',
-    '.java', '.kt', '.swift', '.sh', '.bash', '.zsh', '.fish',
-    '.toml', '.ini', '.conf', '.cfg', '.env',
-    '.lua', '.pl', '.php', '.sql', '.r', '.scala', '.groovy',
-    '.gradle', '.cmake',
-  };
-
   @override
   Widget build(BuildContext context) {
     if (entry.isDirectory) {
@@ -315,30 +299,69 @@ class _Thumbnail extends StatelessWidget {
         color: palette.folderIcon,
       );
     }
-    final ext = entry.extension;
-    if (entry.isImage) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(4),
-        child: Image.file(
-          File(entry.path),
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          cacheWidth: (size * 2).toInt(),
-          errorBuilder: (_, __, ___) => _docPlaceholder(),
-        ),
-      );
+    final isVideo = isPreviewableVideo(entry);
+    return FilePreviewBuilder(
+      entry: entry,
+      // The media grid's dimension rather than one derived from this tile: the
+      // cache key folds in the size, so matching it means a video already
+      // thumbnailed there appears here without a second ffmpeg run.
+      dim: _kGeneratedThumbDim,
+      builder: (context, preview) {
+        final body = _forPreview(preview);
+        if (!isVideo) return body;
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            body,
+            // Stays whether or not a frame was extracted, so a video reads as
+            // playable even when it falls back to a glyph.
+            Positioned(
+              right: 1,
+              bottom: 1,
+              child: _PlayBadge(size: size, palette: palette),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _forPreview(FilePreview preview) {
+    switch (preview) {
+      case FilePreviewImage(:final file, :final isPaper):
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(color: palette.divider),
+              color: isPaper ? const Color(0xFFFFFFFF) : null,
+            ),
+            child: Image.file(
+              file,
+              key: ValueKey(file.path),
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              cacheWidth: (size * 2).toInt(),
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => _docPlaceholder(),
+            ),
+          ),
+        );
+      case FilePreviewSvg(:final bytes):
+        return _ThumbBox(
+          palette: palette,
+          child: SvgPicture.memory(
+            bytes,
+            fit: BoxFit.contain,
+            placeholderBuilder: (_) => const SizedBox.shrink(),
+          ),
+        );
+      case FilePreviewText(:final snippet):
+        return _TextSnippetThumb(text: snippet, size: size, palette: palette);
+      case FilePreviewNone():
+        return _docPlaceholder();
     }
-    if (_svgExts.contains(ext)) {
-      return _SvgThumb(entry: entry, size: size, palette: palette);
-    }
-    if (_pdfExts.contains(ext)) {
-      return _PdfThumb(entry: entry, size: size, palette: palette);
-    }
-    if (_textExts.contains(ext)) {
-      return _TextSnippetThumb(entry: entry, size: size, palette: palette);
-    }
-    return _docPlaceholder();
   }
 
   Widget _docPlaceholder() {
@@ -377,6 +400,13 @@ class _Thumbnail extends StatelessWidget {
   }
 
   IconData _iconFor(String ext) {
+    // Videos and the office/ebook containers are matched against the shared
+    // sets rather than listed again here: this glyph is what a clip shows
+    // while its frame renders, and one that fell back to a blank page while
+    // the tile next to it showed film would look like two different formats.
+    if (isPreviewableVideo(entry)) return CupertinoIcons.film;
+    if (isAudioFile(entry)) return CupertinoIcons.music_note;
+    if (hasEmbeddedDocumentPreview(entry)) return CupertinoIcons.doc_richtext;
     switch (ext) {
       case '.txt':
       case '.md':
@@ -396,14 +426,6 @@ class _Thumbnail extends StatelessWidget {
         return CupertinoIcons.chevron_left_slash_chevron_right;
       case '.pdf':
         return CupertinoIcons.doc_richtext;
-      case '.mp4':
-      case '.mov':
-      case '.mkv':
-        return CupertinoIcons.film;
-      case '.mp3':
-      case '.wav':
-      case '.flac':
-        return CupertinoIcons.music_note;
       default:
         return CupertinoIcons.doc;
     }
@@ -411,210 +433,85 @@ class _Thumbnail extends StatelessWidget {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// SVG thumbnail — direct render via flutter_svg.
+// Tile rendering for the previews FilePreviewBuilder resolves.
 // ──────────────────────────────────────────────────────────────────────────
 
-class _SvgThumb extends StatelessWidget {
-  const _SvgThumb({
-    required this.entry,
-    required this.size,
-    required this.palette,
-  });
-  final FileEntry entry;
-  final double size;
-  final AppPalette palette;
+/// Pixel width asked of every generated preview.
+///
+/// Deliberately the media grid's dimension rather than one derived from the
+/// tile: the cache key folds in the size, so matching it means a video already
+/// thumbnailed on the media page appears here without a second ffmpeg run.
+const int _kGeneratedThumbDim = 320;
 
-  Future<Uint8List> _bytes() async {
-    final raw = await File(entry.path).readAsBytes();
-    if (entry.name.toLowerCase().endsWith('.svgz') &&
-        raw.length >= 2 &&
-        raw[0] == 0x1F &&
-        raw[1] == 0x8B) {
-      try {
-        return Uint8List.fromList(gzip.decode(raw));
-      } catch (_) {
-        return raw;
-      }
-    }
-    return raw;
-  }
+/// Corner badge marking a tile as a video.
+class _PlayBadge extends StatelessWidget {
+  const _PlayBadge({required this.size, required this.palette});
 
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<Uint8List>(
-      future: _bytes(),
-      builder: (_, snap) {
-        if (!snap.hasData) {
-          return _ThumbBox(
-            palette: palette,
-            child: const CupertinoActivityIndicator(radius: 8),
-          );
-        }
-        return _ThumbBox(
-          palette: palette,
-          child: SvgPicture.memory(
-            snap.data!,
-            fit: BoxFit.contain,
-            placeholderBuilder: (_) => const SizedBox.shrink(),
-          ),
-        );
-      },
-    );
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────────────
-// PDF thumbnail — first page, cached on disk.
-// ──────────────────────────────────────────────────────────────────────────
-
-class _PdfThumb extends StatefulWidget {
-  const _PdfThumb({
-    required this.entry,
-    required this.size,
-    required this.palette,
-  });
-  final FileEntry entry;
+  /// The thumbnail's edge, not the badge's — the badge scales with the tile so
+  /// it stays legible at every row density without swamping a small icon.
   final double size;
   final AppPalette palette;
 
   @override
-  State<_PdfThumb> createState() => _PdfThumbState();
-}
-
-class _PdfThumbState extends State<_PdfThumb> {
-  late final Future<File?> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = ThumbnailService.instance.pdfThumbnail(
-      widget.entry,
-      dim: (widget.size * 2).round().clamp(120, 480),
-    );
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return FutureBuilder<File?>(
-      future: _future,
-      builder: (_, snap) {
-        if (snap.connectionState != ConnectionState.done) {
-          return _ThumbBox(
-            palette: widget.palette,
-            child: const CupertinoActivityIndicator(radius: 8),
-          );
-        }
-        final f = snap.data;
-        if (f == null) {
-          return _DocLabelPlaceholder(
-            ext: widget.entry.extension,
-            icon: CupertinoIcons.doc_richtext,
-            size: widget.size,
-            palette: widget.palette,
-          );
-        }
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              border: Border.all(color: widget.palette.divider),
-              color: const Color(0xFFFFFFFF),
-            ),
-            child: Image.file(
-              f,
-              width: widget.size,
-              height: widget.size,
-              fit: BoxFit.cover,
-              cacheWidth: (widget.size * 2).toInt(),
-              gaplessPlayback: true,
-              errorBuilder: (_, __, ___) => _DocLabelPlaceholder(
-                ext: widget.entry.extension,
-                icon: CupertinoIcons.doc_richtext,
-                size: widget.size,
-                palette: widget.palette,
-              ),
-            ),
-          ),
-        );
-      },
+    final edge = (size * 0.34).clamp(11.0, 18.0);
+    return Container(
+      width: edge,
+      height: edge,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: palette.cardBg.withValues(alpha: 0.85),
+        border: Border.all(color: palette.divider),
+      ),
+      alignment: Alignment.center,
+      child: Icon(
+        CupertinoIcons.play_fill,
+        size: edge * 0.5,
+        color: palette.text,
+      ),
     );
   }
 }
 
-// ──────────────────────────────────────────────────────────────────────────
-// Text snippet thumbnail — Finder-style miniature of the first lines.
-// ──────────────────────────────────────────────────────────────────────────
-
-class _TextSnippetThumb extends StatefulWidget {
+/// Finder-style miniature of a text file's first lines.
+class _TextSnippetThumb extends StatelessWidget {
   const _TextSnippetThumb({
-    required this.entry,
+    required this.text,
     required this.size,
     required this.palette,
   });
-  final FileEntry entry;
+
+  final String text;
   final double size;
   final AppPalette palette;
 
   @override
-  State<_TextSnippetThumb> createState() => _TextSnippetThumbState();
-}
-
-class _TextSnippetThumbState extends State<_TextSnippetThumb> {
-  late final Future<String?> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = ThumbnailService.instance.textSnippet(widget.entry);
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return FutureBuilder<String?>(
-      future: _future,
-      builder: (_, snap) {
-        if (snap.connectionState != ConnectionState.done) {
-          return _ThumbBox(
-            palette: widget.palette,
-            child: const CupertinoActivityIndicator(radius: 8),
-          );
-        }
-        final txt = snap.data;
-        if (txt == null || txt.trim().isEmpty) {
-          return _DocLabelPlaceholder(
-            ext: widget.entry.extension,
-            icon: CupertinoIcons.doc_text,
-            size: widget.size,
-            palette: widget.palette,
-          );
-        }
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: Container(
-            width: widget.size,
-            height: widget.size,
-            padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
-            decoration: BoxDecoration(
-              color: widget.palette.cardBg,
-              border: Border.all(color: widget.palette.divider),
-            ),
-            child: ClipRect(
-              child: Text(
-                txt,
-                maxLines: (widget.size / 7).round().clamp(4, 24),
-                overflow: TextOverflow.fade,
-                softWrap: true,
-                style: TextStyle(
-                  fontFamily: 'Menlo',
-                  fontSize: (widget.size / 18).clamp(4.5, 7.5),
-                  height: 1.15,
-                  color: widget.palette.text,
-                ),
-              ),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        width: size,
+        height: size,
+        padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+        decoration: BoxDecoration(
+          color: palette.cardBg,
+          border: Border.all(color: palette.divider),
+        ),
+        child: ClipRect(
+          child: Text(
+            text,
+            maxLines: (size / 7).round().clamp(4, 24),
+            overflow: TextOverflow.fade,
+            softWrap: true,
+            style: TextStyle(
+              fontFamily: 'Menlo',
+              fontSize: (size / 18).clamp(4.5, 7.5),
+              height: 1.15,
+              color: palette.text,
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -635,49 +532,6 @@ class _ThumbBox extends StatelessWidget {
       ),
       padding: const EdgeInsets.all(4),
       child: Center(child: child),
-    );
-  }
-}
-
-class _DocLabelPlaceholder extends StatelessWidget {
-  const _DocLabelPlaceholder({
-    required this.ext,
-    required this.icon,
-    required this.size,
-    required this.palette,
-  });
-  final String ext;
-  final IconData icon;
-  final double size;
-  final AppPalette palette;
-
-  @override
-  Widget build(BuildContext context) {
-    final label = ext.isEmpty ? '' : ext.substring(1).toUpperCase();
-    return Container(
-      decoration: BoxDecoration(
-        color: palette.cardBg,
-        border: Border.all(color: palette.divider),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: size * 0.5, color: palette.subtleText),
-          if (label.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: palette.subtleText,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ],
-        ],
-      ),
     );
   }
 }

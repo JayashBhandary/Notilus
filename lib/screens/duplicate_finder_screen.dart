@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../models/file_entry.dart';
+import '../models/media_kind.dart';
 import '../providers/browser_provider.dart';
 import '../services/duplicate_finder_service.dart';
 // Prefixed: this file still uses the Dart DuplicateGroup/ScanProgress, whose
@@ -23,27 +24,14 @@ import 'preview/file_preview_screen.dart';
 /// File-type categories the scan can be narrowed to.
 enum _FileType { all, images, videos, audio, documents }
 
+// The extension sets come from `models/media_kind.dart`, which the Media pages
+// also read — one definition of "what counts as an image" for the whole app.
 const Map<_FileType, ({String label, Set<String>? exts})> _fileTypeSpecs = {
   _FileType.all: (label: 'All files', exts: null),
-  _FileType.images: (
-    label: 'Images',
-    exts: {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp', '.heic', '.tiff'},
-  ),
-  _FileType.videos: (
-    label: 'Videos',
-    exts: {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.m4v'},
-  ),
-  _FileType.audio: (
-    label: 'Audio',
-    exts: {'.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg'},
-  ),
-  _FileType.documents: (
-    label: 'Documents',
-    exts: {
-      '.pdf', '.docx', '.doc', '.txt', '.md', '.rtf', '.xls', '.xlsx',
-      '.ppt', '.pptx', '.csv', '.epub',
-    },
-  ),
+  _FileType.images: (label: 'Images', exts: kImageExtensions),
+  _FileType.videos: (label: 'Videos', exts: kVideoExtensions),
+  _FileType.audio: (label: 'Audio', exts: kAudioExtensions),
+  _FileType.documents: (label: 'Documents', exts: kDocumentExtensions),
 };
 
 /// Which copy to keep when bulk-cleaning a group (the rest go to Trash).

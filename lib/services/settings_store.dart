@@ -18,6 +18,7 @@ class SettingsStore {
   static const _kBackgroundReception = 'background_reception';
   static const _kTransferDestination = 'transfer_destination';
   static const _kPreferLocalNetwork = 'prefer_local_network';
+  static const _kMediaRoots = 'media_roots_json';
 
   static const String defaultHost = 'http://localhost:11434';
 
@@ -170,6 +171,34 @@ class SettingsStore {
     final prefs = await SharedPreferences.getInstance();
     final encoded = jsonEncode(workflows.map((w) => w.toJson()).toList());
     await prefs.setString(_kWorkflows, encoded);
+  }
+
+  /// Folders the Media pages scan. An empty list means "not configured yet",
+  /// which `MediaProvider` resolves to the user's home folder — storing the
+  /// resolved home instead would pin the default to whatever machine first ran
+  /// the app.
+  Future<List<String>> getMediaRoots() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kMediaRoots);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return [
+        for (final e in list)
+          if (e is String && e.trim().isNotEmpty) e,
+      ];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> setMediaRoots(List<String> roots) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (roots.isEmpty) {
+      await prefs.remove(_kMediaRoots);
+    } else {
+      await prefs.setString(_kMediaRoots, jsonEncode(roots));
+    }
   }
 
   /// Duplicate Finder filter preferences, stored as a single JSON blob.

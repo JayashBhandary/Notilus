@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
 import '../models/file_entry.dart';
+import '../models/media_kind.dart';
 import '../services/file_service.dart';
 
 enum SortField { name, kind, modified, size }
@@ -12,9 +13,49 @@ enum SortField { name, kind, modified, size }
 enum ViewMode { icons, list }
 
 /// Which page occupies the app's central content pane. Non-file pages
-/// (System Overview, Duplicate Finder) render here instead of pushing a
-/// full-screen route; navigating to any folder returns to [files].
-enum CenterView { files, systemOverview, duplicates, transfers }
+/// (System Overview, Duplicate Finder, the media libraries) render here
+/// instead of pushing a full-screen route; navigating to any folder returns
+/// to [files].
+enum CenterView {
+  files,
+  systemOverview,
+  duplicates,
+  transfers,
+  mediaImages,
+  mediaVideos,
+  mediaDocuments,
+}
+
+extension CenterViewMedia on CenterView {
+  /// The media library this view shows, or null for the non-media pages.
+  MediaKind? get mediaKind {
+    switch (this) {
+      case CenterView.mediaImages:
+        return MediaKind.images;
+      case CenterView.mediaVideos:
+        return MediaKind.videos;
+      case CenterView.mediaDocuments:
+        return MediaKind.documents;
+      case CenterView.files:
+      case CenterView.systemOverview:
+      case CenterView.duplicates:
+      case CenterView.transfers:
+        return null;
+    }
+  }
+}
+
+/// The center view that shows [kind].
+CenterView centerViewForMedia(MediaKind kind) {
+  switch (kind) {
+    case MediaKind.images:
+      return CenterView.mediaImages;
+    case MediaKind.videos:
+      return CenterView.mediaVideos;
+    case MediaKind.documents:
+      return CenterView.mediaDocuments;
+  }
+}
 
 class BrowserProvider extends ChangeNotifier {
   BrowserProvider(this._fileService);
