@@ -18,6 +18,7 @@ Each module below maps to a numbered finding there.
 | `api::archive` | `_ArchiveView._scan` in `file_preview_screen.dart` | Listing a zip reads the central directory only, instead of `readAsBytes()` on the whole file plus a pure-Dart inflate on the UI thread |
 | `api::listing` | `file_service.dart:listDirectory` + `FileEntry.from` | One native pass instead of an awaited `stat()` per entry, sorted before Dart sees it |
 | `api::thumbnail` | gap — no image thumbnail cache existed | Downscale once to a small PNG rather than re-decoding full-resolution source on every scroll |
+| `api::quick` | gap — the browser had no compress, extract, folder-size or image actions | Zipping, unpacking, walking a tree for its real size and re-encoding an image are all byte-shovelling loops; they get the same cancellation, progress and collision-free naming as copy/move |
 
 ## Status
 
@@ -125,6 +126,19 @@ freed no space.
 both hash passes check between files, so a cancelled scan stops promptly instead
 of running to completion and discarding the result.
 
+**Quick Actions never overwrite.** Every archive, extraction folder and
+converted image goes through `fileops::unique_name`, so repeating an action adds
+a "copy" rather than replacing what the last one produced. The one in-place
+action, `transform_image`, encodes to a temporary file and renames over the
+original only once encoding succeeded.
+
+**Extraction refuses to escape its destination.** `quick::safe_join` rejects any
+entry naming `..`, an absolute path or a drive prefix before a byte is written —
+the "zip slip" traversal, and the reason full extraction doesn't just call the
+zip crate's own `extract`.
+
 **Extraction is capped.** `MAX_EXTRACT_BYTES` (512 MB) bounds a single archive
-entry, and the reader takes one byte past the cap so an entry that lies about
-its declared size is rejected rather than silently truncated.
+entry read into memory for the preview, and the reader takes one byte past the
+cap so an entry that lies about its declared size is rejected rather than
+silently truncated. Full extraction streams to disk instead, under the roomier
+`quick::MAX_ENTRY_BYTES` (8 GB).

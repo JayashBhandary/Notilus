@@ -68,6 +68,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
+    // The display toggles now live one hop down, under "View", so the root
+    // menu stays about the item under the cursor.
+    await tester.tap(find.text('View'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
     await tester.tap(find.text('Show View Options'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));

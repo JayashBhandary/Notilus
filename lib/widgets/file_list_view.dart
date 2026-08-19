@@ -12,6 +12,7 @@ import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../providers/file_ops_provider.dart';
 import '../services/native_core.dart';
+import '../services/system_info_service.dart' show formatBytes;
 import '../screens/preview/file_preview_screen.dart';
 import '../screens/transfer/send_to.dart';
 import '../services/file_actions_service.dart';
@@ -823,6 +824,12 @@ List<DeskMenuItem> _baseMenuItems(
         ),
       DeskMenuItem.divider(),
       DeskMenuItem(
+        label: 'Quick Actions',
+        icon: LucideIcons.zap,
+        submenu: _quickActionsSubmenu(context, browser, target),
+      ),
+      DeskMenuItem.divider(),
+      DeskMenuItem(
         label: 'Get Info',
         icon: LucideIcons.info,
         onTap: () => _showInfoDialog(context, target),
@@ -901,9 +908,37 @@ List<DeskMenuItem> _baseMenuItems(
     ),
     DeskMenuItem.divider(),
     DeskMenuItem(
-      label: 'Show Hidden Files',
-      checked: browser.showHidden,
-      onTap: () => browser.setShowHidden(!browser.showHidden),
+      label: 'View',
+      icon: LucideIcons.layoutGrid,
+      submenu: _viewSubmenu(context, browser),
+    ),
+  ];
+}
+
+/// Everything that changes how the folder is *displayed*, in one submenu.
+///
+/// These four used to sit loose at the bottom of the root menu, where they
+/// outnumbered the actions above them: a right-click on a file offered more
+/// ways to re-sort the window than to do anything to the file. Nesting them
+/// keeps the root menu about the item under the cursor, and puts the display
+/// toggles one predictable hop away — the arrangement Finder and Explorer both
+/// settled on.
+List<DeskMenuItem> _viewSubmenu(BuildContext context, BrowserProvider browser) {
+  return [
+    DeskMenuItem(
+      label: 'as Icons',
+      checked: browser.viewMode == ViewMode.icons,
+      onTap: () => browser.setViewMode(ViewMode.icons),
+    ),
+    DeskMenuItem(
+      label: 'as List',
+      checked: browser.viewMode == ViewMode.list,
+      onTap: () => browser.setViewMode(ViewMode.list),
+    ),
+    DeskMenuItem.divider(),
+    DeskMenuItem(
+      label: 'Sort By',
+      submenu: _sortSubmenu(browser),
     ),
     DeskMenuItem(
       label: 'Use Groups',
@@ -911,8 +946,9 @@ List<DeskMenuItem> _baseMenuItems(
       onTap: () => browser.setUseGroups(!browser.useGroups),
     ),
     DeskMenuItem(
-      label: 'Sort By',
-      submenu: _sortSubmenu(browser),
+      label: 'Show Hidden Files',
+      checked: browser.showHidden,
+      onTap: () => browser.setShowHidden(!browser.showHidden),
     ),
     DeskMenuItem.divider(),
     DeskMenuItem(
@@ -989,6 +1025,404 @@ List<DeskMenuItem> _sortSubmenu(BrowserProvider browser) {
     option('Date Modified', SortField.modified),
     option('Size', SortField.size),
   ];
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Quick Actions
+// ──────────────────────────────────────────────────────────────────────
+
+/// Extensions the Rust core can unpack. Mirrors `archive.rs:classify`; a
+/// `.tar.gz` reports `.gz` from `p.extension`, and both are in the set, so the
+/// compound suffixes need no special case here.
+const Set<String> _archiveExtensions = {
+  '.zip', '.jar', '.tar', '.tgz', '.gz', '.tbz2', '.bz2',
+};
+
+/// Image formats the core can *write* back out. Rotating is only offered for
+/// these: GIF and TIFF decode fine but can't be re-encoded without losing
+/// animation or layers, so the action would be a trap.
+const Set<String> _rotatableExtensions = {'.png', '.jpg', '.jpeg', '.webp'};
+
+/// The long side, in pixels, of the "web copy" a Quick Action produces —
+/// comfortably sharp on a Retina display and typically a tenth of the bytes of
+/// a modern phone photo.
+const int _webCopyDimension = 1600;
+
+bool _isArchive(FileEntry e) =>
+    !e.isDirectory && _archiveExtensions.contains(e.extension);
+
+bool _isRotatable(FileEntry e) =>
+    !e.isDirectory && _rotatableExtensions.contains(e.extension);
+
+/// The Quick Actions offered for whatever is under the cursor.
+///
+/// The set is deliberately small and native: the four jobs a file manager gets
+/// asked for constantly — zip it, unzip it, tell me how big this folder really
+/// is, and fix the orientation or format of this image — each of which is a
+/// byte-shovelling loop that belongs in Rust rather than on the UI isolate.
+/// Everything here writes a *new* file beside the original, with the single
+/// documented exception of an in-place rotate.
+///
+/// Per-type actions need one unambiguous subject, so a multi-selection is
+/// offered only the one action that genuinely takes a list.
+List<DeskMenuItem> _quickActionsSubmenu(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry target,
+) {
+  final paths = _targetPaths(browser, target);
+  final items = <DeskMenuItem>[
+    DeskMenuItem(
+      label: paths.length > 1 ? 'Compress ${paths.length} Items' : 'Compress',
+      icon: LucideIcons.fileArchive,
+      onTap: () => _compressTargets(context, browser, target),
+    ),
+  ];
+  if (paths.length > 1) return items;
+
+  if (target.isDirectory) {
+    return [
+      ...items,
+      DeskMenuItem.divider(),
+      DeskMenuItem(
+        label: 'Calculate Folder Size',
+        icon: LucideIcons.calculator,
+        onTap: () => _showFolderStats(context, target),
+      ),
+    ];
+  }
+
+  if (_isArchive(target)) {
+    items.addAll([
+      DeskMenuItem.divider(),
+      DeskMenuItem(
+        label: 'Extract to "${_archiveStem(target.name)}"',
+        icon: LucideIcons.folderArchive,
+        onTap: () => _extractTarget(context, browser, target,
+            intoSubfolder: true),
+      ),
+      DeskMenuItem(
+        label: 'Extract Here',
+        icon: LucideIcons.packageOpen,
+        onTap: () => _extractTarget(context, browser, target,
+            intoSubfolder: false),
+      ),
+    ]);
+  }
+
+  if (target.isImage) {
+    items.add(DeskMenuItem.divider());
+    if (_isRotatable(target)) {
+      items.addAll([
+        DeskMenuItem(
+          label: 'Rotate Left',
+          icon: LucideIcons.rotateCcw,
+          onTap: () =>
+              _transformImage(context, browser, target, ImageTransform.rotateLeft),
+        ),
+        DeskMenuItem(
+          label: 'Rotate Right',
+          icon: LucideIcons.rotateCw,
+          onTap: () => _transformImage(
+              context, browser, target, ImageTransform.rotateRight),
+        ),
+        DeskMenuItem(
+          label: 'Flip Horizontally',
+          icon: LucideIcons.flipHorizontal,
+          onTap: () => _transformImage(
+              context, browser, target, ImageTransform.flipHorizontal),
+        ),
+      ]);
+    }
+    items.add(
+      DeskMenuItem(
+        label: 'Convert To',
+        icon: LucideIcons.fileImage,
+        submenu: _convertSubmenu(context, browser, target),
+      ),
+    );
+  }
+
+  items.addAll([
+    DeskMenuItem.divider(),
+    DeskMenuItem(
+      label: 'Copy SHA-256',
+      icon: LucideIcons.hash,
+      onTap: () => _copyChecksum(context, target),
+    ),
+  ]);
+  return items;
+}
+
+List<DeskMenuItem> _convertSubmenu(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry target,
+) {
+  DeskMenuItem option(String label, ImageTarget format, {int? maxDim}) =>
+      DeskMenuItem(
+        label: label,
+        onTap: () =>
+            _convertImage(context, browser, target, format, maxDim: maxDim),
+      );
+
+  return [
+    option('PNG', ImageTarget.png),
+    option('JPEG', ImageTarget.jpeg),
+    // The core writes lossless WebP only, which is honest but not small — the
+    // label says so rather than leaving the user to discover it from the size.
+    option('WebP (lossless)', ImageTarget.webP),
+    DeskMenuItem.divider(),
+    option(
+      'Web Copy ($_webCopyDimension px JPEG)',
+      ImageTarget.jpeg,
+      maxDim: _webCopyDimension,
+    ),
+  ];
+}
+
+/// The folder name an archive unpacks into. Mirrors `quick.rs:archive_stem`, so
+/// the menu label matches the folder that actually appears.
+String _archiveStem(String fileName) {
+  final lower = fileName.toLowerCase();
+  for (final suffix in const [
+    '.tar.gz', '.tar.bz2', '.tgz', '.tbz2', '.zip', '.jar', '.tar', '.gz',
+    '.bz2',
+  ]) {
+    if (lower.endsWith(suffix)) {
+      return fileName.substring(0, fileName.length - suffix.length);
+    }
+  }
+  return fileName;
+}
+
+/// Zips the selection into the folder it came from.
+///
+/// The archive is named after the item for a single target and after the
+/// folder for a multi-selection — the two cases where a name needs no dialog.
+/// Rust resolves collisions, so repeating the action adds "copy" rather than
+/// overwriting the archive already there.
+Future<void> _compressTargets(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry target,
+) async {
+  final ops = context.read<FileOpsProvider>();
+  final paths = _targetPaths(browser, target);
+  final destDir = p.dirname(target.path);
+  final name = paths.length > 1
+      ? '${p.basename(destDir)} Archive'
+      : (target.isDirectory
+          ? target.name
+          : p.basenameWithoutExtension(target.name));
+
+  final result = await ops.compress(
+    sources: paths,
+    destDir: destDir,
+    archiveName: name,
+  );
+  if (!context.mounted) return;
+  await _afterQuickAction(context, browser, result, 'compress');
+}
+
+Future<void> _extractTarget(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry target, {
+  required bool intoSubfolder,
+}) async {
+  final ops = context.read<FileOpsProvider>();
+  final result = await ops.extract(
+    path: target.path,
+    destDir: p.dirname(target.path),
+    intoSubfolder: intoSubfolder,
+  );
+  if (!context.mounted) return;
+  // "Extract Here" produces the folder the user is already looking at, so
+  // selecting it would jump them out of the folder they extracted into.
+  await _afterQuickAction(
+    context,
+    browser,
+    result,
+    'extract this archive',
+    reveal: intoSubfolder,
+  );
+}
+
+Future<void> _transformImage(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry target,
+  ImageTransform transform,
+) async {
+  try {
+    // In place, like every other file manager's rotate: a suffixed copy per
+    // click would turn "turn this the right way up" into a folder of near
+    // duplicates. Rust encodes to a temp file and renames over the original
+    // only on success, so a failure can't leave a truncated image behind.
+    await NativeCore.instance
+        .transformImage(src: target.path, transform: transform, inPlace: true);
+  } catch (e) {
+    if (context.mounted) await _showError(context, '$e');
+    return;
+  }
+  await browser.refresh();
+}
+
+Future<void> _convertImage(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry target,
+  ImageTarget format, {
+  int? maxDim,
+}) async {
+  String produced;
+  try {
+    produced = await NativeCore.instance.convertImage(
+      src: target.path,
+      destDir: p.dirname(target.path),
+      format: format,
+      maxDim: maxDim,
+    );
+  } catch (e) {
+    if (context.mounted) await _showError(context, '$e');
+    return;
+  }
+  await browser.refresh();
+  await browser.revealPath(produced);
+}
+
+/// Hashes the file and puts the digest on the clipboard.
+///
+/// The one Quick Action that writes nothing: it answers "is this the same file
+/// I was sent?", which is otherwise a trip to a terminal.
+Future<void> _copyChecksum(BuildContext context, FileEntry target) async {
+  String digest;
+  try {
+    digest = await NativeCore.instance.hashFile(target.path);
+  } catch (e) {
+    if (context.mounted) await _showError(context, '$e');
+    return;
+  }
+  await Clipboard.setData(ClipboardData(text: digest));
+  if (!context.mounted) return;
+  await showCupertinoDialog<void>(
+    context: context,
+    builder: (ctx) => CupertinoAlertDialog(
+      title: const Text('SHA-256 copied'),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 6),
+        // Plain Text, not SelectableText: this file is Cupertino-only and the
+        // digest is already on the clipboard — the dialog is a confirmation,
+        // not the copy mechanism.
+        child: Text(
+          digest,
+          style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+        ),
+      ),
+      actions: [
+        CupertinoDialogAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('Done'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Walks the folder and reports what it holds.
+///
+/// A directory's own size is the size of its entry, never its contents, so
+/// this is the only honest answer to "how big is this folder?" — and the walk
+/// is exactly why it belongs in Rust, behind the shared cancellable progress
+/// bar.
+Future<void> _showFolderStats(BuildContext context, FileEntry target) async {
+  final ops = context.read<FileOpsProvider>();
+  final stats = await ops.folderStats(target.path);
+  if (!context.mounted) return;
+  if (stats == null) {
+    await _showError(context, 'Couldn\'t measure "${target.name}".');
+    return;
+  }
+  if (stats.cancelled) return;
+
+  final palette = AppColors.of(context);
+  final files = stats.files.toInt();
+  final dirs = stats.dirs.toInt();
+  final unreadable = stats.unreadable.toInt();
+  await showCupertinoDialog<void>(
+    context: context,
+    builder: (ctx) => CupertinoAlertDialog(
+      title: Text(target.name),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _InfoRow(
+              label: 'Size',
+              value: formatBytes(stats.bytes.toInt()),
+              palette: palette,
+            ),
+            _InfoRow(
+              label: 'Files',
+              value: '$files in $dirs folder${dirs == 1 ? '' : 's'}',
+              palette: palette,
+            ),
+            if (stats.largestPath.isNotEmpty)
+              _InfoRow(
+                label: 'Largest',
+                value: '${p.basename(stats.largestPath)} — '
+                    '${formatBytes(stats.largestBytes.toInt())}',
+                palette: palette,
+              ),
+            if (unreadable > 0)
+              _InfoRow(
+                label: 'Skipped',
+                value: '$unreadable unreadable item'
+                    '${unreadable == 1 ? '' : 's'}',
+                palette: palette,
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        CupertinoDialogAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: const Text('Done'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Shared tail for the Quick Actions that produce a file: report what failed,
+/// refresh the folder, and select what was made so the result is visible.
+Future<void> _afterQuickAction(
+  BuildContext context,
+  BrowserProvider browser,
+  QuickResult result,
+  String what, {
+  bool reveal = true,
+}) async {
+  if (result.cancelled) {
+    await browser.refresh();
+    return;
+  }
+  if (result.failed.isNotEmpty) {
+    final n = result.failed.length;
+    await _showError(
+      context,
+      'Couldn\'t $what — $n item${n == 1 ? '' : 's'} failed:\n'
+      '${result.failed.first.error}',
+    );
+  }
+  if (!context.mounted) return;
+  await browser.refresh();
+  final produced = result.first;
+  if (produced != null && reveal) await browser.revealPath(produced);
 }
 
 /// Creates an empty file in the current folder. Rust picks a collision-free

@@ -10,13 +10,14 @@ import 'fileops.dart';
 import 'listing.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
+import 'quick.dart';
 import 'search.dart';
 import 'thumbnail.dart';
 import 'trash.dart';
 part 'bridge.freezed.dart';
 
 // These functions are ignored because they are not marked as `pub`: `begin`, `end`, `registry`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// Cancels the in-flight operation registered under `op_id`.
 ///
@@ -74,6 +75,59 @@ Future<TrashOutcome> moveToTrash({required List<String> paths}) =>
 Future<TrashOutcome> deletePermanently({required List<String> paths}) =>
     NotilusCore.instance.api.crateApiBridgeDeletePermanently(paths: paths);
 
+/// Zips `sources` into `dest_dir/archive_name`, streaming progress.
+Stream<QuickEvent> compressPathsStream(
+        {required List<String> sources,
+        required String destDir,
+        required String archiveName,
+        required String opId}) =>
+    NotilusCore.instance.api.crateApiBridgeCompressPathsStream(
+        sources: sources,
+        destDir: destDir,
+        archiveName: archiveName,
+        opId: opId);
+
+/// Unpacks an archive into `dest_dir`, streaming progress. With
+/// `into_subfolder` the contents land in a new folder named after the archive.
+Stream<QuickEvent> extractArchiveStream(
+        {required String path,
+        required String destDir,
+        required bool intoSubfolder,
+        required String opId}) =>
+    NotilusCore.instance.api.crateApiBridgeExtractArchiveStream(
+        path: path, destDir: destDir, intoSubfolder: intoSubfolder, opId: opId);
+
+/// Walks a folder and reports what it actually holds. Cancellable, because a
+/// home directory can take a while and the user may change their mind.
+Stream<StatsEvent> folderStatsStream(
+        {required String path, required String opId}) =>
+    NotilusCore.instance.api
+        .crateApiBridgeFolderStatsStream(path: path, opId: opId);
+
+/// Re-encodes an image into `dest_dir`, optionally fitting it inside a
+/// `max_dim` box. Returns the path written. The original is left alone.
+Future<String> convertImage(
+        {required String src,
+        required String destDir,
+        required ImageTarget format,
+        int? maxDim,
+        required int quality}) =>
+    NotilusCore.instance.api.crateApiBridgeConvertImage(
+        src: src,
+        destDir: destDir,
+        format: format,
+        maxDim: maxDim,
+        quality: quality);
+
+/// Rotates or flips an image, in place or into a suffixed sibling. Returns the
+/// path written.
+Future<String> transformImage(
+        {required String src,
+        required ImageTransform transform,
+        required bool inPlace}) =>
+    NotilusCore.instance.api.crateApiBridgeTransformImage(
+        src: src, transform: transform, inPlace: inPlace);
+
 /// Streams filename (and optionally content) matches as they are found.
 Stream<SearchEvent> searchFilesStream(
         {required SearchRequest req, required String opId}) =>
@@ -130,6 +184,18 @@ sealed class OpEvent with _$OpEvent {
 }
 
 @freezed
+sealed class QuickEvent with _$QuickEvent {
+  const QuickEvent._();
+
+  const factory QuickEvent.progress(
+    QuickProgress field0,
+  ) = QuickEvent_Progress;
+  const factory QuickEvent.done(
+    QuickOutcome field0,
+  ) = QuickEvent_Done;
+}
+
+@freezed
 sealed class ScanEvent with _$ScanEvent {
   const ScanEvent._();
 
@@ -151,4 +217,16 @@ sealed class SearchEvent with _$SearchEvent {
   const factory SearchEvent.done(
     SearchSummary field0,
   ) = SearchEvent_Done;
+}
+
+@freezed
+sealed class StatsEvent with _$StatsEvent {
+  const StatsEvent._();
+
+  const factory StatsEvent.progress(
+    QuickProgress field0,
+  ) = StatsEvent_Progress;
+  const factory StatsEvent.done(
+    FolderStats field0,
+  ) = StatsEvent_Done;
 }

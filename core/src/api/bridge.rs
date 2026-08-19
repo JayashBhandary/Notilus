@@ -17,6 +17,9 @@
 use crate::api::dedupe::{self, CancelToken, DuplicateGroup, ScanProgress, ScanRequest};
 use crate::api::fileops::{self, Collision, OpOutcome, OpProgress};
 use crate::api::listing::{DirEntryInfo, SortSpec};
+use crate::api::quick::{
+    self, FolderStats, ImageTarget, ImageTransform, QuickOutcome, QuickProgress,
+};
 use crate::api::search::{self, SearchHit, SearchRequest, SearchSummary};
 use crate::api::thumbnail::ThumbnailInfo;
 use crate::api::trash::TrashOutcome;
@@ -181,6 +184,107 @@ pub fn move_to_trash(paths: Vec<String>) -> TrashOutcome {
 /// Permanently deletes. The UI must confirm before calling this.
 pub fn delete_permanently(paths: Vec<String>) -> TrashOutcome {
     trash::delete_permanently(paths)
+}
+
+// ── quick actions ──────────────────────────────────────────────────────────
+
+/// Progress or completion for a Quick Action that writes files.
+#[derive(Clone, Debug)]
+pub enum QuickEvent {
+    Progress(QuickProgress),
+    Done(QuickOutcome),
+}
+
+/// Progress or completion for a folder-size walk. Separate from [`QuickEvent`]
+/// because the payload it finishes with is a measurement, not a list of
+/// produced paths.
+#[derive(Clone, Debug)]
+pub enum StatsEvent {
+    Progress(QuickProgress),
+    Done(FolderStats),
+}
+
+/// Zips `sources` into `dest_dir/archive_name`, streaming progress.
+pub fn compress_paths_stream(
+    sources: Vec<String>,
+    dest_dir: String,
+    archive_name: String,
+    op_id: String,
+    sink: StreamSink<QuickEvent>,
+) -> Result<(), String> {
+    let cancel = begin(&op_id);
+    let progress_sink = sink.clone();
+    let result = quick::compress_paths(sources, dest_dir, archive_name, &cancel, move |p| {
+        let _ = progress_sink.add(QuickEvent::Progress(p));
+    });
+    end(&op_id);
+
+    let outcome = result?;
+    let _ = sink.add(QuickEvent::Done(outcome));
+    Ok(())
+}
+
+/// Unpacks an archive into `dest_dir`, streaming progress. With
+/// `into_subfolder` the contents land in a new folder named after the archive.
+pub fn extract_archive_stream(
+    path: String,
+    dest_dir: String,
+    into_subfolder: bool,
+    op_id: String,
+    sink: StreamSink<QuickEvent>,
+) -> Result<(), String> {
+    let cancel = begin(&op_id);
+    let progress_sink = sink.clone();
+    let result =
+        quick::extract_archive(path, dest_dir, into_subfolder, &cancel, move |p| {
+            let _ = progress_sink.add(QuickEvent::Progress(p));
+        });
+    end(&op_id);
+
+    let outcome = result?;
+    let _ = sink.add(QuickEvent::Done(outcome));
+    Ok(())
+}
+
+/// Walks a folder and reports what it actually holds. Cancellable, because a
+/// home directory can take a while and the user may change their mind.
+pub fn folder_stats_stream(
+    path: String,
+    op_id: String,
+    sink: StreamSink<StatsEvent>,
+) -> Result<(), String> {
+    let cancel = begin(&op_id);
+    let progress_sink = sink.clone();
+    let result = quick::folder_stats(path, &cancel, move |p| {
+        let _ = progress_sink.add(StatsEvent::Progress(p));
+    });
+    end(&op_id);
+
+    let stats = result?;
+    let _ = sink.add(StatsEvent::Done(stats));
+    Ok(())
+}
+
+/// Re-encodes an image into `dest_dir`, optionally fitting it inside a
+/// `max_dim` box. Returns the path written. The original is left alone.
+pub fn convert_image(
+    src: String,
+    dest_dir: String,
+    format: ImageTarget,
+    max_dim: Option<u32>,
+    quality: u8,
+) -> Result<String, String> {
+    quick::convert_image(src, dest_dir, format, max_dim, quality)
+}
+
+/// Rotates or flips an image, in place or into a suffixed sibling. Returns the
+/// path written.
+pub fn transform_image(
+    src: String,
+    transform: ImageTransform,
+    in_place: bool,
+) -> Result<String, String> {
+    quick::transform_image(src, transform, in_place)
 }
 
 // ── search ─────────────────────────────────────────────────────────────────

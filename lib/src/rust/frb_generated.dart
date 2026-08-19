@@ -8,6 +8,7 @@ import 'api/bridge.dart';
 import 'api/dedupe.dart';
 import 'api/fileops.dart';
 import 'api/listing.dart';
+import 'api/quick.dart';
 import 'api/search.dart';
 import 'api/thumbnail.dart';
 import 'api/trash.dart';
@@ -78,7 +79,7 @@ class NotilusCore extends BaseEntrypoint<NotilusCoreApi, NotilusCoreApiImpl,
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1942756315;
+  int get rustContentHash => -545290107;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -91,6 +92,19 @@ class NotilusCore extends BaseEntrypoint<NotilusCoreApi, NotilusCoreApiImpl,
 
 abstract class NotilusCoreApi extends BaseApi {
   Future<bool> crateApiBridgeCancelOp({required String opId});
+
+  Stream<QuickEvent> crateApiBridgeCompressPathsStream(
+      {required List<String> sources,
+      required String destDir,
+      required String archiveName,
+      required String opId});
+
+  Future<String> crateApiBridgeConvertImage(
+      {required String src,
+      required String destDir,
+      required ImageTarget format,
+      int? maxDim,
+      required int quality});
 
   Stream<OpEvent> crateApiBridgeCopyPathsStream(
       {required List<String> sources,
@@ -109,6 +123,15 @@ abstract class NotilusCoreApi extends BaseApi {
 
   Future<Uint8List> crateApiBridgeExtractArchiveEntry(
       {required String path, required String entryName});
+
+  Stream<QuickEvent> crateApiBridgeExtractArchiveStream(
+      {required String path,
+      required String destDir,
+      required bool intoSubfolder,
+      required String opId});
+
+  Stream<StatsEvent> crateApiBridgeFolderStatsStream(
+      {required String path, required String opId});
 
   Future<String> crateApiBridgeHashFile({required String path});
 
@@ -149,6 +172,11 @@ abstract class NotilusCoreApi extends BaseApi {
 
   Future<ThumbnailInfo> crateApiBridgeThumbnailImage(
       {required String src, required String dst, required int maxDim});
+
+  Future<String> crateApiBridgeTransformImage(
+      {required String src,
+      required ImageTransform transform,
+      required bool inPlace});
 }
 
 class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
@@ -185,6 +213,74 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       );
 
   @override
+  Stream<QuickEvent> crateApiBridgeCompressPathsStream(
+      {required List<String> sources,
+      required String destDir,
+      required String archiveName,
+      required String opId}) {
+    final sink = RustStreamSink<QuickEvent>();
+    unawaited(handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_String(sources, serializer);
+        sse_encode_String(destDir, serializer);
+        sse_encode_String(archiveName, serializer);
+        sse_encode_String(opId, serializer);
+        sse_encode_StreamSink_quick_event_Sse(sink, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 2, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeCompressPathsStreamConstMeta,
+      argValues: [sources, destDir, archiveName, opId, sink],
+      apiImpl: this,
+    )));
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiBridgeCompressPathsStreamConstMeta =>
+      const TaskConstMeta(
+        debugName: "compress_paths_stream",
+        argNames: ["sources", "destDir", "archiveName", "opId", "sink"],
+      );
+
+  @override
+  Future<String> crateApiBridgeConvertImage(
+      {required String src,
+      required String destDir,
+      required ImageTarget format,
+      int? maxDim,
+      required int quality}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(src, serializer);
+        sse_encode_String(destDir, serializer);
+        sse_encode_image_target(format, serializer);
+        sse_encode_opt_box_autoadd_u_32(maxDim, serializer);
+        sse_encode_u_8(quality, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 3, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeConvertImageConstMeta,
+      argValues: [src, destDir, format, maxDim, quality],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeConvertImageConstMeta => const TaskConstMeta(
+        debugName: "convert_image",
+        argNames: ["src", "destDir", "format", "maxDim", "quality"],
+      );
+
+  @override
   Stream<OpEvent> crateApiBridgeCopyPathsStream(
       {required List<String> sources,
       required String destDir,
@@ -200,7 +296,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(opId, serializer);
         sse_encode_StreamSink_op_event_Sse(sink, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 2, port: port_);
+            funcId: 4, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -228,7 +324,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(dir, serializer);
         sse_encode_String(name, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 3, port: port_);
+            funcId: 5, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -254,7 +350,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(dir, serializer);
         sse_encode_String(name, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 4, port: port_);
+            funcId: 6, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -279,7 +375,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_String(paths, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 5, port: port_);
+            funcId: 7, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_trash_outcome,
@@ -306,7 +402,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(path, serializer);
         sse_encode_String(entryName, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 6, port: port_);
+            funcId: 8, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_8_strict,
@@ -325,13 +421,78 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       );
 
   @override
+  Stream<QuickEvent> crateApiBridgeExtractArchiveStream(
+      {required String path,
+      required String destDir,
+      required bool intoSubfolder,
+      required String opId}) {
+    final sink = RustStreamSink<QuickEvent>();
+    unawaited(handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(path, serializer);
+        sse_encode_String(destDir, serializer);
+        sse_encode_bool(intoSubfolder, serializer);
+        sse_encode_String(opId, serializer);
+        sse_encode_StreamSink_quick_event_Sse(sink, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 9, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeExtractArchiveStreamConstMeta,
+      argValues: [path, destDir, intoSubfolder, opId, sink],
+      apiImpl: this,
+    )));
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiBridgeExtractArchiveStreamConstMeta =>
+      const TaskConstMeta(
+        debugName: "extract_archive_stream",
+        argNames: ["path", "destDir", "intoSubfolder", "opId", "sink"],
+      );
+
+  @override
+  Stream<StatsEvent> crateApiBridgeFolderStatsStream(
+      {required String path, required String opId}) {
+    final sink = RustStreamSink<StatsEvent>();
+    unawaited(handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(path, serializer);
+        sse_encode_String(opId, serializer);
+        sse_encode_StreamSink_stats_event_Sse(sink, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 10, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeFolderStatsStreamConstMeta,
+      argValues: [path, opId, sink],
+      apiImpl: this,
+    )));
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiBridgeFolderStatsStreamConstMeta =>
+      const TaskConstMeta(
+        debugName: "folder_stats_stream",
+        argNames: ["path", "opId", "sink"],
+      );
+
+  @override
   Future<String> crateApiBridgeHashFile({required String path}) {
     return handler.executeNormal(NormalTask(
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(path, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 7, port: port_);
+            funcId: 11, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -357,7 +518,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(path, serializer);
         sse_encode_u_64(window, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 8, port: port_);
+            funcId: 12, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -381,7 +542,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       callFfi: (port_) {
         final serializer = SseSerializer(generalizedFrbRustBinding);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 9, port: port_);
+            funcId: 13, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -405,7 +566,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_String(path, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 10, port: port_);
+            funcId: 14, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_archive_entry,
@@ -431,7 +592,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(path, serializer);
         sse_encode_box_autoadd_sort_spec(sort, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 11, port: port_);
+            funcId: 15, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_dir_entry_info,
@@ -455,7 +616,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_String(paths, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 12, port: port_);
+            funcId: 16, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_list_prim_u_64_strict,
@@ -488,7 +649,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(opId, serializer);
         sse_encode_StreamSink_op_event_Sse(sink, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 13, port: port_);
+            funcId: 17, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -515,7 +676,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         final serializer = SseSerializer(generalizedFrbRustBinding);
         sse_encode_list_String(paths, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 14, port: port_);
+            funcId: 18, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_trash_outcome,
@@ -541,7 +702,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(path, serializer);
         sse_encode_String(newName, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 15, port: port_);
+            funcId: 19, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -569,7 +730,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(opId, serializer);
         sse_encode_StreamSink_scan_event_Sse(sink, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 16, port: port_);
+            funcId: 20, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -599,7 +760,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(opId, serializer);
         sse_encode_StreamSink_search_event_Sse(sink, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 17, port: port_);
+            funcId: 21, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -632,7 +793,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_u_64(size, serializer);
         sse_encode_u_32(dim, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 18, port: port_);
+            funcId: 22, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -660,7 +821,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(dst, serializer);
         sse_encode_u_32(maxDim, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 19, port: port_);
+            funcId: 23, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_thumbnail_info,
@@ -678,6 +839,36 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         argNames: ["src", "dst", "maxDim"],
       );
 
+  @override
+  Future<String> crateApiBridgeTransformImage(
+      {required String src,
+      required ImageTransform transform,
+      required bool inPlace}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(src, serializer);
+        sse_encode_image_transform(transform, serializer);
+        sse_encode_bool(inPlace, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 24, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeTransformImageConstMeta,
+      argValues: [src, transform, inPlace],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeTransformImageConstMeta =>
+      const TaskConstMeta(
+        debugName: "transform_image",
+        argNames: ["src", "transform", "inPlace"],
+      );
+
   @protected
   AnyhowException dco_decode_AnyhowException(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
@@ -691,6 +882,13 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  RustStreamSink<QuickEvent> dco_decode_StreamSink_quick_event_Sse(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
   RustStreamSink<ScanEvent> dco_decode_StreamSink_scan_event_Sse(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     throw UnimplementedError();
@@ -698,6 +896,13 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
 
   @protected
   RustStreamSink<SearchEvent> dco_decode_StreamSink_search_event_Sse(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
+  RustStreamSink<StatsEvent> dco_decode_StreamSink_stats_event_Sse(
       dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     throw UnimplementedError();
@@ -729,6 +934,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  FolderStats dco_decode_box_autoadd_folder_stats(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_folder_stats(raw);
+  }
+
+  @protected
   OpOutcome dco_decode_box_autoadd_op_outcome(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_op_outcome(raw);
@@ -738,6 +949,18 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   OpProgress dco_decode_box_autoadd_op_progress(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_op_progress(raw);
+  }
+
+  @protected
+  QuickOutcome dco_decode_box_autoadd_quick_outcome(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_quick_outcome(raw);
+  }
+
+  @protected
+  QuickProgress dco_decode_box_autoadd_quick_progress(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_quick_progress(raw);
   }
 
   @protected
@@ -774,6 +997,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   SortSpec dco_decode_box_autoadd_sort_spec(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_sort_spec(raw);
+  }
+
+  @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
   }
 
   @protected
@@ -829,6 +1058,25 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  FolderStats dco_decode_folder_stats(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 9)
+      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    return FolderStats(
+      path: dco_decode_String(arr[0]),
+      files: dco_decode_u_64(arr[1]),
+      dirs: dco_decode_u_64(arr[2]),
+      bytes: dco_decode_u_64(arr[3]),
+      largestPath: dco_decode_String(arr[4]),
+      largestBytes: dco_decode_u_64(arr[5]),
+      newestMs: dco_decode_i_64(arr[6]),
+      unreadable: dco_decode_u_64(arr[7]),
+      cancelled: dco_decode_bool(arr[8]),
+    );
+  }
+
+  @protected
   HitKind dco_decode_hit_kind(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return HitKind.values[raw as int];
@@ -844,6 +1092,18 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   PlatformInt64 dco_decode_i_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dcoDecodeI64(raw);
+  }
+
+  @protected
+  ImageTarget dco_decode_image_target(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ImageTarget.values[raw as int];
+  }
+
+  @protected
+  ImageTransform dco_decode_image_transform(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return ImageTransform.values[raw as int];
   }
 
   @protected
@@ -947,6 +1207,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_u_32(raw);
+  }
+
+  @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_64(raw);
@@ -956,6 +1222,51 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   List<String>? dco_decode_opt_list_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_list_String(raw);
+  }
+
+  @protected
+  QuickEvent dco_decode_quick_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return QuickEvent_Progress(
+          dco_decode_box_autoadd_quick_progress(raw[1]),
+        );
+      case 1:
+        return QuickEvent_Done(
+          dco_decode_box_autoadd_quick_outcome(raw[1]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
+  }
+
+  @protected
+  QuickOutcome dco_decode_quick_outcome(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return QuickOutcome(
+      produced: dco_decode_list_String(arr[0]),
+      failed: dco_decode_list_failed_item(arr[1]),
+      cancelled: dco_decode_bool(arr[2]),
+    );
+  }
+
+  @protected
+  QuickProgress dco_decode_quick_progress(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return QuickProgress(
+      filesDone: dco_decode_u_64(arr[0]),
+      filesTotal: dco_decode_u_64(arr[1]),
+      bytesDone: dco_decode_u_64(arr[2]),
+      bytesTotal: dco_decode_u_64(arr[3]),
+      current: dco_decode_String(arr[4]),
+    );
   }
 
   @protected
@@ -1097,6 +1408,23 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  StatsEvent dco_decode_stats_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return StatsEvent_Progress(
+          dco_decode_box_autoadd_quick_progress(raw[1]),
+        );
+      case 1:
+        return StatsEvent_Done(
+          dco_decode_box_autoadd_folder_stats(raw[1]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
+  }
+
+  @protected
   ThumbnailInfo dco_decode_thumbnail_info(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
@@ -1161,6 +1489,13 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  RustStreamSink<QuickEvent> sse_decode_StreamSink_quick_event_Sse(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
   RustStreamSink<ScanEvent> sse_decode_StreamSink_scan_event_Sse(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1169,6 +1504,13 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
 
   @protected
   RustStreamSink<SearchEvent> sse_decode_StreamSink_search_event_Sse(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
+  RustStreamSink<StatsEvent> sse_decode_StreamSink_stats_event_Sse(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     throw UnimplementedError('Unreachable ()');
@@ -1197,6 +1539,13 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  FolderStats sse_decode_box_autoadd_folder_stats(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_folder_stats(deserializer));
+  }
+
+  @protected
   OpOutcome sse_decode_box_autoadd_op_outcome(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_op_outcome(deserializer));
@@ -1206,6 +1555,20 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   OpProgress sse_decode_box_autoadd_op_progress(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_op_progress(deserializer));
+  }
+
+  @protected
+  QuickOutcome sse_decode_box_autoadd_quick_outcome(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_quick_outcome(deserializer));
+  }
+
+  @protected
+  QuickProgress sse_decode_box_autoadd_quick_progress(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_quick_progress(deserializer));
   }
 
   @protected
@@ -1246,6 +1609,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   SortSpec sse_decode_box_autoadd_sort_spec(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_sort_spec(deserializer));
+  }
+
+  @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_u_32(deserializer));
   }
 
   @protected
@@ -1295,6 +1664,30 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  FolderStats sse_decode_folder_stats(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_path = sse_decode_String(deserializer);
+    var var_files = sse_decode_u_64(deserializer);
+    var var_dirs = sse_decode_u_64(deserializer);
+    var var_bytes = sse_decode_u_64(deserializer);
+    var var_largestPath = sse_decode_String(deserializer);
+    var var_largestBytes = sse_decode_u_64(deserializer);
+    var var_newestMs = sse_decode_i_64(deserializer);
+    var var_unreadable = sse_decode_u_64(deserializer);
+    var var_cancelled = sse_decode_bool(deserializer);
+    return FolderStats(
+        path: var_path,
+        files: var_files,
+        dirs: var_dirs,
+        bytes: var_bytes,
+        largestPath: var_largestPath,
+        largestBytes: var_largestBytes,
+        newestMs: var_newestMs,
+        unreadable: var_unreadable,
+        cancelled: var_cancelled);
+  }
+
+  @protected
   HitKind sse_decode_hit_kind(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
@@ -1311,6 +1704,20 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getPlatformInt64();
+  }
+
+  @protected
+  ImageTarget sse_decode_image_target(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ImageTarget.values[inner];
+  }
+
+  @protected
+  ImageTransform sse_decode_image_transform(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var inner = sse_decode_i_32(deserializer);
+    return ImageTransform.values[inner];
   }
 
   @protected
@@ -1461,6 +1868,17 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_u_32(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1480,6 +1898,49 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     } else {
       return null;
     }
+  }
+
+  @protected
+  QuickEvent sse_decode_quick_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_field0 = sse_decode_box_autoadd_quick_progress(deserializer);
+        return QuickEvent_Progress(var_field0);
+      case 1:
+        var var_field0 = sse_decode_box_autoadd_quick_outcome(deserializer);
+        return QuickEvent_Done(var_field0);
+      default:
+        throw UnimplementedError('');
+    }
+  }
+
+  @protected
+  QuickOutcome sse_decode_quick_outcome(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_produced = sse_decode_list_String(deserializer);
+    var var_failed = sse_decode_list_failed_item(deserializer);
+    var var_cancelled = sse_decode_bool(deserializer);
+    return QuickOutcome(
+        produced: var_produced, failed: var_failed, cancelled: var_cancelled);
+  }
+
+  @protected
+  QuickProgress sse_decode_quick_progress(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_filesDone = sse_decode_u_64(deserializer);
+    var var_filesTotal = sse_decode_u_64(deserializer);
+    var var_bytesDone = sse_decode_u_64(deserializer);
+    var var_bytesTotal = sse_decode_u_64(deserializer);
+    var var_current = sse_decode_String(deserializer);
+    return QuickProgress(
+        filesDone: var_filesDone,
+        filesTotal: var_filesTotal,
+        bytesDone: var_bytesDone,
+        bytesTotal: var_bytesTotal,
+        current: var_current);
   }
 
   @protected
@@ -1628,6 +2089,23 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  StatsEvent sse_decode_stats_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_field0 = sse_decode_box_autoadd_quick_progress(deserializer);
+        return StatsEvent_Progress(var_field0);
+      case 1:
+        var var_field0 = sse_decode_box_autoadd_folder_stats(deserializer);
+        return StatsEvent_Done(var_field0);
+      default:
+        throw UnimplementedError('');
+    }
+  }
+
+  @protected
   ThumbnailInfo sse_decode_thumbnail_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_path = sse_decode_String(deserializer);
@@ -1693,6 +2171,19 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_StreamSink_quick_event_Sse(
+      RustStreamSink<QuickEvent> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+        self.setupAndSerialize(
+            codec: SseCodec(
+          decodeSuccessData: sse_decode_quick_event,
+          decodeErrorData: sse_decode_AnyhowException,
+        )),
+        serializer);
+  }
+
+  @protected
   void sse_encode_StreamSink_scan_event_Sse(
       RustStreamSink<ScanEvent> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1719,6 +2210,19 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_StreamSink_stats_event_Sse(
+      RustStreamSink<StatsEvent> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+        self.setupAndSerialize(
+            codec: SseCodec(
+          decodeSuccessData: sse_decode_stats_event,
+          decodeErrorData: sse_decode_AnyhowException,
+        )),
+        serializer);
+  }
+
+  @protected
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
@@ -1739,6 +2243,13 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_folder_stats(
+      FolderStats self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_folder_stats(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_op_outcome(
       OpOutcome self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -1750,6 +2261,20 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       OpProgress self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_op_progress(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_quick_outcome(
+      QuickOutcome self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_quick_outcome(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_quick_progress(
+      QuickProgress self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_quick_progress(self, serializer);
   }
 
   @protected
@@ -1795,6 +2320,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_u_64(self, serializer);
@@ -1833,6 +2364,20 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_folder_stats(FolderStats self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.path, serializer);
+    sse_encode_u_64(self.files, serializer);
+    sse_encode_u_64(self.dirs, serializer);
+    sse_encode_u_64(self.bytes, serializer);
+    sse_encode_String(self.largestPath, serializer);
+    sse_encode_u_64(self.largestBytes, serializer);
+    sse_encode_i_64(self.newestMs, serializer);
+    sse_encode_u_64(self.unreadable, serializer);
+    sse_encode_bool(self.cancelled, serializer);
+  }
+
+  @protected
   void sse_encode_hit_kind(HitKind self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
@@ -1848,6 +2393,19 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putPlatformInt64(self);
+  }
+
+  @protected
+  void sse_encode_image_target(ImageTarget self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
+  }
+
+  @protected
+  void sse_encode_image_transform(
+      ImageTransform self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.index, serializer);
   }
 
   @protected
@@ -1968,6 +2526,16 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_u_32(self, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1986,6 +2554,37 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     if (self != null) {
       sse_encode_list_String(self, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_quick_event(QuickEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case QuickEvent_Progress(field0: final field0):
+        sse_encode_i_32(0, serializer);
+        sse_encode_box_autoadd_quick_progress(field0, serializer);
+      case QuickEvent_Done(field0: final field0):
+        sse_encode_i_32(1, serializer);
+        sse_encode_box_autoadd_quick_outcome(field0, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_quick_outcome(QuickOutcome self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_String(self.produced, serializer);
+    sse_encode_list_failed_item(self.failed, serializer);
+    sse_encode_bool(self.cancelled, serializer);
+  }
+
+  @protected
+  void sse_encode_quick_progress(QuickProgress self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.filesDone, serializer);
+    sse_encode_u_64(self.filesTotal, serializer);
+    sse_encode_u_64(self.bytesDone, serializer);
+    sse_encode_u_64(self.bytesTotal, serializer);
+    sse_encode_String(self.current, serializer);
   }
 
   @protected
@@ -2086,6 +2685,19 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     sse_encode_bool(self.ascending, serializer);
     sse_encode_bool(self.dirsFirst, serializer);
     sse_encode_bool(self.includeHidden, serializer);
+  }
+
+  @protected
+  void sse_encode_stats_event(StatsEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case StatsEvent_Progress(field0: final field0):
+        sse_encode_i_32(0, serializer);
+        sse_encode_box_autoadd_quick_progress(field0, serializer);
+      case StatsEvent_Done(field0: final field0):
+        sse_encode_i_32(1, serializer);
+        sse_encode_box_autoadd_folder_stats(field0, serializer);
+    }
   }
 
   @protected

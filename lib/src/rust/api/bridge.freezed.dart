@@ -340,6 +340,334 @@ class _$OpEvent_DoneCopyWithImpl<$Res> implements $OpEvent_DoneCopyWith<$Res> {
 }
 
 /// @nodoc
+mixin _$QuickEvent {
+  Object get field0;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is QuickEvent &&
+            const DeepCollectionEquality().equals(other.field0, field0));
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, const DeepCollectionEquality().hash(field0));
+
+  @override
+  String toString() {
+    return 'QuickEvent(field0: $field0)';
+  }
+}
+
+/// @nodoc
+class $QuickEventCopyWith<$Res> {
+  $QuickEventCopyWith(QuickEvent _, $Res Function(QuickEvent) __);
+}
+
+/// Adds pattern-matching-related methods to [QuickEvent].
+extension QuickEventPatterns on QuickEvent {
+  /// A variant of `map` that fallback to returning `orElse`.
+  ///
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case final Subclass value:
+  ///     return ...;
+  ///   case _:
+  ///     return orElse();
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(QuickEvent_Progress value)? progress,
+    TResult Function(QuickEvent_Done value)? done,
+    required TResult orElse(),
+  }) {
+    final _that = this;
+    switch (_that) {
+      case QuickEvent_Progress() when progress != null:
+        return progress(_that);
+      case QuickEvent_Done() when done != null:
+        return done(_that);
+      case _:
+        return orElse();
+    }
+  }
+
+  /// A `switch`-like method, using callbacks.
+  ///
+  /// Callbacks receives the raw object, upcasted.
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case final Subclass value:
+  ///     return ...;
+  ///   case final Subclass2 value:
+  ///     return ...;
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(QuickEvent_Progress value) progress,
+    required TResult Function(QuickEvent_Done value) done,
+  }) {
+    final _that = this;
+    switch (_that) {
+      case QuickEvent_Progress():
+        return progress(_that);
+      case QuickEvent_Done():
+        return done(_that);
+    }
+  }
+
+  /// A variant of `map` that fallback to returning `null`.
+  ///
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case final Subclass value:
+  ///     return ...;
+  ///   case _:
+  ///     return null;
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(QuickEvent_Progress value)? progress,
+    TResult? Function(QuickEvent_Done value)? done,
+  }) {
+    final _that = this;
+    switch (_that) {
+      case QuickEvent_Progress() when progress != null:
+        return progress(_that);
+      case QuickEvent_Done() when done != null:
+        return done(_that);
+      case _:
+        return null;
+    }
+  }
+
+  /// A variant of `when` that fallback to an `orElse` callback.
+  ///
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case Subclass(:final field):
+  ///     return ...;
+  ///   case _:
+  ///     return orElse();
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(QuickProgress field0)? progress,
+    TResult Function(QuickOutcome field0)? done,
+    required TResult orElse(),
+  }) {
+    final _that = this;
+    switch (_that) {
+      case QuickEvent_Progress() when progress != null:
+        return progress(_that.field0);
+      case QuickEvent_Done() when done != null:
+        return done(_that.field0);
+      case _:
+        return orElse();
+    }
+  }
+
+  /// A `switch`-like method, using callbacks.
+  ///
+  /// As opposed to `map`, this offers destructuring.
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case Subclass(:final field):
+  ///     return ...;
+  ///   case Subclass2(:final field2):
+  ///     return ...;
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(QuickProgress field0) progress,
+    required TResult Function(QuickOutcome field0) done,
+  }) {
+    final _that = this;
+    switch (_that) {
+      case QuickEvent_Progress():
+        return progress(_that.field0);
+      case QuickEvent_Done():
+        return done(_that.field0);
+    }
+  }
+
+  /// A variant of `when` that fallback to returning `null`
+  ///
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case Subclass(:final field):
+  ///     return ...;
+  ///   case _:
+  ///     return null;
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(QuickProgress field0)? progress,
+    TResult? Function(QuickOutcome field0)? done,
+  }) {
+    final _that = this;
+    switch (_that) {
+      case QuickEvent_Progress() when progress != null:
+        return progress(_that.field0);
+      case QuickEvent_Done() when done != null:
+        return done(_that.field0);
+      case _:
+        return null;
+    }
+  }
+}
+
+/// @nodoc
+
+class QuickEvent_Progress extends QuickEvent {
+  const QuickEvent_Progress(this.field0) : super._();
+
+  @override
+  final QuickProgress field0;
+
+  /// Create a copy of QuickEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @pragma('vm:prefer-inline')
+  $QuickEvent_ProgressCopyWith<QuickEvent_Progress> get copyWith =>
+      _$QuickEvent_ProgressCopyWithImpl<QuickEvent_Progress>(this, _$identity);
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is QuickEvent_Progress &&
+            (identical(other.field0, field0) || other.field0 == field0));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, field0);
+
+  @override
+  String toString() {
+    return 'QuickEvent.progress(field0: $field0)';
+  }
+}
+
+/// @nodoc
+abstract mixin class $QuickEvent_ProgressCopyWith<$Res>
+    implements $QuickEventCopyWith<$Res> {
+  factory $QuickEvent_ProgressCopyWith(
+          QuickEvent_Progress value, $Res Function(QuickEvent_Progress) _then) =
+      _$QuickEvent_ProgressCopyWithImpl;
+  @useResult
+  $Res call({QuickProgress field0});
+}
+
+/// @nodoc
+class _$QuickEvent_ProgressCopyWithImpl<$Res>
+    implements $QuickEvent_ProgressCopyWith<$Res> {
+  _$QuickEvent_ProgressCopyWithImpl(this._self, this._then);
+
+  final QuickEvent_Progress _self;
+  final $Res Function(QuickEvent_Progress) _then;
+
+  /// Create a copy of QuickEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  $Res call({
+    Object? field0 = null,
+  }) {
+    return _then(QuickEvent_Progress(
+      null == field0
+          ? _self.field0
+          : field0 // ignore: cast_nullable_to_non_nullable
+              as QuickProgress,
+    ));
+  }
+}
+
+/// @nodoc
+
+class QuickEvent_Done extends QuickEvent {
+  const QuickEvent_Done(this.field0) : super._();
+
+  @override
+  final QuickOutcome field0;
+
+  /// Create a copy of QuickEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @pragma('vm:prefer-inline')
+  $QuickEvent_DoneCopyWith<QuickEvent_Done> get copyWith =>
+      _$QuickEvent_DoneCopyWithImpl<QuickEvent_Done>(this, _$identity);
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is QuickEvent_Done &&
+            (identical(other.field0, field0) || other.field0 == field0));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, field0);
+
+  @override
+  String toString() {
+    return 'QuickEvent.done(field0: $field0)';
+  }
+}
+
+/// @nodoc
+abstract mixin class $QuickEvent_DoneCopyWith<$Res>
+    implements $QuickEventCopyWith<$Res> {
+  factory $QuickEvent_DoneCopyWith(
+          QuickEvent_Done value, $Res Function(QuickEvent_Done) _then) =
+      _$QuickEvent_DoneCopyWithImpl;
+  @useResult
+  $Res call({QuickOutcome field0});
+}
+
+/// @nodoc
+class _$QuickEvent_DoneCopyWithImpl<$Res>
+    implements $QuickEvent_DoneCopyWith<$Res> {
+  _$QuickEvent_DoneCopyWithImpl(this._self, this._then);
+
+  final QuickEvent_Done _self;
+  final $Res Function(QuickEvent_Done) _then;
+
+  /// Create a copy of QuickEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  $Res call({
+    Object? field0 = null,
+  }) {
+    return _then(QuickEvent_Done(
+      null == field0
+          ? _self.field0
+          : field0 // ignore: cast_nullable_to_non_nullable
+              as QuickOutcome,
+    ));
+  }
+}
+
+/// @nodoc
 mixin _$ScanEvent {
   Object get field0;
 
@@ -999,6 +1327,334 @@ class _$SearchEvent_DoneCopyWithImpl<$Res>
           ? _self.field0
           : field0 // ignore: cast_nullable_to_non_nullable
               as SearchSummary,
+    ));
+  }
+}
+
+/// @nodoc
+mixin _$StatsEvent {
+  Object get field0;
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is StatsEvent &&
+            const DeepCollectionEquality().equals(other.field0, field0));
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(runtimeType, const DeepCollectionEquality().hash(field0));
+
+  @override
+  String toString() {
+    return 'StatsEvent(field0: $field0)';
+  }
+}
+
+/// @nodoc
+class $StatsEventCopyWith<$Res> {
+  $StatsEventCopyWith(StatsEvent _, $Res Function(StatsEvent) __);
+}
+
+/// Adds pattern-matching-related methods to [StatsEvent].
+extension StatsEventPatterns on StatsEvent {
+  /// A variant of `map` that fallback to returning `orElse`.
+  ///
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case final Subclass value:
+  ///     return ...;
+  ///   case _:
+  ///     return orElse();
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult maybeMap<TResult extends Object?>({
+    TResult Function(StatsEvent_Progress value)? progress,
+    TResult Function(StatsEvent_Done value)? done,
+    required TResult orElse(),
+  }) {
+    final _that = this;
+    switch (_that) {
+      case StatsEvent_Progress() when progress != null:
+        return progress(_that);
+      case StatsEvent_Done() when done != null:
+        return done(_that);
+      case _:
+        return orElse();
+    }
+  }
+
+  /// A `switch`-like method, using callbacks.
+  ///
+  /// Callbacks receives the raw object, upcasted.
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case final Subclass value:
+  ///     return ...;
+  ///   case final Subclass2 value:
+  ///     return ...;
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult map<TResult extends Object?>({
+    required TResult Function(StatsEvent_Progress value) progress,
+    required TResult Function(StatsEvent_Done value) done,
+  }) {
+    final _that = this;
+    switch (_that) {
+      case StatsEvent_Progress():
+        return progress(_that);
+      case StatsEvent_Done():
+        return done(_that);
+    }
+  }
+
+  /// A variant of `map` that fallback to returning `null`.
+  ///
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case final Subclass value:
+  ///     return ...;
+  ///   case _:
+  ///     return null;
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult? mapOrNull<TResult extends Object?>({
+    TResult? Function(StatsEvent_Progress value)? progress,
+    TResult? Function(StatsEvent_Done value)? done,
+  }) {
+    final _that = this;
+    switch (_that) {
+      case StatsEvent_Progress() when progress != null:
+        return progress(_that);
+      case StatsEvent_Done() when done != null:
+        return done(_that);
+      case _:
+        return null;
+    }
+  }
+
+  /// A variant of `when` that fallback to an `orElse` callback.
+  ///
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case Subclass(:final field):
+  ///     return ...;
+  ///   case _:
+  ///     return orElse();
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult maybeWhen<TResult extends Object?>({
+    TResult Function(QuickProgress field0)? progress,
+    TResult Function(FolderStats field0)? done,
+    required TResult orElse(),
+  }) {
+    final _that = this;
+    switch (_that) {
+      case StatsEvent_Progress() when progress != null:
+        return progress(_that.field0);
+      case StatsEvent_Done() when done != null:
+        return done(_that.field0);
+      case _:
+        return orElse();
+    }
+  }
+
+  /// A `switch`-like method, using callbacks.
+  ///
+  /// As opposed to `map`, this offers destructuring.
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case Subclass(:final field):
+  ///     return ...;
+  ///   case Subclass2(:final field2):
+  ///     return ...;
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult when<TResult extends Object?>({
+    required TResult Function(QuickProgress field0) progress,
+    required TResult Function(FolderStats field0) done,
+  }) {
+    final _that = this;
+    switch (_that) {
+      case StatsEvent_Progress():
+        return progress(_that.field0);
+      case StatsEvent_Done():
+        return done(_that.field0);
+    }
+  }
+
+  /// A variant of `when` that fallback to returning `null`
+  ///
+  /// It is equivalent to doing:
+  /// ```dart
+  /// switch (sealedClass) {
+  ///   case Subclass(:final field):
+  ///     return ...;
+  ///   case _:
+  ///     return null;
+  /// }
+  /// ```
+
+  @optionalTypeArgs
+  TResult? whenOrNull<TResult extends Object?>({
+    TResult? Function(QuickProgress field0)? progress,
+    TResult? Function(FolderStats field0)? done,
+  }) {
+    final _that = this;
+    switch (_that) {
+      case StatsEvent_Progress() when progress != null:
+        return progress(_that.field0);
+      case StatsEvent_Done() when done != null:
+        return done(_that.field0);
+      case _:
+        return null;
+    }
+  }
+}
+
+/// @nodoc
+
+class StatsEvent_Progress extends StatsEvent {
+  const StatsEvent_Progress(this.field0) : super._();
+
+  @override
+  final QuickProgress field0;
+
+  /// Create a copy of StatsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @pragma('vm:prefer-inline')
+  $StatsEvent_ProgressCopyWith<StatsEvent_Progress> get copyWith =>
+      _$StatsEvent_ProgressCopyWithImpl<StatsEvent_Progress>(this, _$identity);
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is StatsEvent_Progress &&
+            (identical(other.field0, field0) || other.field0 == field0));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, field0);
+
+  @override
+  String toString() {
+    return 'StatsEvent.progress(field0: $field0)';
+  }
+}
+
+/// @nodoc
+abstract mixin class $StatsEvent_ProgressCopyWith<$Res>
+    implements $StatsEventCopyWith<$Res> {
+  factory $StatsEvent_ProgressCopyWith(
+          StatsEvent_Progress value, $Res Function(StatsEvent_Progress) _then) =
+      _$StatsEvent_ProgressCopyWithImpl;
+  @useResult
+  $Res call({QuickProgress field0});
+}
+
+/// @nodoc
+class _$StatsEvent_ProgressCopyWithImpl<$Res>
+    implements $StatsEvent_ProgressCopyWith<$Res> {
+  _$StatsEvent_ProgressCopyWithImpl(this._self, this._then);
+
+  final StatsEvent_Progress _self;
+  final $Res Function(StatsEvent_Progress) _then;
+
+  /// Create a copy of StatsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  $Res call({
+    Object? field0 = null,
+  }) {
+    return _then(StatsEvent_Progress(
+      null == field0
+          ? _self.field0
+          : field0 // ignore: cast_nullable_to_non_nullable
+              as QuickProgress,
+    ));
+  }
+}
+
+/// @nodoc
+
+class StatsEvent_Done extends StatsEvent {
+  const StatsEvent_Done(this.field0) : super._();
+
+  @override
+  final FolderStats field0;
+
+  /// Create a copy of StatsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @JsonKey(includeFromJson: false, includeToJson: false)
+  @pragma('vm:prefer-inline')
+  $StatsEvent_DoneCopyWith<StatsEvent_Done> get copyWith =>
+      _$StatsEvent_DoneCopyWithImpl<StatsEvent_Done>(this, _$identity);
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) ||
+        (other.runtimeType == runtimeType &&
+            other is StatsEvent_Done &&
+            (identical(other.field0, field0) || other.field0 == field0));
+  }
+
+  @override
+  int get hashCode => Object.hash(runtimeType, field0);
+
+  @override
+  String toString() {
+    return 'StatsEvent.done(field0: $field0)';
+  }
+}
+
+/// @nodoc
+abstract mixin class $StatsEvent_DoneCopyWith<$Res>
+    implements $StatsEventCopyWith<$Res> {
+  factory $StatsEvent_DoneCopyWith(
+          StatsEvent_Done value, $Res Function(StatsEvent_Done) _then) =
+      _$StatsEvent_DoneCopyWithImpl;
+  @useResult
+  $Res call({FolderStats field0});
+}
+
+/// @nodoc
+class _$StatsEvent_DoneCopyWithImpl<$Res>
+    implements $StatsEvent_DoneCopyWith<$Res> {
+  _$StatsEvent_DoneCopyWithImpl(this._self, this._then);
+
+  final StatsEvent_Done _self;
+  final $Res Function(StatsEvent_Done) _then;
+
+  /// Create a copy of StatsEvent
+  /// with the given fields replaced by the non-null parameter values.
+  @pragma('vm:prefer-inline')
+  $Res call({
+    Object? field0 = null,
+  }) {
+    return _then(StatsEvent_Done(
+      null == field0
+          ? _self.field0
+          : field0 // ignore: cast_nullable_to_non_nullable
+              as FolderStats,
     ));
   }
 }

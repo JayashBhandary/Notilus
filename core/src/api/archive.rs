@@ -47,8 +47,11 @@ pub fn extract_archive_entry(path: String, entry_name: String) -> Result<Vec<u8>
 }
 
 /// How an archive is packaged, derived from its filename.
+///
+/// Shared with [`crate::api::quick`], which needs the same classification to
+/// decide how to unpack an archive in full.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Kind {
+pub(crate) enum ArchiveKind {
     Zip,
     Tar,
     TarGz,
@@ -57,19 +60,19 @@ enum Kind {
     Bz2,
 }
 
-fn classify(path: &Path) -> Option<Kind> {
+pub(crate) fn classify(path: &Path) -> Option<ArchiveKind> {
     let lower = path.file_name()?.to_string_lossy().to_lowercase();
     // Longest suffixes first: ".tar.gz" must not be read as ".gz".
     let table = [
-        (".tar.gz", Kind::TarGz),
-        (".tgz", Kind::TarGz),
-        (".tar.bz2", Kind::TarBz2),
-        (".tbz2", Kind::TarBz2),
-        (".tar", Kind::Tar),
-        (".zip", Kind::Zip),
-        (".jar", Kind::Zip),
-        (".gz", Kind::Gz),
-        (".bz2", Kind::Bz2),
+        (".tar.gz", ArchiveKind::TarGz),
+        (".tgz", ArchiveKind::TarGz),
+        (".tar.bz2", ArchiveKind::TarBz2),
+        (".tbz2", ArchiveKind::TarBz2),
+        (".tar", ArchiveKind::Tar),
+        (".zip", ArchiveKind::Zip),
+        (".jar", ArchiveKind::Zip),
+        (".gz", ArchiveKind::Gz),
+        (".bz2", ArchiveKind::Bz2),
     ];
     table
         .iter()
@@ -83,20 +86,20 @@ fn list_inner(path: &Path) -> io::Result<Vec<ArchiveEntry>> {
     })?;
 
     match kind {
-        Kind::Zip => list_zip(path),
-        Kind::Tar => list_tar(tar::Archive::new(BufReader::new(File::open(path)?))),
-        Kind::TarGz => list_tar(tar::Archive::new(GzDecoder::new(BufReader::new(
+        ArchiveKind::Zip => list_zip(path),
+        ArchiveKind::Tar => list_tar(tar::Archive::new(BufReader::new(File::open(path)?))),
+        ArchiveKind::TarGz => list_tar(tar::Archive::new(GzDecoder::new(BufReader::new(
             File::open(path)?,
         )))),
-        Kind::TarBz2 => list_tar(tar::Archive::new(BzDecoder::new(BufReader::new(
+        ArchiveKind::TarBz2 => list_tar(tar::Archive::new(BzDecoder::new(BufReader::new(
             File::open(path)?,
         )))),
-        Kind::Gz => Ok(vec![ArchiveEntry {
+        ArchiveKind::Gz => Ok(vec![ArchiveEntry {
             name: inner_name(path),
             size: gzip_uncompressed_size(path)?,
             is_dir: false,
         }]),
-        Kind::Bz2 => Ok(vec![ArchiveEntry {
+        ArchiveKind::Bz2 => Ok(vec![ArchiveEntry {
             name: inner_name(path),
             size: drain_count(BzDecoder::new(BufReader::new(File::open(path)?)))?,
             is_dir: false,
@@ -143,7 +146,7 @@ fn extract_inner(path: &Path, entry_name: &str) -> io::Result<Vec<u8>> {
     })?;
 
     match kind {
-        Kind::Zip => {
+        ArchiveKind::Zip => {
             let mut archive = zip::ZipArchive::new(BufReader::new(File::open(path)?))
                 .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
             let mut entry = archive
@@ -158,20 +161,20 @@ fn extract_inner(path: &Path, entry_name: &str) -> io::Result<Vec<u8>> {
             let size = entry.size();
             read_capped(&mut entry, size)
         }
-        Kind::Tar => extract_tar(tar::Archive::new(BufReader::new(File::open(path)?)), entry_name),
-        Kind::TarGz => extract_tar(
+        ArchiveKind::Tar => extract_tar(tar::Archive::new(BufReader::new(File::open(path)?)), entry_name),
+        ArchiveKind::TarGz => extract_tar(
             tar::Archive::new(GzDecoder::new(BufReader::new(File::open(path)?))),
             entry_name,
         ),
-        Kind::TarBz2 => extract_tar(
+        ArchiveKind::TarBz2 => extract_tar(
             tar::Archive::new(BzDecoder::new(BufReader::new(File::open(path)?))),
             entry_name,
         ),
-        Kind::Gz => read_capped(
+        ArchiveKind::Gz => read_capped(
             &mut GzDecoder::new(BufReader::new(File::open(path)?)),
             gzip_uncompressed_size(path)?,
         ),
-        Kind::Bz2 => read_capped(&mut BzDecoder::new(BufReader::new(File::open(path)?)), 0),
+        ArchiveKind::Bz2 => read_capped(&mut BzDecoder::new(BufReader::new(File::open(path)?)), 0),
     }
 }
 
@@ -237,7 +240,7 @@ fn drain_count<R: Read>(mut reader: R) -> io::Result<u64> {
     io::copy(&mut reader, &mut io::sink())
 }
 
-fn inner_name(path: &Path) -> String {
+pub(crate) fn inner_name(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default()
@@ -368,12 +371,12 @@ mod tests {
     fn tar_gz_is_not_misread_as_a_bare_gz() {
         // ".tar.gz" ends with ".gz"; classification must prefer the longer
         // suffix or the listing collapses to one bogus entry.
-        assert_eq!(classify(Path::new("/x/a.tar.gz")), Some(Kind::TarGz));
-        assert_eq!(classify(Path::new("/x/a.tgz")), Some(Kind::TarGz));
-        assert_eq!(classify(Path::new("/x/a.gz")), Some(Kind::Gz));
-        assert_eq!(classify(Path::new("/x/a.tar.bz2")), Some(Kind::TarBz2));
-        assert_eq!(classify(Path::new("/x/a.bz2")), Some(Kind::Bz2));
-        assert_eq!(classify(Path::new("/x/a.jar")), Some(Kind::Zip));
+        assert_eq!(classify(Path::new("/x/a.tar.gz")), Some(ArchiveKind::TarGz));
+        assert_eq!(classify(Path::new("/x/a.tgz")), Some(ArchiveKind::TarGz));
+        assert_eq!(classify(Path::new("/x/a.gz")), Some(ArchiveKind::Gz));
+        assert_eq!(classify(Path::new("/x/a.tar.bz2")), Some(ArchiveKind::TarBz2));
+        assert_eq!(classify(Path::new("/x/a.bz2")), Some(ArchiveKind::Bz2));
+        assert_eq!(classify(Path::new("/x/a.jar")), Some(ArchiveKind::Zip));
         assert_eq!(classify(Path::new("/x/a.txt")), None);
     }
 

@@ -3,7 +3,6 @@
 
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
-
 // Static analysis wrongly picks the IO variant, thus ignore this
 // ignore_for_file: argument_type_not_assignable
 
@@ -12,6 +11,7 @@ import 'api/bridge.dart';
 import 'api/dedupe.dart';
 import 'api/fileops.dart';
 import 'api/listing.dart';
+import 'api/quick.dart';
 import 'api/search.dart';
 import 'api/thumbnail.dart';
 import 'api/trash.dart';
@@ -20,350 +20,667 @@ import 'dart:convert';
 import 'frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_web.dart';
 
+abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
+  NotilusCoreApiImplPlatform({
+    required super.handler,
+    required super.wire,
+    required super.generalizedFrbRustBinding,
+    required super.portManager,
+  });
 
+  @protected
+  AnyhowException dco_decode_AnyhowException(dynamic raw);
 
+  @protected
+  RustStreamSink<OpEvent> dco_decode_StreamSink_op_event_Sse(dynamic raw);
 
-                abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
-                  NotilusCoreApiImplPlatform({
-                    required super.handler,
-                    required super.wire,
-                    required super.generalizedFrbRustBinding,
-                    required super.portManager,
-                  });
+  @protected
+  RustStreamSink<QuickEvent> dco_decode_StreamSink_quick_event_Sse(dynamic raw);
 
-                  
+  @protected
+  RustStreamSink<ScanEvent> dco_decode_StreamSink_scan_event_Sse(dynamic raw);
 
-                  @protected AnyhowException dco_decode_AnyhowException(dynamic raw);
+  @protected
+  RustStreamSink<SearchEvent> dco_decode_StreamSink_search_event_Sse(
+      dynamic raw);
 
-@protected RustStreamSink<OpEvent> dco_decode_StreamSink_op_event_Sse(dynamic raw);
+  @protected
+  RustStreamSink<StatsEvent> dco_decode_StreamSink_stats_event_Sse(dynamic raw);
 
-@protected RustStreamSink<ScanEvent> dco_decode_StreamSink_scan_event_Sse(dynamic raw);
+  @protected
+  String dco_decode_String(dynamic raw);
 
-@protected RustStreamSink<SearchEvent> dco_decode_StreamSink_search_event_Sse(dynamic raw);
+  @protected
+  ArchiveEntry dco_decode_archive_entry(dynamic raw);
 
-@protected String dco_decode_String(dynamic raw);
+  @protected
+  bool dco_decode_bool(dynamic raw);
 
-@protected ArchiveEntry dco_decode_archive_entry(dynamic raw);
+  @protected
+  FolderStats dco_decode_box_autoadd_folder_stats(dynamic raw);
 
-@protected bool dco_decode_bool(dynamic raw);
+  @protected
+  OpOutcome dco_decode_box_autoadd_op_outcome(dynamic raw);
 
-@protected OpOutcome dco_decode_box_autoadd_op_outcome(dynamic raw);
+  @protected
+  OpProgress dco_decode_box_autoadd_op_progress(dynamic raw);
 
-@protected OpProgress dco_decode_box_autoadd_op_progress(dynamic raw);
+  @protected
+  QuickOutcome dco_decode_box_autoadd_quick_outcome(dynamic raw);
 
-@protected ScanProgress dco_decode_box_autoadd_scan_progress(dynamic raw);
+  @protected
+  QuickProgress dco_decode_box_autoadd_quick_progress(dynamic raw);
 
-@protected ScanRequest dco_decode_box_autoadd_scan_request(dynamic raw);
+  @protected
+  ScanProgress dco_decode_box_autoadd_scan_progress(dynamic raw);
 
-@protected SearchHit dco_decode_box_autoadd_search_hit(dynamic raw);
+  @protected
+  ScanRequest dco_decode_box_autoadd_scan_request(dynamic raw);
 
-@protected SearchRequest dco_decode_box_autoadd_search_request(dynamic raw);
+  @protected
+  SearchHit dco_decode_box_autoadd_search_hit(dynamic raw);
 
-@protected SearchSummary dco_decode_box_autoadd_search_summary(dynamic raw);
+  @protected
+  SearchRequest dco_decode_box_autoadd_search_request(dynamic raw);
 
-@protected SortSpec dco_decode_box_autoadd_sort_spec(dynamic raw);
+  @protected
+  SearchSummary dco_decode_box_autoadd_search_summary(dynamic raw);
 
-@protected BigInt dco_decode_box_autoadd_u_64(dynamic raw);
+  @protected
+  SortSpec dco_decode_box_autoadd_sort_spec(dynamic raw);
 
-@protected Collision dco_decode_collision(dynamic raw);
+  @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw);
 
-@protected DirEntryInfo dco_decode_dir_entry_info(dynamic raw);
+  @protected
+  BigInt dco_decode_box_autoadd_u_64(dynamic raw);
 
-@protected DuplicateGroup dco_decode_duplicate_group(dynamic raw);
+  @protected
+  Collision dco_decode_collision(dynamic raw);
 
-@protected FailedItem dco_decode_failed_item(dynamic raw);
+  @protected
+  DirEntryInfo dco_decode_dir_entry_info(dynamic raw);
 
-@protected HitKind dco_decode_hit_kind(dynamic raw);
+  @protected
+  DuplicateGroup dco_decode_duplicate_group(dynamic raw);
 
-@protected int dco_decode_i_32(dynamic raw);
+  @protected
+  FailedItem dco_decode_failed_item(dynamic raw);
 
-@protected PlatformInt64 dco_decode_i_64(dynamic raw);
+  @protected
+  FolderStats dco_decode_folder_stats(dynamic raw);
 
-@protected List<String> dco_decode_list_String(dynamic raw);
+  @protected
+  HitKind dco_decode_hit_kind(dynamic raw);
 
-@protected List<ArchiveEntry> dco_decode_list_archive_entry(dynamic raw);
+  @protected
+  int dco_decode_i_32(dynamic raw);
 
-@protected List<DirEntryInfo> dco_decode_list_dir_entry_info(dynamic raw);
+  @protected
+  PlatformInt64 dco_decode_i_64(dynamic raw);
 
-@protected List<DuplicateGroup> dco_decode_list_duplicate_group(dynamic raw);
+  @protected
+  ImageTarget dco_decode_image_target(dynamic raw);
 
-@protected List<FailedItem> dco_decode_list_failed_item(dynamic raw);
+  @protected
+  ImageTransform dco_decode_image_transform(dynamic raw);
 
-@protected Uint64List dco_decode_list_prim_u_64_strict(dynamic raw);
+  @protected
+  List<String> dco_decode_list_String(dynamic raw);
 
-@protected Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+  @protected
+  List<ArchiveEntry> dco_decode_list_archive_entry(dynamic raw);
 
-@protected List<SearchHit> dco_decode_list_search_hit(dynamic raw);
+  @protected
+  List<DirEntryInfo> dco_decode_list_dir_entry_info(dynamic raw);
 
-@protected OpEvent dco_decode_op_event(dynamic raw);
+  @protected
+  List<DuplicateGroup> dco_decode_list_duplicate_group(dynamic raw);
 
-@protected OpOutcome dco_decode_op_outcome(dynamic raw);
+  @protected
+  List<FailedItem> dco_decode_list_failed_item(dynamic raw);
 
-@protected OpProgress dco_decode_op_progress(dynamic raw);
+  @protected
+  Uint64List dco_decode_list_prim_u_64_strict(dynamic raw);
 
-@protected String? dco_decode_opt_String(dynamic raw);
+  @protected
+  Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
-@protected BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
+  @protected
+  List<SearchHit> dco_decode_list_search_hit(dynamic raw);
 
-@protected List<String>? dco_decode_opt_list_String(dynamic raw);
+  @protected
+  OpEvent dco_decode_op_event(dynamic raw);
 
-@protected ScanEvent dco_decode_scan_event(dynamic raw);
+  @protected
+  OpOutcome dco_decode_op_outcome(dynamic raw);
 
-@protected ScanPhase dco_decode_scan_phase(dynamic raw);
+  @protected
+  OpProgress dco_decode_op_progress(dynamic raw);
 
-@protected ScanProgress dco_decode_scan_progress(dynamic raw);
+  @protected
+  String? dco_decode_opt_String(dynamic raw);
 
-@protected ScanRequest dco_decode_scan_request(dynamic raw);
+  @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
 
-@protected SearchEvent dco_decode_search_event(dynamic raw);
+  @protected
+  BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
 
-@protected SearchHit dco_decode_search_hit(dynamic raw);
+  @protected
+  List<String>? dco_decode_opt_list_String(dynamic raw);
 
-@protected SearchRequest dco_decode_search_request(dynamic raw);
+  @protected
+  QuickEvent dco_decode_quick_event(dynamic raw);
 
-@protected SearchSummary dco_decode_search_summary(dynamic raw);
+  @protected
+  QuickOutcome dco_decode_quick_outcome(dynamic raw);
 
-@protected SortField dco_decode_sort_field(dynamic raw);
+  @protected
+  QuickProgress dco_decode_quick_progress(dynamic raw);
 
-@protected SortSpec dco_decode_sort_spec(dynamic raw);
+  @protected
+  ScanEvent dco_decode_scan_event(dynamic raw);
 
-@protected ThumbnailInfo dco_decode_thumbnail_info(dynamic raw);
+  @protected
+  ScanPhase dco_decode_scan_phase(dynamic raw);
 
-@protected TrashOutcome dco_decode_trash_outcome(dynamic raw);
+  @protected
+  ScanProgress dco_decode_scan_progress(dynamic raw);
 
-@protected int dco_decode_u_32(dynamic raw);
+  @protected
+  ScanRequest dco_decode_scan_request(dynamic raw);
 
-@protected BigInt dco_decode_u_64(dynamic raw);
+  @protected
+  SearchEvent dco_decode_search_event(dynamic raw);
 
-@protected int dco_decode_u_8(dynamic raw);
+  @protected
+  SearchHit dco_decode_search_hit(dynamic raw);
 
-@protected void dco_decode_unit(dynamic raw);
+  @protected
+  SearchRequest dco_decode_search_request(dynamic raw);
 
-@protected AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
+  @protected
+  SearchSummary dco_decode_search_summary(dynamic raw);
 
-@protected RustStreamSink<OpEvent> sse_decode_StreamSink_op_event_Sse(SseDeserializer deserializer);
+  @protected
+  SortField dco_decode_sort_field(dynamic raw);
 
-@protected RustStreamSink<ScanEvent> sse_decode_StreamSink_scan_event_Sse(SseDeserializer deserializer);
+  @protected
+  SortSpec dco_decode_sort_spec(dynamic raw);
 
-@protected RustStreamSink<SearchEvent> sse_decode_StreamSink_search_event_Sse(SseDeserializer deserializer);
+  @protected
+  StatsEvent dco_decode_stats_event(dynamic raw);
 
-@protected String sse_decode_String(SseDeserializer deserializer);
+  @protected
+  ThumbnailInfo dco_decode_thumbnail_info(dynamic raw);
 
-@protected ArchiveEntry sse_decode_archive_entry(SseDeserializer deserializer);
+  @protected
+  TrashOutcome dco_decode_trash_outcome(dynamic raw);
 
-@protected bool sse_decode_bool(SseDeserializer deserializer);
+  @protected
+  int dco_decode_u_32(dynamic raw);
 
-@protected OpOutcome sse_decode_box_autoadd_op_outcome(SseDeserializer deserializer);
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
-@protected OpProgress sse_decode_box_autoadd_op_progress(SseDeserializer deserializer);
+  @protected
+  int dco_decode_u_8(dynamic raw);
 
-@protected ScanProgress sse_decode_box_autoadd_scan_progress(SseDeserializer deserializer);
+  @protected
+  void dco_decode_unit(dynamic raw);
 
-@protected ScanRequest sse_decode_box_autoadd_scan_request(SseDeserializer deserializer);
+  @protected
+  AnyhowException sse_decode_AnyhowException(SseDeserializer deserializer);
 
-@protected SearchHit sse_decode_box_autoadd_search_hit(SseDeserializer deserializer);
+  @protected
+  RustStreamSink<OpEvent> sse_decode_StreamSink_op_event_Sse(
+      SseDeserializer deserializer);
 
-@protected SearchRequest sse_decode_box_autoadd_search_request(SseDeserializer deserializer);
+  @protected
+  RustStreamSink<QuickEvent> sse_decode_StreamSink_quick_event_Sse(
+      SseDeserializer deserializer);
 
-@protected SearchSummary sse_decode_box_autoadd_search_summary(SseDeserializer deserializer);
+  @protected
+  RustStreamSink<ScanEvent> sse_decode_StreamSink_scan_event_Sse(
+      SseDeserializer deserializer);
 
-@protected SortSpec sse_decode_box_autoadd_sort_spec(SseDeserializer deserializer);
+  @protected
+  RustStreamSink<SearchEvent> sse_decode_StreamSink_search_event_Sse(
+      SseDeserializer deserializer);
 
-@protected BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
+  @protected
+  RustStreamSink<StatsEvent> sse_decode_StreamSink_stats_event_Sse(
+      SseDeserializer deserializer);
 
-@protected Collision sse_decode_collision(SseDeserializer deserializer);
+  @protected
+  String sse_decode_String(SseDeserializer deserializer);
 
-@protected DirEntryInfo sse_decode_dir_entry_info(SseDeserializer deserializer);
+  @protected
+  ArchiveEntry sse_decode_archive_entry(SseDeserializer deserializer);
 
-@protected DuplicateGroup sse_decode_duplicate_group(SseDeserializer deserializer);
+  @protected
+  bool sse_decode_bool(SseDeserializer deserializer);
 
-@protected FailedItem sse_decode_failed_item(SseDeserializer deserializer);
+  @protected
+  FolderStats sse_decode_box_autoadd_folder_stats(SseDeserializer deserializer);
 
-@protected HitKind sse_decode_hit_kind(SseDeserializer deserializer);
+  @protected
+  OpOutcome sse_decode_box_autoadd_op_outcome(SseDeserializer deserializer);
 
-@protected int sse_decode_i_32(SseDeserializer deserializer);
+  @protected
+  OpProgress sse_decode_box_autoadd_op_progress(SseDeserializer deserializer);
 
-@protected PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
+  @protected
+  QuickOutcome sse_decode_box_autoadd_quick_outcome(
+      SseDeserializer deserializer);
 
-@protected List<String> sse_decode_list_String(SseDeserializer deserializer);
+  @protected
+  QuickProgress sse_decode_box_autoadd_quick_progress(
+      SseDeserializer deserializer);
 
-@protected List<ArchiveEntry> sse_decode_list_archive_entry(SseDeserializer deserializer);
+  @protected
+  ScanProgress sse_decode_box_autoadd_scan_progress(
+      SseDeserializer deserializer);
 
-@protected List<DirEntryInfo> sse_decode_list_dir_entry_info(SseDeserializer deserializer);
+  @protected
+  ScanRequest sse_decode_box_autoadd_scan_request(SseDeserializer deserializer);
 
-@protected List<DuplicateGroup> sse_decode_list_duplicate_group(SseDeserializer deserializer);
+  @protected
+  SearchHit sse_decode_box_autoadd_search_hit(SseDeserializer deserializer);
 
-@protected List<FailedItem> sse_decode_list_failed_item(SseDeserializer deserializer);
+  @protected
+  SearchRequest sse_decode_box_autoadd_search_request(
+      SseDeserializer deserializer);
 
-@protected Uint64List sse_decode_list_prim_u_64_strict(SseDeserializer deserializer);
+  @protected
+  SearchSummary sse_decode_box_autoadd_search_summary(
+      SseDeserializer deserializer);
 
-@protected Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+  @protected
+  SortSpec sse_decode_box_autoadd_sort_spec(SseDeserializer deserializer);
 
-@protected List<SearchHit> sse_decode_list_search_hit(SseDeserializer deserializer);
+  @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
 
-@protected OpEvent sse_decode_op_event(SseDeserializer deserializer);
+  @protected
+  BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
 
-@protected OpOutcome sse_decode_op_outcome(SseDeserializer deserializer);
+  @protected
+  Collision sse_decode_collision(SseDeserializer deserializer);
 
-@protected OpProgress sse_decode_op_progress(SseDeserializer deserializer);
+  @protected
+  DirEntryInfo sse_decode_dir_entry_info(SseDeserializer deserializer);
 
-@protected String? sse_decode_opt_String(SseDeserializer deserializer);
+  @protected
+  DuplicateGroup sse_decode_duplicate_group(SseDeserializer deserializer);
 
-@protected BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
+  @protected
+  FailedItem sse_decode_failed_item(SseDeserializer deserializer);
 
-@protected List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
+  @protected
+  FolderStats sse_decode_folder_stats(SseDeserializer deserializer);
 
-@protected ScanEvent sse_decode_scan_event(SseDeserializer deserializer);
+  @protected
+  HitKind sse_decode_hit_kind(SseDeserializer deserializer);
 
-@protected ScanPhase sse_decode_scan_phase(SseDeserializer deserializer);
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer);
 
-@protected ScanProgress sse_decode_scan_progress(SseDeserializer deserializer);
+  @protected
+  PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
 
-@protected ScanRequest sse_decode_scan_request(SseDeserializer deserializer);
+  @protected
+  ImageTarget sse_decode_image_target(SseDeserializer deserializer);
 
-@protected SearchEvent sse_decode_search_event(SseDeserializer deserializer);
+  @protected
+  ImageTransform sse_decode_image_transform(SseDeserializer deserializer);
 
-@protected SearchHit sse_decode_search_hit(SseDeserializer deserializer);
+  @protected
+  List<String> sse_decode_list_String(SseDeserializer deserializer);
 
-@protected SearchRequest sse_decode_search_request(SseDeserializer deserializer);
+  @protected
+  List<ArchiveEntry> sse_decode_list_archive_entry(
+      SseDeserializer deserializer);
 
-@protected SearchSummary sse_decode_search_summary(SseDeserializer deserializer);
+  @protected
+  List<DirEntryInfo> sse_decode_list_dir_entry_info(
+      SseDeserializer deserializer);
 
-@protected SortField sse_decode_sort_field(SseDeserializer deserializer);
+  @protected
+  List<DuplicateGroup> sse_decode_list_duplicate_group(
+      SseDeserializer deserializer);
 
-@protected SortSpec sse_decode_sort_spec(SseDeserializer deserializer);
+  @protected
+  List<FailedItem> sse_decode_list_failed_item(SseDeserializer deserializer);
 
-@protected ThumbnailInfo sse_decode_thumbnail_info(SseDeserializer deserializer);
+  @protected
+  Uint64List sse_decode_list_prim_u_64_strict(SseDeserializer deserializer);
 
-@protected TrashOutcome sse_decode_trash_outcome(SseDeserializer deserializer);
+  @protected
+  Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
-@protected int sse_decode_u_32(SseDeserializer deserializer);
+  @protected
+  List<SearchHit> sse_decode_list_search_hit(SseDeserializer deserializer);
 
-@protected BigInt sse_decode_u_64(SseDeserializer deserializer);
+  @protected
+  OpEvent sse_decode_op_event(SseDeserializer deserializer);
 
-@protected int sse_decode_u_8(SseDeserializer deserializer);
+  @protected
+  OpOutcome sse_decode_op_outcome(SseDeserializer deserializer);
 
-@protected void sse_decode_unit(SseDeserializer deserializer);
+  @protected
+  OpProgress sse_decode_op_progress(SseDeserializer deserializer);
 
-@protected void sse_encode_AnyhowException(AnyhowException self, SseSerializer serializer);
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
 
-@protected void sse_encode_StreamSink_op_event_Sse(RustStreamSink<OpEvent> self, SseSerializer serializer);
+  @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
 
-@protected void sse_encode_StreamSink_scan_event_Sse(RustStreamSink<ScanEvent> self, SseSerializer serializer);
+  @protected
+  BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
 
-@protected void sse_encode_StreamSink_search_event_Sse(RustStreamSink<SearchEvent> self, SseSerializer serializer);
+  @protected
+  List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
 
-@protected void sse_encode_String(String self, SseSerializer serializer);
+  @protected
+  QuickEvent sse_decode_quick_event(SseDeserializer deserializer);
 
-@protected void sse_encode_archive_entry(ArchiveEntry self, SseSerializer serializer);
+  @protected
+  QuickOutcome sse_decode_quick_outcome(SseDeserializer deserializer);
 
-@protected void sse_encode_bool(bool self, SseSerializer serializer);
+  @protected
+  QuickProgress sse_decode_quick_progress(SseDeserializer deserializer);
 
-@protected void sse_encode_box_autoadd_op_outcome(OpOutcome self, SseSerializer serializer);
+  @protected
+  ScanEvent sse_decode_scan_event(SseDeserializer deserializer);
 
-@protected void sse_encode_box_autoadd_op_progress(OpProgress self, SseSerializer serializer);
+  @protected
+  ScanPhase sse_decode_scan_phase(SseDeserializer deserializer);
 
-@protected void sse_encode_box_autoadd_scan_progress(ScanProgress self, SseSerializer serializer);
+  @protected
+  ScanProgress sse_decode_scan_progress(SseDeserializer deserializer);
 
-@protected void sse_encode_box_autoadd_scan_request(ScanRequest self, SseSerializer serializer);
+  @protected
+  ScanRequest sse_decode_scan_request(SseDeserializer deserializer);
 
-@protected void sse_encode_box_autoadd_search_hit(SearchHit self, SseSerializer serializer);
+  @protected
+  SearchEvent sse_decode_search_event(SseDeserializer deserializer);
 
-@protected void sse_encode_box_autoadd_search_request(SearchRequest self, SseSerializer serializer);
+  @protected
+  SearchHit sse_decode_search_hit(SseDeserializer deserializer);
 
-@protected void sse_encode_box_autoadd_search_summary(SearchSummary self, SseSerializer serializer);
+  @protected
+  SearchRequest sse_decode_search_request(SseDeserializer deserializer);
 
-@protected void sse_encode_box_autoadd_sort_spec(SortSpec self, SseSerializer serializer);
+  @protected
+  SearchSummary sse_decode_search_summary(SseDeserializer deserializer);
 
-@protected void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
+  @protected
+  SortField sse_decode_sort_field(SseDeserializer deserializer);
 
-@protected void sse_encode_collision(Collision self, SseSerializer serializer);
+  @protected
+  SortSpec sse_decode_sort_spec(SseDeserializer deserializer);
 
-@protected void sse_encode_dir_entry_info(DirEntryInfo self, SseSerializer serializer);
+  @protected
+  StatsEvent sse_decode_stats_event(SseDeserializer deserializer);
 
-@protected void sse_encode_duplicate_group(DuplicateGroup self, SseSerializer serializer);
+  @protected
+  ThumbnailInfo sse_decode_thumbnail_info(SseDeserializer deserializer);
 
-@protected void sse_encode_failed_item(FailedItem self, SseSerializer serializer);
+  @protected
+  TrashOutcome sse_decode_trash_outcome(SseDeserializer deserializer);
 
-@protected void sse_encode_hit_kind(HitKind self, SseSerializer serializer);
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer);
 
-@protected void sse_encode_i_32(int self, SseSerializer serializer);
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
-@protected void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
+  @protected
+  int sse_decode_u_8(SseDeserializer deserializer);
 
-@protected void sse_encode_list_String(List<String> self, SseSerializer serializer);
+  @protected
+  void sse_decode_unit(SseDeserializer deserializer);
 
-@protected void sse_encode_list_archive_entry(List<ArchiveEntry> self, SseSerializer serializer);
+  @protected
+  void sse_encode_AnyhowException(
+      AnyhowException self, SseSerializer serializer);
 
-@protected void sse_encode_list_dir_entry_info(List<DirEntryInfo> self, SseSerializer serializer);
+  @protected
+  void sse_encode_StreamSink_op_event_Sse(
+      RustStreamSink<OpEvent> self, SseSerializer serializer);
 
-@protected void sse_encode_list_duplicate_group(List<DuplicateGroup> self, SseSerializer serializer);
+  @protected
+  void sse_encode_StreamSink_quick_event_Sse(
+      RustStreamSink<QuickEvent> self, SseSerializer serializer);
 
-@protected void sse_encode_list_failed_item(List<FailedItem> self, SseSerializer serializer);
+  @protected
+  void sse_encode_StreamSink_scan_event_Sse(
+      RustStreamSink<ScanEvent> self, SseSerializer serializer);
 
-@protected void sse_encode_list_prim_u_64_strict(Uint64List self, SseSerializer serializer);
+  @protected
+  void sse_encode_StreamSink_search_event_Sse(
+      RustStreamSink<SearchEvent> self, SseSerializer serializer);
 
-@protected void sse_encode_list_prim_u_8_strict(Uint8List self, SseSerializer serializer);
+  @protected
+  void sse_encode_StreamSink_stats_event_Sse(
+      RustStreamSink<StatsEvent> self, SseSerializer serializer);
 
-@protected void sse_encode_list_search_hit(List<SearchHit> self, SseSerializer serializer);
+  @protected
+  void sse_encode_String(String self, SseSerializer serializer);
 
-@protected void sse_encode_op_event(OpEvent self, SseSerializer serializer);
+  @protected
+  void sse_encode_archive_entry(ArchiveEntry self, SseSerializer serializer);
 
-@protected void sse_encode_op_outcome(OpOutcome self, SseSerializer serializer);
+  @protected
+  void sse_encode_bool(bool self, SseSerializer serializer);
 
-@protected void sse_encode_op_progress(OpProgress self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_folder_stats(
+      FolderStats self, SseSerializer serializer);
 
-@protected void sse_encode_opt_String(String? self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_op_outcome(
+      OpOutcome self, SseSerializer serializer);
 
-@protected void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_op_progress(
+      OpProgress self, SseSerializer serializer);
 
-@protected void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_quick_outcome(
+      QuickOutcome self, SseSerializer serializer);
 
-@protected void sse_encode_scan_event(ScanEvent self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_quick_progress(
+      QuickProgress self, SseSerializer serializer);
 
-@protected void sse_encode_scan_phase(ScanPhase self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_scan_progress(
+      ScanProgress self, SseSerializer serializer);
 
-@protected void sse_encode_scan_progress(ScanProgress self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_scan_request(
+      ScanRequest self, SseSerializer serializer);
 
-@protected void sse_encode_scan_request(ScanRequest self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_search_hit(
+      SearchHit self, SseSerializer serializer);
 
-@protected void sse_encode_search_event(SearchEvent self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_search_request(
+      SearchRequest self, SseSerializer serializer);
 
-@protected void sse_encode_search_hit(SearchHit self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_search_summary(
+      SearchSummary self, SseSerializer serializer);
 
-@protected void sse_encode_search_request(SearchRequest self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_sort_spec(
+      SortSpec self, SseSerializer serializer);
 
-@protected void sse_encode_search_summary(SearchSummary self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
 
-@protected void sse_encode_sort_field(SortField self, SseSerializer serializer);
+  @protected
+  void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
 
-@protected void sse_encode_sort_spec(SortSpec self, SseSerializer serializer);
+  @protected
+  void sse_encode_collision(Collision self, SseSerializer serializer);
 
-@protected void sse_encode_thumbnail_info(ThumbnailInfo self, SseSerializer serializer);
+  @protected
+  void sse_encode_dir_entry_info(DirEntryInfo self, SseSerializer serializer);
 
-@protected void sse_encode_trash_outcome(TrashOutcome self, SseSerializer serializer);
+  @protected
+  void sse_encode_duplicate_group(
+      DuplicateGroup self, SseSerializer serializer);
 
-@protected void sse_encode_u_32(int self, SseSerializer serializer);
+  @protected
+  void sse_encode_failed_item(FailedItem self, SseSerializer serializer);
 
-@protected void sse_encode_u_64(BigInt self, SseSerializer serializer);
+  @protected
+  void sse_encode_folder_stats(FolderStats self, SseSerializer serializer);
 
-@protected void sse_encode_u_8(int self, SseSerializer serializer);
+  @protected
+  void sse_encode_hit_kind(HitKind self, SseSerializer serializer);
 
-@protected void sse_encode_unit(void self, SseSerializer serializer);
-                }
-                
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer);
 
+  @protected
+  void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_image_target(ImageTarget self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_image_transform(
+      ImageTransform self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_archive_entry(
+      List<ArchiveEntry> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_dir_entry_info(
+      List<DirEntryInfo> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_duplicate_group(
+      List<DuplicateGroup> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_failed_item(
+      List<FailedItem> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_u_64_strict(
+      Uint64List self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_prim_u_8_strict(
+      Uint8List self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_search_hit(
+      List<SearchHit> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_op_event(OpEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_op_outcome(OpOutcome self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_op_progress(OpProgress self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_quick_event(QuickEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_quick_outcome(QuickOutcome self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_quick_progress(QuickProgress self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_scan_event(ScanEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_scan_phase(ScanPhase self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_scan_progress(ScanProgress self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_scan_request(ScanRequest self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_search_event(SearchEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_search_hit(SearchHit self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_search_request(SearchRequest self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_search_summary(SearchSummary self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_sort_field(SortField self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_sort_spec(SortSpec self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stats_event(StatsEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_thumbnail_info(ThumbnailInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_trash_outcome(TrashOutcome self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_8(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_unit(void self, SseSerializer serializer);
+}
 
 // Section: wire_class
 
 class NotilusCoreWire implements BaseWire {
-            NotilusCoreWire.fromExternalLibrary(ExternalLibrary lib);
+  NotilusCoreWire.fromExternalLibrary(ExternalLibrary lib);
+}
 
-            
-        }
-        @JS('wasm_bindgen') external NotilusCoreWasmModule get wasmModule;
+@JS('wasm_bindgen')
+external NotilusCoreWasmModule get wasmModule;
 
-        @JS() @anonymous extension type NotilusCoreWasmModule._(JSObject _) implements JSObject {
-            
-        }
-        
+@JS()
+@anonymous
+extension type NotilusCoreWasmModule._(JSObject _) implements JSObject {}

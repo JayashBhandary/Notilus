@@ -8,6 +8,7 @@ import 'api/bridge.dart';
 import 'api/dedupe.dart';
 import 'api/fileops.dart';
 import 'api/listing.dart';
+import 'api/quick.dart';
 import 'api/search.dart';
 import 'api/thumbnail.dart';
 import 'api/trash.dart';
@@ -32,11 +33,17 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   RustStreamSink<OpEvent> dco_decode_StreamSink_op_event_Sse(dynamic raw);
 
   @protected
+  RustStreamSink<QuickEvent> dco_decode_StreamSink_quick_event_Sse(dynamic raw);
+
+  @protected
   RustStreamSink<ScanEvent> dco_decode_StreamSink_scan_event_Sse(dynamic raw);
 
   @protected
   RustStreamSink<SearchEvent> dco_decode_StreamSink_search_event_Sse(
       dynamic raw);
+
+  @protected
+  RustStreamSink<StatsEvent> dco_decode_StreamSink_stats_event_Sse(dynamic raw);
 
   @protected
   String dco_decode_String(dynamic raw);
@@ -48,10 +55,19 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  FolderStats dco_decode_box_autoadd_folder_stats(dynamic raw);
+
+  @protected
   OpOutcome dco_decode_box_autoadd_op_outcome(dynamic raw);
 
   @protected
   OpProgress dco_decode_box_autoadd_op_progress(dynamic raw);
+
+  @protected
+  QuickOutcome dco_decode_box_autoadd_quick_outcome(dynamic raw);
+
+  @protected
+  QuickProgress dco_decode_box_autoadd_quick_progress(dynamic raw);
 
   @protected
   ScanProgress dco_decode_box_autoadd_scan_progress(dynamic raw);
@@ -72,6 +88,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   SortSpec dco_decode_box_autoadd_sort_spec(dynamic raw);
 
   @protected
+  int dco_decode_box_autoadd_u_32(dynamic raw);
+
+  @protected
   BigInt dco_decode_box_autoadd_u_64(dynamic raw);
 
   @protected
@@ -87,6 +106,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   FailedItem dco_decode_failed_item(dynamic raw);
 
   @protected
+  FolderStats dco_decode_folder_stats(dynamic raw);
+
+  @protected
   HitKind dco_decode_hit_kind(dynamic raw);
 
   @protected
@@ -94,6 +116,12 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   PlatformInt64 dco_decode_i_64(dynamic raw);
+
+  @protected
+  ImageTarget dco_decode_image_target(dynamic raw);
+
+  @protected
+  ImageTransform dco_decode_image_transform(dynamic raw);
 
   @protected
   List<String> dco_decode_list_String(dynamic raw);
@@ -132,10 +160,22 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
+
+  @protected
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw);
 
   @protected
   List<String>? dco_decode_opt_list_String(dynamic raw);
+
+  @protected
+  QuickEvent dco_decode_quick_event(dynamic raw);
+
+  @protected
+  QuickOutcome dco_decode_quick_outcome(dynamic raw);
+
+  @protected
+  QuickProgress dco_decode_quick_progress(dynamic raw);
 
   @protected
   ScanEvent dco_decode_scan_event(dynamic raw);
@@ -168,6 +208,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   SortSpec dco_decode_sort_spec(dynamic raw);
 
   @protected
+  StatsEvent dco_decode_stats_event(dynamic raw);
+
+  @protected
   ThumbnailInfo dco_decode_thumbnail_info(dynamic raw);
 
   @protected
@@ -193,11 +236,19 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
       SseDeserializer deserializer);
 
   @protected
+  RustStreamSink<QuickEvent> sse_decode_StreamSink_quick_event_Sse(
+      SseDeserializer deserializer);
+
+  @protected
   RustStreamSink<ScanEvent> sse_decode_StreamSink_scan_event_Sse(
       SseDeserializer deserializer);
 
   @protected
   RustStreamSink<SearchEvent> sse_decode_StreamSink_search_event_Sse(
+      SseDeserializer deserializer);
+
+  @protected
+  RustStreamSink<StatsEvent> sse_decode_StreamSink_stats_event_Sse(
       SseDeserializer deserializer);
 
   @protected
@@ -210,10 +261,21 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  FolderStats sse_decode_box_autoadd_folder_stats(SseDeserializer deserializer);
+
+  @protected
   OpOutcome sse_decode_box_autoadd_op_outcome(SseDeserializer deserializer);
 
   @protected
   OpProgress sse_decode_box_autoadd_op_progress(SseDeserializer deserializer);
+
+  @protected
+  QuickOutcome sse_decode_box_autoadd_quick_outcome(
+      SseDeserializer deserializer);
+
+  @protected
+  QuickProgress sse_decode_box_autoadd_quick_progress(
+      SseDeserializer deserializer);
 
   @protected
   ScanProgress sse_decode_box_autoadd_scan_progress(
@@ -237,6 +299,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   SortSpec sse_decode_box_autoadd_sort_spec(SseDeserializer deserializer);
 
   @protected
+  int sse_decode_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
   BigInt sse_decode_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
@@ -252,6 +317,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   FailedItem sse_decode_failed_item(SseDeserializer deserializer);
 
   @protected
+  FolderStats sse_decode_folder_stats(SseDeserializer deserializer);
+
+  @protected
   HitKind sse_decode_hit_kind(SseDeserializer deserializer);
 
   @protected
@@ -259,6 +327,12 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   PlatformInt64 sse_decode_i_64(SseDeserializer deserializer);
+
+  @protected
+  ImageTarget sse_decode_image_target(SseDeserializer deserializer);
+
+  @protected
+  ImageTransform sse_decode_image_transform(SseDeserializer deserializer);
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
@@ -300,10 +374,22 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
+
+  @protected
   BigInt? sse_decode_opt_box_autoadd_u_64(SseDeserializer deserializer);
 
   @protected
   List<String>? sse_decode_opt_list_String(SseDeserializer deserializer);
+
+  @protected
+  QuickEvent sse_decode_quick_event(SseDeserializer deserializer);
+
+  @protected
+  QuickOutcome sse_decode_quick_outcome(SseDeserializer deserializer);
+
+  @protected
+  QuickProgress sse_decode_quick_progress(SseDeserializer deserializer);
 
   @protected
   ScanEvent sse_decode_scan_event(SseDeserializer deserializer);
@@ -336,6 +422,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   SortSpec sse_decode_sort_spec(SseDeserializer deserializer);
 
   @protected
+  StatsEvent sse_decode_stats_event(SseDeserializer deserializer);
+
+  @protected
   ThumbnailInfo sse_decode_thumbnail_info(SseDeserializer deserializer);
 
   @protected
@@ -362,12 +451,20 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
       RustStreamSink<OpEvent> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_StreamSink_quick_event_Sse(
+      RustStreamSink<QuickEvent> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_StreamSink_scan_event_Sse(
       RustStreamSink<ScanEvent> self, SseSerializer serializer);
 
   @protected
   void sse_encode_StreamSink_search_event_Sse(
       RustStreamSink<SearchEvent> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_StreamSink_stats_event_Sse(
+      RustStreamSink<StatsEvent> self, SseSerializer serializer);
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer);
@@ -379,12 +476,24 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_folder_stats(
+      FolderStats self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_op_outcome(
       OpOutcome self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_op_progress(
       OpProgress self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_quick_outcome(
+      QuickOutcome self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_quick_progress(
+      QuickProgress self, SseSerializer serializer);
 
   @protected
   void sse_encode_box_autoadd_scan_progress(
@@ -411,6 +520,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
       SortSpec self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_u_32(int self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_u_64(BigInt self, SseSerializer serializer);
 
   @protected
@@ -427,6 +539,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   void sse_encode_failed_item(FailedItem self, SseSerializer serializer);
 
   @protected
+  void sse_encode_folder_stats(FolderStats self, SseSerializer serializer);
+
+  @protected
   void sse_encode_hit_kind(HitKind self, SseSerializer serializer);
 
   @protected
@@ -434,6 +549,13 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   void sse_encode_i_64(PlatformInt64 self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_image_target(ImageTarget self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_image_transform(
+      ImageTransform self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
@@ -479,10 +601,22 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
+  void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
+
+  @protected
   void sse_encode_opt_box_autoadd_u_64(BigInt? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_list_String(List<String>? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_quick_event(QuickEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_quick_outcome(QuickOutcome self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_quick_progress(QuickProgress self, SseSerializer serializer);
 
   @protected
   void sse_encode_scan_event(ScanEvent self, SseSerializer serializer);
@@ -513,6 +647,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   void sse_encode_sort_spec(SortSpec self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_stats_event(StatsEvent self, SseSerializer serializer);
 
   @protected
   void sse_encode_thumbnail_info(ThumbnailInfo self, SseSerializer serializer);

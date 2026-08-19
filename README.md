@@ -48,7 +48,14 @@ Linux, iPad, and iPhone from one Flutter codebase, and talks to a local
   panel that asks your local model for cleanup suggestions.
 - **Native context menu** on right-click / long-press with Open,
   Open With (default app + system chooser), Rename, Duplicate,
-  Copy Path, Reveal in Finder / Files, and Move to Trash.
+  Copy Path, Reveal in Finder / Files, and Move to Trash. Display
+  toggles (view mode, Sort By, Use Groups, Show Hidden Files, View
+  Options) live in a **View** submenu.
+- **Quick Actions** submenu, built from whatever is under the cursor and
+  run in Rust: Compress (any selection), Extract Here / Extract to a
+  named folder (archives), Rotate / Flip and Convert To PNG, JPEG, WebP
+  or a web-sized copy (images), Calculate Folder Size (folders), and
+  Copy SHA-256 (files).
 - **Pure-neutral dark theme** (R = G = B grays) plus a light theme;
   follows the system appearance by default and can be overridden in
   Settings.

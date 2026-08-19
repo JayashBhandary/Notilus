@@ -38,11 +38,19 @@ const double _kGridTilePadding = 2;
 /// Exact height a tile needs: thumbnail, gap, two lines of label, padding.
 ///
 /// Kept as a function rather than a constant because every part scales with
-/// [BrowserProvider.rowDensity].
-double gridTileHeight(double density) =>
+/// [BrowserProvider.rowDensity] — and the label with the platform text scale,
+/// which the caller passes in. Leaving [textScaler] out of the sum is what let
+/// a desktop scaled past 1.0 overflow the tile: the label grew, the cell the
+/// grid delegate had been told to reserve did not.
+double gridTileHeight(
+  double density, {
+  TextScaler textScaler = TextScaler.noScaling,
+}) =>
     kGridIconSize * density +
     _kGridIconLabelGap +
-    (kGridLabelSize * _kGridLabelLineHeight * _kGridLabelLines) +
+    (textScaler.scale(kGridLabelSize) *
+        _kGridLabelLineHeight *
+        _kGridLabelLines) +
     _kGridTilePadding * 2;
 
 class FileIconGrid extends StatelessWidget {
@@ -63,7 +71,8 @@ class FileIconGrid extends StatelessWidget {
     // content is only ~76px tall, so every tile carried ~34px of dead space
     // below its label — visible as a selection highlight that ran well past
     // the text. Height is now derived from what a tile actually contains.
-    final tileHeight = gridTileHeight(density);
+    final tileHeight =
+        gridTileHeight(density, textScaler: MediaQuery.textScalerOf(context));
 
     final flat = <Widget>[];
     for (final g in groups) {
@@ -374,27 +383,38 @@ class _Thumbnail extends StatelessWidget {
         border: Border.all(color: palette.divider),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            _iconFor(entry.extension),
-            size: size * 0.5,
-            color: palette.subtleText,
-          ),
-          if (label.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 9,
-                fontWeight: FontWeight.w600,
-                color: palette.subtleText,
-                letterSpacing: 0.3,
-              ),
+      // Scaled down to fit rather than laid out at its natural height: the
+      // glyph is a fraction of the tile but the label underneath follows the
+      // platform text scale, so on a desktop scaled past 1.0 the pair grew
+      // taller than the square it sits in and the Column overflowed.
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+          // Required inside a FittedBox, which hands its child unbounded
+          // height; a `max` Column would then be infinitely tall.
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              _iconFor(entry.extension),
+              size: size * 0.5,
+              color: palette.subtleText,
             ),
+            if (label.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                label,
+                maxLines: 1,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w600,
+                  color: palette.subtleText,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

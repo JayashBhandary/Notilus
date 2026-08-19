@@ -10,6 +10,7 @@ pub mod dedupe;
 pub mod fileops;
 pub mod hashing;
 pub mod listing;
+pub mod quick;
 pub mod search;
 pub mod thumbnail;
 pub mod trash;

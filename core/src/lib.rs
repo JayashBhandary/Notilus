@@ -38,6 +38,10 @@ pub use api::fileops::{
     OpOutcome, OpProgress,
 };
 pub use api::hashing::{hash_file, hash_file_prefix};
+pub use api::quick::{
+    compress_paths, convert_image, extract_archive, folder_stats, transform_image,
+    FolderStats, ImageTarget, ImageTransform, QuickOutcome, QuickProgress,
+};
 pub use api::search::{search_files, HitKind, SearchHit, SearchRequest, SearchSummary};
 pub use api::trash::{delete_permanently, move_to_trash, TrashOutcome};
 pub use api::listing::{list_dir, DirEntryInfo, SortField, SortSpec};

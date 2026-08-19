@@ -75,6 +75,7 @@ void main() {
     WidgetTester tester,
     BrowserProvider browser, {
     Size size = const Size(900, 700),
+    double textScale = 1.0,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -97,7 +98,13 @@ void main() {
               ChangeNotifierProvider<BrowserProvider>.value(value: browser),
               Provider<MarqueeController>(create: (_) => MarqueeController()),
             ],
-            child: FileIconGrid(onSecondaryRowTap: (_, __) {}),
+            child: Builder(
+              builder: (ctx) => MediaQuery(
+                data: MediaQuery.of(ctx)
+                    .copyWith(textScaler: TextScaler.linear(textScale)),
+                child: FileIconGrid(onSecondaryRowTap: (_, __) {}),
+              ),
+            ),
           ),
         ),
       ),
@@ -109,6 +116,17 @@ void main() {
   testWidgets('lays out without overflow', (tester) async {
     await pump(tester, _StubBrowser(items: files));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the extension placeholder survives a large text scale',
+      (tester) async {
+    // The thumbnail square is a fixed size, but the extension label under its
+    // glyph follows the platform text scale — at a desktop scale past 1.0 the
+    // pair grew taller than the square and the Column overflowed.
+    await pump(tester, _StubBrowser(items: files), textScale: 2.0);
+    expect(tester.takeException(), isNull);
+    // The label is still there, not clipped away to make room.
+    expect(find.text('BIN'), findsWidgets);
   });
 
   testWidgets('a tile is no taller than the content it holds', (tester) async {

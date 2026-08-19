@@ -8,6 +8,7 @@ import '../src/rust/api/bridge.dart' as rust;
 import '../src/rust/api/dedupe.dart' as rust_dedupe;
 import '../src/rust/api/fileops.dart' as rust_fileops;
 import '../src/rust/api/listing.dart' as rust_listing;
+import '../src/rust/api/quick.dart' as rust_quick;
 import '../src/rust/api/search.dart' as rust_search;
 import '../src/rust/api/thumbnail.dart' as rust_thumbnail;
 import '../src/rust/api/trash.dart' as rust_trash;
@@ -28,14 +29,22 @@ export '../src/rust/api/bridge.dart'
         ScanEvent,
         ScanEvent_Done,
         ScanEvent_Progress,
+        QuickEvent,
+        QuickEvent_Done,
+        QuickEvent_Progress,
         SearchEvent,
         SearchEvent_Done,
-        SearchEvent_Hit;
+        SearchEvent_Hit,
+        StatsEvent,
+        StatsEvent_Done,
+        StatsEvent_Progress;
 export '../src/rust/api/dedupe.dart'
     show DuplicateGroup, ScanPhase, ScanProgress, ScanRequest;
 export '../src/rust/api/fileops.dart'
     show Collision, FailedItem, OpOutcome, OpProgress;
 export '../src/rust/api/listing.dart' show DirEntryInfo, SortSpec;
+export '../src/rust/api/quick.dart'
+    show FolderStats, ImageTarget, ImageTransform, QuickOutcome, QuickProgress;
 export '../src/rust/api/search.dart'
     show HitKind, SearchHit, SearchRequest, SearchSummary;
 export '../src/rust/api/thumbnail.dart' show ThumbnailInfo;
@@ -159,6 +168,77 @@ class NativeCore {
     required String opId,
   }) =>
       rust.scanDuplicatesStream(req: request, opId: opId);
+
+  // ── quick actions ────────────────────────────────────────────────────────
+
+  /// Zips [sources] into [destDir] as [archiveName], streaming progress.
+  ///
+  /// The name collides non-destructively in Rust, so compressing the same
+  /// folder twice yields a second archive rather than overwriting the first.
+  Stream<rust.QuickEvent> compress({
+    required List<String> sources,
+    required String destDir,
+    required String archiveName,
+    required String opId,
+  }) =>
+      rust.compressPathsStream(
+        sources: sources,
+        destDir: destDir,
+        archiveName: archiveName,
+        opId: opId,
+      );
+
+  /// Unpacks an archive into [destDir]. With [intoSubfolder] (the default) the
+  /// contents land in a new folder named after the archive, so an archive that
+  /// isn't rooted in one directory can't spray files across the current folder.
+  Stream<rust.QuickEvent> extractArchive({
+    required String path,
+    required String destDir,
+    required String opId,
+    bool intoSubfolder = true,
+  }) =>
+      rust.extractArchiveStream(
+        path: path,
+        destDir: destDir,
+        intoSubfolder: intoSubfolder,
+        opId: opId,
+      );
+
+  /// Walks a folder and reports what it holds. A directory's own `stat` size
+  /// is the entry's, never its contents', so this is the only way to answer
+  /// "how big is this folder?".
+  Stream<rust.StatsEvent> folderStats({
+    required String path,
+    required String opId,
+  }) =>
+      rust.folderStatsStream(path: path, opId: opId);
+
+  /// Re-encodes an image into [destDir], optionally fitting it inside a
+  /// [maxDim] box. Returns the path written; the original is untouched.
+  Future<String> convertImage({
+    required String src,
+    required String destDir,
+    required rust_quick.ImageTarget format,
+    int? maxDim,
+    int quality = 90,
+  }) =>
+      rust.convertImage(
+        src: src,
+        destDir: destDir,
+        format: format,
+        maxDim: maxDim,
+        quality: quality,
+      );
+
+  /// Rotates or flips an image. With [inPlace] the original is replaced (via a
+  /// temp file and a rename, so a failed encode can't destroy it); otherwise a
+  /// suffixed sibling is written. Returns the path written.
+  Future<String> transformImage({
+    required String src,
+    required rust_quick.ImageTransform transform,
+    bool inPlace = false,
+  }) =>
+      rust.transformImage(src: src, transform: transform, inPlace: inPlace);
 
   // ── hashing / archives / thumbnails ──────────────────────────────────────
 
