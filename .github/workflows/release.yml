@@ -211,7 +211,8 @@ jobs:
             clang cmake ninja-build pkg-config \
             libgtk-3-dev liblzma-dev libstdc++-12-dev \
             libnotify-dev libayatana-appindicator3-dev \
-            libsecret-1-dev
+            libsecret-1-dev \
+            imagemagick
 
       - uses: subosito/flutter-action@v2
         with:
@@ -277,11 +278,19 @@ jobs:
       - name: Build Linux app
         run: flutter build linux --release
 
-      - name: Stage desktop entry and icon
+      - name: Stage desktop entry and icons
         run: |
           BUNDLE="build/linux/x64/release/bundle"
-          cp linux/packaging/notilus.desktop "$BUNDLE/notilus.desktop"
-          cp assets/icon/icon.png "$BUNDLE/notilus.png"
+          APP_ID="com.jayash.notilus"
+          cp "linux/packaging/$APP_ID.desktop" "$BUNDLE/$APP_ID.desktop"
+          # Full-size icon plus a hicolor tree, so the shell has a real match at
+          # every size instead of one 1024px file dropped into a 512px dir.
+          cp assets/icon/icon.png "$BUNDLE/$APP_ID.png"
+          for size in 16 24 32 48 64 128 256 512; do
+            dir="$BUNDLE/icons/hicolor/${size}x${size}/apps"
+            mkdir -p "$dir"
+            convert assets/icon/icon.png -resize "${size}x${size}" "$dir/$APP_ID.png"
+          done
 
       - name: Package tarball
         run: |

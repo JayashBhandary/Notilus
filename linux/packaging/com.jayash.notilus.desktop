@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Notilus
+GenericName=File Manager
+Comment=Finder-style file manager with Ollama AI assistant
+Exec=@EXEC@ %F
+# Icon, filename and StartupWMClass must all equal APPLICATION_ID from
+# linux/CMakeLists.txt. GNOME matches a window to its .desktop file by the
+# GTK application id first (com.jayash.notilus -> com.jayash.notilus.desktop),
+# then by WM_CLASS, which GTK derives from g_set_prgname(APPLICATION_ID) in
+# linux/runner/my_application.cc. Naming any of these "notilus" leaves the
+# window unmatched, so the shell falls back to showing the raw app id and no
+# icon.
+Icon=com.jayash.notilus
+Terminal=false
+Categories=Utility;FileTools;FileManager;
+Keywords=files;manager;finder;ollama;ai;
+StartupNotify=true
+StartupWMClass=com.jayash.notilus

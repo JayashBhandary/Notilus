@@ -22,6 +22,29 @@ static void first_frame_cb(MyApplication* self, FlView* view) {
 // Implements GApplication::activate.
 static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
+
+  // Single instance: a second launch (app launcher, `notilus` on the CLI, a
+  // file association) is forwarded here by GApplication instead of starting a
+  // second process, so raise the window this process already owns rather than
+  // building another one.
+  //
+  // This matters more than usual because closing the window only hides it —
+  // TrayService diverts close to hide-and-skip-taskbar so background transfer
+  // reception keeps running (lib/services/tray_service.dart). Without this the
+  // app looks shut but is alive, every relaunch spawns another process, and
+  // each process adds another system tray icon.
+  GList* windows = gtk_application_get_windows(GTK_APPLICATION(application));
+  if (windows != nullptr) {
+    // Most-recently-focused first, and there is only ever one.
+    GtkWindow* existing = GTK_WINDOW(windows->data);
+    // Undo the hidden-to-tray state: window_manager's setSkipTaskbar(true) is
+    // this hint, and it survives being presented again.
+    gtk_window_set_skip_taskbar_hint(existing, FALSE);
+    gtk_window_deiconify(existing);
+    gtk_window_present(existing);
+    return;
+  }
+
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
@@ -133,7 +156,15 @@ MyApplication* my_application_new() {
   // the application to be recognized beyond its binary name.
   g_set_prgname(APPLICATION_ID);
 
+  // Deliberately *not* G_APPLICATION_NON_UNIQUE (the Flutter template default):
+  // the app must own its bus name so a second launch hands off to the running
+  // instance via activate() above. See the comment there for why.
   return MY_APPLICATION(g_object_new(my_application_get_type(),
                                      "application-id", APPLICATION_ID, "flags",
-                                     G_APPLICATION_NON_UNIQUE, nullptr));
+#if GLIB_CHECK_VERSION(2, 74, 0)
+                                     G_APPLICATION_DEFAULT_FLAGS,
+#else
+                                     G_APPLICATION_FLAGS_NONE,
+#endif
+                                     nullptr));
 }

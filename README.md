@@ -407,6 +407,22 @@ flutter build linux       # build/linux/x64/release/bundle/
 flutter build ios         # archive in Xcode for distribution
 ```
 
+On Linux, a locally built bundle shows up in the launcher and dock as
+`com.jayash.notilus` with a generic icon until a desktop entry is registered —
+the name and icon come from a `.desktop` file, not from the binary. To register
+one for the current user (no sudo, writes only to `~/.local/share`):
+
+```sh
+linux/packaging/install-desktop-entry.sh              # after flutter build linux
+linux/packaging/install-desktop-entry.sh --uninstall
+```
+
+The released installer (`install.sh`) does this system-wide already. The entry,
+its `Icon=`, its `StartupWMClass=` and the installed icon filenames must all
+equal `APPLICATION_ID` from `linux/CMakeLists.txt` (`com.jayash.notilus`) —
+that's the id GTK reports for the window, and the shell matches a window to its
+desktop entry by that id.
+
 ### Dependency notes
 
 `pubspec.yaml` includes a `dependency_overrides` pin:
