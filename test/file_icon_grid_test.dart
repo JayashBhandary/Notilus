@@ -24,20 +24,28 @@ import 'package:notilus/widgets/marquee_selection.dart';
 /// leaving dead space under every label that showed up as a selection highlight
 /// running past the filename.
 class _StubBrowser extends BrowserProvider {
-  _StubBrowser({required this.items, this.density = 1.0})
-      : super(FileService());
+  _StubBrowser({
+    required this.items,
+    this.density = 1.0,
+    this.iconScale = 1.0,
+  }) : super(FileService());
 
   final List<FileEntry> items;
   final double density;
+  final double iconScale;
 
   @override
-  List<EntryGroup> groupedEntries() => [EntryGroup(label: null, entries: items)];
+  List<EntryGroup> groupedEntries() =>
+      [EntryGroup(label: null, entries: items)];
 
   @override
   Set<String> get selectedPaths => const {};
 
   @override
   double get rowDensity => density;
+
+  @override
+  double get gridIconScale => iconScale;
 }
 
 void main() {
@@ -140,10 +148,12 @@ void main() {
     // width. At 900px wide the old square cells were ~96px tall.
     final expected = gridTileHeight(1.0);
     final cellRect = tester.getRect(
-      find.ancestor(
-        of: find.text('a.bin'),
-        matching: find.byType(Container),
-      ).first,
+      find
+          .ancestor(
+            of: find.text('a.bin'),
+            matching: find.byType(Container),
+          )
+          .first,
     );
     expect(cellRect.height, closeTo(expected, 1.5));
   });
@@ -155,10 +165,12 @@ void main() {
     const longName = 'a-very-long-file-name-that-must-wrap-twice.bin';
     final label = tester.getRect(find.text(longName));
     final cell = tester.getRect(
-      find.ancestor(
-        of: find.text(longName),
-        matching: find.byType(Container),
-      ).first,
+      find
+          .ancestor(
+            of: find.text(longName),
+            matching: find.byType(Container),
+          )
+          .first,
     );
     // A name that fills both reserved lines should bottom out against the
     // tile's own 2px padding — nothing like the ~34px the square cells left.
@@ -171,10 +183,12 @@ void main() {
 
     final label = tester.getRect(find.text('a.bin'));
     final cell = tester.getRect(
-      find.ancestor(
-        of: find.text('a.bin'),
-        matching: find.byType(Container),
-      ).first,
+      find
+          .ancestor(
+            of: find.text('a.bin'),
+            matching: find.byType(Container),
+          )
+          .first,
     );
     // Slack here is intentional and bounded: the height reserves two label
     // lines so every cell in the grid is the same height regardless of name
@@ -197,15 +211,38 @@ void main() {
     await pump(tester, _StubBrowser(items: files, density: 1.4));
 
     final cell = tester.getRect(
-      find.ancestor(
-        of: find.text('a.bin'),
-        matching: find.byType(Container),
-      ).first,
+      find
+          .ancestor(
+            of: find.text('a.bin'),
+            matching: find.byType(Container),
+          )
+          .first,
     );
     expect(cell.height, closeTo(gridTileHeight(1.4), 1.5));
     // Only the thumbnail scales, so a denser setting is not proportionally
     // taller — the label is a fixed two lines.
     expect(gridTileHeight(1.4), lessThan(gridTileHeight(1.0) * 1.4));
+  });
+
+  testWidgets('a large icon size grows the cell in both directions',
+      (tester) async {
+    await pump(tester, _StubBrowser(items: files, iconScale: 3.2));
+
+    final cell = tester.getRect(
+      find
+          .ancestor(
+            of: find.text('a.bin'),
+            matching: find.byType(Container),
+          )
+          .first,
+    );
+    // The delegate and the tile still agree, at a scale far past what row
+    // density reaches.
+    expect(cell.height, closeTo(gridTileHeight(1.0, iconScale: 3.2), 1.5));
+    expect(cell.height, greaterThan(gridTileHeight(1.0) * 2));
+    // And the cell is wide enough for the thumbnail it now holds, so
+    // neighbouring tiles don't overlap.
+    expect(cell.width, greaterThan(gridIconEdge(1.0, 3.2)));
   });
 
   testWidgets('a video tile is marked playable and falls back to a glyph',
@@ -230,16 +267,20 @@ void main() {
     await pump(tester, _StubBrowser(items: files));
 
     final short = tester.getRect(
-      find.ancestor(
-        of: find.text('a.bin'),
-        matching: find.byType(Container),
-      ).first,
+      find
+          .ancestor(
+            of: find.text('a.bin'),
+            matching: find.byType(Container),
+          )
+          .first,
     );
     final long = tester.getRect(
-      find.ancestor(
-        of: find.text('a-very-long-file-name-that-must-wrap-twice.bin'),
-        matching: find.byType(Container),
-      ).first,
+      find
+          .ancestor(
+            of: find.text('a-very-long-file-name-that-must-wrap-twice.bin'),
+            matching: find.byType(Container),
+          )
+          .first,
     );
     // Cell height is uniform: gridTileHeight already reserves two label lines.
     expect(long.height, closeTo(short.height, 0.5));

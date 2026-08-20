@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -44,20 +46,31 @@ const double _kGridTilePadding = 2;
 /// grid delegate had been told to reserve did not.
 double gridTileHeight(
   double density, {
+  double iconScale = 1.0,
   TextScaler textScaler = TextScaler.noScaling,
 }) =>
-    kGridIconSize * density +
+    gridIconEdge(density, iconScale) +
     _kGridIconLabelGap +
     (textScaler.scale(kGridLabelSize) *
         _kGridLabelLineHeight *
         _kGridLabelLines) +
     _kGridTilePadding * 2;
 
+/// Thumbnail edge for the current density and icon-size setting.
+double gridIconEdge(double density, double iconScale) =>
+    kGridIconSize * density * iconScale;
+
+/// Cell width. Wide icons need a wider cell or neighbouring thumbnails would
+/// overlap, so the nominal extent is a floor rather than the answer.
+double gridTileExtent(double density, double iconScale) => math.max(
+      kGridTileExtent * density,
+      gridIconEdge(density, iconScale) + 28,
+    );
+
 class FileIconGrid extends StatelessWidget {
   const FileIconGrid({super.key, required this.onSecondaryRowTap});
 
-  final void Function(FileEntry entry, Offset globalPosition)
-      onSecondaryRowTap;
+  final void Function(FileEntry entry, Offset globalPosition) onSecondaryRowTap;
 
   @override
   Widget build(BuildContext context) {
@@ -66,13 +79,17 @@ class FileIconGrid extends StatelessWidget {
     final marquee = context.read<MarqueeController>();
     final groups = browser.groupedEntries();
     final density = browser.rowDensity;
-    final tile = kGridTileExtent * density;
+    final iconScale = browser.gridIconScale;
+    final tile = gridTileExtent(density, iconScale);
     // Cells used to be forced square (childAspectRatio: 1.0) while their
     // content is only ~76px tall, so every tile carried ~34px of dead space
     // below its label — visible as a selection highlight that ran well past
     // the text. Height is now derived from what a tile actually contains.
-    final tileHeight =
-        gridTileHeight(density, textScaler: MediaQuery.textScalerOf(context));
+    final tileHeight = gridTileHeight(
+      density,
+      iconScale: iconScale,
+      textScaler: MediaQuery.textScalerOf(context),
+    );
 
     final flat = <Widget>[];
     for (final g in groups) {
@@ -96,8 +113,7 @@ class FileIconGrid extends StatelessWidget {
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 padding: const EdgeInsets.symmetric(vertical: 8),
-                gridDelegate:
-                    SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: crossAxisCount,
                   childAspectRatio: cellWidth / tileHeight,
                   mainAxisSpacing: spacing,
@@ -110,7 +126,8 @@ class FileIconGrid extends StatelessWidget {
                     entry: e,
                     selected: browser.selectedPaths.contains(e.path),
                     onSecondaryTap: (pos) => onSecondaryRowTap(e, pos),
-                    density: browser.rowDensity,
+                    density: density,
+                    iconScale: iconScale,
                   );
                 },
               );
@@ -159,12 +176,14 @@ class _IconTile extends StatefulWidget {
     required this.selected,
     required this.onSecondaryTap,
     required this.density,
+    required this.iconScale,
   });
 
   final FileEntry entry;
   final bool selected;
   final ValueChanged<Offset> onSecondaryTap;
   final double density;
+  final double iconScale;
 
   @override
   State<_IconTile> createState() => _IconTileState();
@@ -188,7 +207,7 @@ class _IconTileState extends State<_IconTile>
     final browser = context.read<BrowserProvider>();
     final palette = AppColors.of(context);
     final compact = isCompact(context);
-    final iconSize = kGridIconSize * widget.density;
+    final iconSize = gridIconEdge(widget.density, widget.iconScale);
     marqueeRegister();
 
     final hl = widget.selected
@@ -198,91 +217,91 @@ class _IconTileState extends State<_IconTile>
     return wrapDragDrop(
       entry: widget.entry,
       child: MouseRegion(
-      cursor: SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          final additive = HardwareKeyboard.instance.isMetaPressed ||
-              HardwareKeyboard.instance.isControlPressed;
-          final range = HardwareKeyboard.instance.isShiftPressed;
-          if (compact) {
+        cursor: SystemMouseCursors.basic,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            final additive = HardwareKeyboard.instance.isMetaPressed ||
+                HardwareKeyboard.instance.isControlPressed;
+            final range = HardwareKeyboard.instance.isShiftPressed;
+            if (compact) {
+              if (widget.entry.isDirectory) {
+                browser.navigateTo(widget.entry.path);
+              } else {
+                openFilePreview(context, browser, widget.entry);
+              }
+              return;
+            }
+            Focus.maybeOf(context)?.requestFocus();
+            if (range) {
+              browser.selectRange(widget.entry);
+            } else {
+              browser.toggleSelect(widget.entry, additive: additive);
+            }
+          },
+          onDoubleTap: () {
+            // Double-click opens: folders navigate, files open in the OS
+            // default app.
             if (widget.entry.isDirectory) {
               browser.navigateTo(widget.entry.path);
             } else {
-              openFilePreview(context, browser, widget.entry);
+              openFileInDefaultApp(context, browser, widget.entry);
             }
-            return;
-          }
-          Focus.maybeOf(context)?.requestFocus();
-          if (range) {
-            browser.selectRange(widget.entry);
-          } else {
-            browser.toggleSelect(widget.entry, additive: additive);
-          }
-        },
-        onDoubleTap: () {
-          // Double-click opens: folders navigate, files open in the OS
-          // default app.
-          if (widget.entry.isDirectory) {
-            browser.navigateTo(widget.entry.path);
-          } else {
-            openFileInDefaultApp(context, browser, widget.entry);
-          }
-        },
-        onLongPressStart: (d) {
-          if (!widget.selected) {
-            browser.toggleSelect(widget.entry, additive: false);
-          }
-          widget.onSecondaryTap(d.globalPosition);
-        },
-        onSecondaryTapDown: (d) {
-          if (!widget.selected) {
-            browser.toggleSelect(widget.entry, additive: false);
-          }
-          widget.onSecondaryTap(d.globalPosition);
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            vertical: _kGridTilePadding,
-            horizontal: 2,
-          ),
-          decoration: BoxDecoration(
-            color: hl,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                width: iconSize,
-                height: iconSize,
-                child: _Thumbnail(
-                  entry: widget.entry,
-                  size: iconSize,
-                  palette: palette,
-                ),
-              ),
-              const SizedBox(height: _kGridIconLabelGap),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text(
-                  widget.entry.name,
-                  textAlign: TextAlign.center,
-                  maxLines: _kGridLabelLines,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: kGridLabelSize,
-                    height: _kGridLabelLineHeight,
-                    color: palette.text,
+          },
+          onLongPressStart: (d) {
+            if (!widget.selected) {
+              browser.toggleSelect(widget.entry, additive: false);
+            }
+            widget.onSecondaryTap(d.globalPosition);
+          },
+          onSecondaryTapDown: (d) {
+            if (!widget.selected) {
+              browser.toggleSelect(widget.entry, additive: false);
+            }
+            widget.onSecondaryTap(d.globalPosition);
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(
+              vertical: _kGridTilePadding,
+              horizontal: 2,
+            ),
+            decoration: BoxDecoration(
+              color: hl,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: iconSize,
+                  height: iconSize,
+                  child: _Thumbnail(
+                    entry: widget.entry,
+                    size: iconSize,
+                    palette: palette,
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: _kGridIconLabelGap),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    widget.entry.name,
+                    textAlign: TextAlign.center,
+                    maxLines: _kGridLabelLines,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: kGridLabelSize,
+                      height: _kGridLabelLineHeight,
+                      color: palette.text,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -313,8 +332,13 @@ class _Thumbnail extends StatelessWidget {
       entry: entry,
       // The media grid's dimension rather than one derived from this tile: the
       // cache key folds in the size, so matching it means a video already
-      // thumbnailed there appears here without a second ffmpeg run.
-      dim: _kGeneratedThumbDim,
+      // thumbnailed there appears here without a second ffmpeg run. A tile big
+      // enough to out-resolve that render is the one case worth its own,
+      // larger, cache entry — a 320px page blown up to a 176px tile on a 2x
+      // display is visibly mushy.
+      dim: size * 2 <= _kGeneratedThumbDim
+          ? _kGeneratedThumbDim
+          : _kLargeGeneratedThumbDim,
       builder: (context, preview) {
         final body = _forPreview(preview);
         if (!isVideo) return body;
@@ -462,6 +486,9 @@ class _Thumbnail extends StatelessWidget {
 /// tile: the cache key folds in the size, so matching it means a video already
 /// thumbnailed on the media page appears here without a second ffmpeg run.
 const int _kGeneratedThumbDim = 320;
+
+/// Used instead once a tile is large enough that 320px would be upscaled.
+const int _kLargeGeneratedThumbDim = 768;
 
 /// Corner badge marking a tile as a video.
 class _PlayBadge extends StatelessWidget {

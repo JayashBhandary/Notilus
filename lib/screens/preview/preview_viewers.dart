@@ -1,5 +1,6 @@
 import 'dart:collection';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
@@ -618,6 +619,11 @@ class _PdfxViewerState extends State<PdfxViewer> {
   int _pageCount = 0;
   bool _showRail = false;
 
+  /// Width / height of the first page. PdfViewPinch always lays pages out to
+  /// the width it is given, so the viewer is handed a width derived from the
+  /// height instead — that is what fits a page to the viewport.
+  double _pageAspect = 612 / 792;
+
   @override
   void initState() {
     super.initState();
@@ -633,6 +639,7 @@ class _PdfxViewerState extends State<PdfxViewer> {
         _thumbDoc = d;
         _pageCount = d.pagesCount;
       });
+      _readAspect(d);
     }).catchError((_) {});
   }
 
@@ -641,6 +648,16 @@ class _PdfxViewerState extends State<PdfxViewer> {
     _controller.dispose();
     _thumbDoc?.close();
     super.dispose();
+  }
+
+  Future<void> _readAspect(PdfDocument doc) async {
+    try {
+      final pg = await doc.getPage(1);
+      final aspect = pg.width / pg.height;
+      await pg.close();
+      if (!mounted || aspect <= 0 || !aspect.isFinite) return;
+      setState(() => _pageAspect = aspect);
+    } catch (_) {}
   }
 
   Future<void> _goto(int page) async {
@@ -678,6 +695,26 @@ class _PdfxViewerState extends State<PdfxViewer> {
     }
   }
 
+  /// Boxes [child] so a page is as tall as the space available instead of as
+  /// wide as it, which is the one thing PdfViewPinch won't do on its own. A
+  /// landscape page still shrinks to fit the width.
+  Widget _fitToHeight({required Widget child}) {
+    // Matches PdfViewPinch's own page padding, so the arithmetic below lands
+    // on the real page box rather than the box plus its margins.
+    const pinchPadding = 10.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight - pinchPadding * 2;
+        if (height <= 0 || !constraints.hasBoundedWidth) return child;
+        final width = math.min(
+          constraints.maxWidth,
+          height * _pageAspect + pinchPadding * 2,
+        );
+        return Center(child: SizedBox(width: width, child: child));
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Stack(
@@ -686,25 +723,28 @@ class _PdfxViewerState extends State<PdfxViewer> {
           child: Padding(
             padding: EdgeInsets.only(
               left: _showRail ? PreviewPageRail.width : 0,
+              bottom: 80 + PreviewInsets.of(context),
             ),
-            child: PdfViewPinch(
-              controller: _controller,
-              onDocumentLoaded: (d) {
-                if (mounted) setState(() => _pageCount = d.pagesCount);
-              },
-              onPageChanged: (p) {
-                if (mounted) setState(() => _page = p);
-              },
-              onDocumentError: (_) {},
-              builders: PdfViewPinchBuilders<DefaultBuilderOptions>(
-                options: const DefaultBuilderOptions(),
-                documentLoaderBuilder: (_) => const PreviewLoading(),
-                pageLoaderBuilder: (_) => const PreviewLoading(),
-                errorBuilder: (_, e) => PreviewMessage(
-                  icon: LucideIcons.fileText,
-                  title: 'Couldn\'t open this PDF',
-                  body: '$e',
-                  destructive: true,
+            child: _fitToHeight(
+              child: PdfViewPinch(
+                controller: _controller,
+                onDocumentLoaded: (d) {
+                  if (mounted) setState(() => _pageCount = d.pagesCount);
+                },
+                onPageChanged: (p) {
+                  if (mounted) setState(() => _page = p);
+                },
+                onDocumentError: (_) {},
+                builders: PdfViewPinchBuilders<DefaultBuilderOptions>(
+                  options: const DefaultBuilderOptions(),
+                  documentLoaderBuilder: (_) => const PreviewLoading(),
+                  pageLoaderBuilder: (_) => const PreviewLoading(),
+                  errorBuilder: (_, e) => PreviewMessage(
+                    icon: LucideIcons.fileText,
+                    title: 'Couldn\'t open this PDF',
+                    body: '$e',
+                    destructive: true,
+                  ),
                 ),
               ),
             ),
@@ -857,6 +897,11 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
   int _currentPage = 1;
   bool _showRail = false;
 
+  /// Height of one page slot, as measured during the last layout. Pages are
+  /// fitted to the viewport's height rather than its width, so this — not the
+  /// available width — is what off-screen scroll offsets are computed from.
+  double? _slotHeight;
+
   @override
   void initState() {
     super.initState();
@@ -995,9 +1040,12 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
       if (!await out.exists()) {
         final code = await _runPoppler([
           '-png',
-          '-r', '$_dpi',
-          '-f', '$page',
-          '-l', '$page',
+          '-r',
+          '$_dpi',
+          '-f',
+          '$page',
+          '-l',
+          '$page',
           '-singlefile',
           widget.file.path,
           prefix,
@@ -1044,9 +1092,12 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
     try {
       final code = await _runPoppler([
         '-png',
-        '-r', '$_dpi',
-        '-f', '1',
-        '-l', '100',
+        '-r',
+        '$_dpi',
+        '-f',
+        '1',
+        '-l',
+        '100',
         widget.file.path,
         p.join(tmp.path, 'p'),
       ]);
@@ -1106,11 +1157,8 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
     // what's visible. Every page occupies the same box, so the offset is
     // arithmetic. (Jumping to a distant page used to silently do nothing.)
     _request(page);
-    final box = context.findRenderObject() as RenderBox?;
-    final width =
-        (box?.size.width ?? 0) - ((_showRail ? PreviewPageRail.width : 0) + 32);
-    if (width <= 0 || !_scroll.hasClients) return;
-    final pageHeight = width / _pageAspect;
+    final pageHeight = _slotHeight;
+    if (pageHeight == null || pageHeight <= 0 || !_scroll.hasClients) return;
     final target = (page - 1) * (pageHeight + 12);
     await _scroll.animateTo(
       target.clamp(0.0, _scroll.position.maxScrollExtent),
@@ -1174,27 +1222,54 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
     return Stack(
       children: [
         Positioned.fill(
-          child: ListView.separated(
-            controller: _scroll,
-            padding: EdgeInsets.fromLTRB(
-              (_showRail ? PreviewPageRail.width : 0) + 16,
-              16,
-              16,
-              80 + PreviewInsets.of(context),
-            ),
-            itemCount: _pageCount,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (_, i) {
-              final page = i + 1;
-              _ensureRendered(page);
-              return KeyedSubtree(
-                key: _pageKeys[i],
-                child: _PdfPageSlot(
-                  file: _rendered[page],
-                  aspect: _pageAspect,
-                  failed: _failed.contains(page),
-                  border: colors.border,
-                ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              const topPad = 16.0;
+              final bottomPad = 80 + PreviewInsets.of(context);
+              final leftPad = (_showRail ? PreviewPageRail.width : 0) + 16.0;
+
+              // Pages are fitted to the height they have to stand in, so one
+              // page fills the viewport at a time. Fitting them to the width
+              // instead made every page taller than the window on a wide
+              // panel, which is unreadable for anything but a narrow document.
+              final availHeight = math.max(
+                120.0,
+                constraints.maxHeight - topPad - bottomPad,
+              );
+              final availWidth = math.max(
+                80.0,
+                constraints.maxWidth - leftPad - 16.0,
+              );
+              // Landscape pages still can't spill sideways.
+              final pageHeight = math.min(
+                availHeight,
+                availWidth / _pageAspect,
+              );
+              _slotHeight = pageHeight;
+
+              return ListView.separated(
+                controller: _scroll,
+                padding: EdgeInsets.fromLTRB(leftPad, topPad, 16, bottomPad),
+                itemCount: _pageCount,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (_, i) {
+                  final page = i + 1;
+                  _ensureRendered(page);
+                  return KeyedSubtree(
+                    key: _pageKeys[i],
+                    child: Center(
+                      child: SizedBox(
+                        height: pageHeight,
+                        width: pageHeight * _pageAspect,
+                        child: _PdfPageSlot(
+                          file: _rendered[page],
+                          failed: _failed.contains(page),
+                          border: colors.border,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -1251,44 +1326,39 @@ class _PopplerPdfViewerState extends State<PopplerPdfViewer> {
 class _PdfPageSlot extends StatelessWidget {
   const _PdfPageSlot({
     required this.file,
-    required this.aspect,
     required this.failed,
     required this.border,
   });
 
   final File? file;
-  final double aspect;
   final bool failed;
   final Color border;
 
   @override
   Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: aspect,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: const Color(0xFFFFFFFF),
-          border: Border.all(color: border),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x22000000),
-              blurRadius: 8,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
-        child: file != null
-            ? Image.file(file!, fit: BoxFit.contain, gaplessPlayback: true)
-            : Center(
-                child: failed
-                    ? const Icon(
-                        LucideIcons.fileWarning,
-                        size: 22,
-                        color: Color(0xFF9A9A9A),
-                      )
-                    : const ShadSpinner(size: 16),
-              ),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFFFF),
+        border: Border.all(color: border),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x22000000),
+            blurRadius: 8,
+            offset: Offset(0, 2),
+          ),
+        ],
       ),
+      child: file != null
+          ? Image.file(file!, fit: BoxFit.contain, gaplessPlayback: true)
+          : Center(
+              child: failed
+                  ? const Icon(
+                      LucideIcons.fileWarning,
+                      size: 22,
+                      color: Color(0xFF9A9A9A),
+                    )
+                  : const ShadSpinner(size: 16),
+            ),
     );
   }
 }
@@ -1424,8 +1494,10 @@ class _OfficeViewerState extends State<OfficeViewer> {
         '--norestore',
         '--nologo',
         '--nofirststartwizard',
-        '--convert-to', 'pdf',
-        '--outdir', tmp.path,
+        '--convert-to',
+        'pdf',
+        '--outdir',
+        tmp.path,
         widget.file.path,
       ]);
       if (r.exitCode != 0) {
@@ -1787,8 +1859,7 @@ class _VideoControls extends StatefulWidget {
 }
 
 class _VideoControlsState extends State<_VideoControls> {
-  late final ShadSliderController _seek =
-      ShadSliderController(initialValue: 0);
+  late final ShadSliderController _seek = ShadSliderController(initialValue: 0);
 
   /// While the user drags, playback position must not fight the thumb.
   bool _dragging = false;
@@ -1842,8 +1913,9 @@ class _VideoControlsState extends State<_VideoControls> {
               iconSize: 20,
               foregroundColor: white,
               hoverBackgroundColor: const Color(0x33FFFFFF),
-              onPressed: () =>
-                  v.isPlaying ? widget.controller.pause() : widget.controller.play(),
+              onPressed: () => v.isPlaying
+                  ? widget.controller.pause()
+                  : widget.controller.play(),
               icon: Icon(v.isPlaying ? LucideIcons.pause : LucideIcons.play),
             ),
             const SizedBox(width: 10),
@@ -1901,8 +1973,7 @@ class AudioViewer extends StatefulWidget {
 
 class _AudioViewerState extends State<AudioViewer> {
   final _player = ja.AudioPlayer();
-  late final ShadSliderController _seek =
-      ShadSliderController(initialValue: 0);
+  late final ShadSliderController _seek = ShadSliderController(initialValue: 0);
   Duration _duration = Duration.zero;
   bool _error = false;
 
@@ -2047,8 +2118,7 @@ class _AudioViewerState extends State<AudioViewer> {
                 builder: (_, ps) {
                   final playing = ps.data?.playing ?? false;
                   return ShadButton(
-                    onPressed: () =>
-                        playing ? _player.pause() : _player.play(),
+                    onPressed: () => playing ? _player.pause() : _player.play(),
                     leading: Icon(
                       playing ? LucideIcons.pause : LucideIcons.play,
                       size: 16,

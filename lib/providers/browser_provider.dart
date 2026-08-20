@@ -91,6 +91,11 @@ class BrowserProvider extends ChangeNotifier {
   bool _sortAscending = true;
   bool _useGroups = false;
   double _rowDensity = 1.0; // 0.85=compact, 1.0=normal, 1.2=spacious
+
+  /// Extra thumbnail scale for icon view only, on top of [rowDensity]. Row
+  /// density has to stay near 1.0 to keep list rows readable, so it can't also
+  /// be the knob for "show me big previews" in the grid.
+  double _gridIconScale = 1.0;
   ViewMode _viewMode = ViewMode.icons;
   CenterView _centerView = CenterView.files;
   bool _showHidden = false;
@@ -122,6 +127,7 @@ class BrowserProvider extends ChangeNotifier {
   bool get sortAscending => _sortAscending;
   bool get useGroups => _useGroups;
   double get rowDensity => _rowDensity;
+  double get gridIconScale => _gridIconScale;
   ViewMode get viewMode => _viewMode;
   CenterView get centerView => _centerView;
   bool get showHidden => _showHidden;
@@ -251,10 +257,10 @@ class BrowserProvider extends ChangeNotifier {
       final dir = Directory(path);
       if (!dir.existsSync()) return;
       _watchSub = dir.watch(recursive: false).listen(
-        (_) => _scheduleSilentReload(),
-        onError: (_) {},
-        cancelOnError: false,
-      );
+            (_) => _scheduleSilentReload(),
+            onError: (_) {},
+            cancelOnError: false,
+          );
     } catch (_) {
       // No-op: watching isn't critical.
     }
@@ -269,14 +275,13 @@ class BrowserProvider extends ChangeNotifier {
 
   void _scheduleSilentReload() {
     _watchDebounce?.cancel();
-    _watchDebounce =
-        Timer(const Duration(milliseconds: 180), _silentReload);
+    _watchDebounce = Timer(const Duration(milliseconds: 180), _silentReload);
   }
 
   Future<void> _silentReload() async {
     if (_currentPath.isEmpty) return;
-    final result = await _fileService.listDirectory(_currentPath,
-        showHidden: _showHidden);
+    final result =
+        await _fileService.listDirectory(_currentPath, showHidden: _showHidden);
     _entries = result.entries;
     _invalidateView();
     _error = result.error;
@@ -315,8 +320,9 @@ class BrowserProvider extends ChangeNotifier {
     final order = _flatVisibleOrder();
     final bi = order.indexWhere((e) => e.path == entry.path);
     if (bi < 0) return;
-    var ai =
-        _anchorPath == null ? -1 : order.indexWhere((e) => e.path == _anchorPath);
+    var ai = _anchorPath == null
+        ? -1
+        : order.indexWhere((e) => e.path == _anchorPath);
     if (ai < 0) {
       _anchorPath = entry.path;
       ai = bi;
@@ -428,6 +434,13 @@ class BrowserProvider extends ChangeNotifier {
 
   void setRowDensity(double value) {
     _rowDensity = value.clamp(0.8, 1.4);
+    notifyListeners();
+  }
+
+  void setGridIconScale(double value) {
+    final next = value.clamp(1.0, 4.0);
+    if (next == _gridIconScale) return;
+    _gridIconScale = next;
     notifyListeners();
   }
 

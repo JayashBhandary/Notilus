@@ -310,8 +310,9 @@ class _FileListViewState extends State<FileListView> {
                     child: isList
                         ? _body(browser, palette)
                         : FileIconGrid(
-                            onSecondaryRowTap: (entry, pos) => showRowContextMenu(
-                                context, browser, entry, pos),
+                            onSecondaryRowTap: (entry, pos) =>
+                                showRowContextMenu(
+                                    context, browser, entry, pos),
                           ),
                   ),
                 ),
@@ -622,117 +623,119 @@ class _FileRowState extends State<_FileRow>
     return wrapDragDrop(
       entry: widget.entry,
       child: MouseRegion(
-      cursor: SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () {
-          final additive = HardwareKeyboard.instance.isMetaPressed ||
-              HardwareKeyboard.instance.isControlPressed;
-          final range = HardwareKeyboard.instance.isShiftPressed;
-          if (compact) {
-            // Touch: tap opens — folders navigate, files preview.
+        cursor: SystemMouseCursors.basic,
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            final additive = HardwareKeyboard.instance.isMetaPressed ||
+                HardwareKeyboard.instance.isControlPressed;
+            final range = HardwareKeyboard.instance.isShiftPressed;
+            if (compact) {
+              // Touch: tap opens — folders navigate, files preview.
+              if (widget.entry.isDirectory) {
+                browser.navigateTo(widget.entry.path);
+              } else {
+                openFilePreview(context, browser, widget.entry);
+              }
+              return;
+            }
+            // Desktop: select, and reclaim keyboard focus so space-bar
+            // Quick Look fires after typing in (e.g.) the chat composer.
+            Focus.maybeOf(context)?.requestFocus();
+            if (range) {
+              browser.selectRange(widget.entry);
+            } else {
+              browser.toggleSelect(widget.entry, additive: additive);
+            }
+          },
+          onDoubleTap: () {
+            // Desktop: double-click opens — folders navigate, files open in the
+            // OS default app. (Space-bar still triggers in-app Quick Look.)
             if (widget.entry.isDirectory) {
               browser.navigateTo(widget.entry.path);
             } else {
-              openFilePreview(context, browser, widget.entry);
+              openFileInDefaultApp(context, browser, widget.entry);
             }
-            return;
-          }
-          // Desktop: select, and reclaim keyboard focus so space-bar
-          // Quick Look fires after typing in (e.g.) the chat composer.
-          Focus.maybeOf(context)?.requestFocus();
-          if (range) {
-            browser.selectRange(widget.entry);
-          } else {
-            browser.toggleSelect(widget.entry, additive: additive);
-          }
-        },
-        onDoubleTap: () {
-          // Desktop: double-click opens — folders navigate, files open in the
-          // OS default app. (Space-bar still triggers in-app Quick Look.)
-          if (widget.entry.isDirectory) {
-            browser.navigateTo(widget.entry.path);
-          } else {
-            openFileInDefaultApp(context, browser, widget.entry);
-          }
-        },
-        onLongPressStart: (d) {
-          if (!widget.selected) {
-            browser.toggleSelect(widget.entry, additive: false);
-          }
-          showRowContextMenu(context, browser, widget.entry, d.globalPosition);
-        },
-        onSecondaryTapDown: (d) {
-          // Make sure the right-clicked row is selected.
-          if (!widget.selected) {
-            browser.toggleSelect(widget.entry, additive: false);
-          }
-          showRowContextMenu(context, browser, widget.entry, d.globalPosition);
-        },
-        child: Container(
-          color: bg,
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: vPad),
-          child: Row(
-            children: [
-              Icon(
-                widget.entry.isDirectory
-                    ? CupertinoIcons.folder_fill
-                    : _iconFor(widget.entry.extension),
-                size: iconSize,
-                color: widget.entry.isDirectory
-                    ? palette.folderIcon
-                    : palette.subtleText,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 5,
-                child: Text(
-                  widget.entry.name,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: fontSize, color: palette.text),
+          },
+          onLongPressStart: (d) {
+            if (!widget.selected) {
+              browser.toggleSelect(widget.entry, additive: false);
+            }
+            showRowContextMenu(
+                context, browser, widget.entry, d.globalPosition);
+          },
+          onSecondaryTapDown: (d) {
+            // Make sure the right-clicked row is selected.
+            if (!widget.selected) {
+              browser.toggleSelect(widget.entry, additive: false);
+            }
+            showRowContextMenu(
+                context, browser, widget.entry, d.globalPosition);
+          },
+          child: Container(
+            color: bg,
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: vPad),
+            child: Row(
+              children: [
+                Icon(
+                  widget.entry.isDirectory
+                      ? CupertinoIcons.folder_fill
+                      : _iconFor(widget.entry.extension),
+                  size: iconSize,
+                  color: widget.entry.isDirectory
+                      ? palette.folderIcon
+                      : palette.subtleText,
                 ),
-              ),
-              if (!compact)
+                const SizedBox(width: 8),
+                Expanded(
+                  flex: 5,
+                  child: Text(
+                    widget.entry.name,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: fontSize, color: palette.text),
+                  ),
+                ),
+                if (!compact)
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      _kindLabel(widget.entry),
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: fontSize - 1,
+                        color: palette.subtleText,
+                      ),
+                    ),
+                  ),
+                if (!compact)
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      _formatDate(widget.entry.modified),
+                      style: TextStyle(
+                        fontSize: fontSize - 1,
+                        color: palette.subtleText,
+                      ),
+                    ),
+                  ),
                 Expanded(
                   flex: 2,
                   child: Text(
-                    _kindLabel(widget.entry),
-                    overflow: TextOverflow.ellipsis,
+                    widget.entry.isDirectory
+                        ? '--'
+                        : _formatSize(widget.entry.size),
                     style: TextStyle(
                       fontSize: fontSize - 1,
                       color: palette.subtleText,
                     ),
                   ),
                 ),
-              if (!compact)
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    _formatDate(widget.entry.modified),
-                    style: TextStyle(
-                      fontSize: fontSize - 1,
-                      color: palette.subtleText,
-                    ),
-                  ),
-                ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  widget.entry.isDirectory
-                      ? '--'
-                      : _formatSize(widget.entry.size),
-                  style: TextStyle(
-                    fontSize: fontSize - 1,
-                    color: palette.subtleText,
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -768,15 +771,15 @@ class _FileRowState extends State<_FileRow>
   }
 
   /// The "Kind" cell. Mirrors `BrowserProvider._kindLabel` so the column and the
-/// group headings always read the same.
-String _kindLabel(FileEntry e) {
-  if (e.isDirectory) return 'Folder';
-  final ext = e.extension;
-  if (ext.isEmpty) return 'Document';
-  return '${ext.substring(1).toUpperCase()} file';
-}
+  /// group headings always read the same.
+  String _kindLabel(FileEntry e) {
+    if (e.isDirectory) return 'Folder';
+    final ext = e.extension;
+    if (ext.isEmpty) return 'Document';
+    return '${ext.substring(1).toUpperCase()} file';
+  }
 
-String _formatDate(DateTime dt) {
+  String _formatDate(DateTime dt) {
     String two(int n) => n.toString().padLeft(2, '0');
     return '${dt.year}-${two(dt.month)}-${two(dt.day)} ${two(dt.hour)}:${two(dt.minute)}';
   }
@@ -887,9 +890,7 @@ List<DeskMenuItem> _baseMenuItems(
           label: _isIOS ? 'Share…' : 'Open With',
           icon: LucideIcons.share2,
           submenu: _isIOS ? null : _openWithSubmenu(context, target),
-          onTap: _isIOS
-              ? () async => _actions.openWithChooser(target)
-              : null,
+          onTap: _isIOS ? () async => _actions.openWithChooser(target) : null,
         ),
       if (!isDir && !isRemote)
         DeskMenuItem(
@@ -1117,7 +1118,13 @@ List<DeskMenuItem> _sortSubmenu(BrowserProvider browser) {
 /// `.tar.gz` reports `.gz` from `p.extension`, and both are in the set, so the
 /// compound suffixes need no special case here.
 const Set<String> _archiveExtensions = {
-  '.zip', '.jar', '.tar', '.tgz', '.gz', '.tbz2', '.bz2',
+  '.zip',
+  '.jar',
+  '.tar',
+  '.tgz',
+  '.gz',
+  '.tbz2',
+  '.bz2',
 };
 
 /// Image formats the core can *write* back out. Rotating is only offered for
@@ -1233,7 +1240,9 @@ Future<void> _editEntry(
   final saved = await openTextEditor(context, entry);
   // The editor refreshes the folder it saved into; this covers the case where
   // the user navigated elsewhere and came back.
-  if (saved && context.mounted && browser.currentPath == VPath.dirname(entry.path)) {
+  if (saved &&
+      context.mounted &&
+      browser.currentPath == VPath.dirname(entry.path)) {
     await browser.refresh();
   }
 }
@@ -1322,14 +1331,14 @@ List<DeskMenuItem> _quickActionsSubmenu(
       DeskMenuItem(
         label: 'Extract to "${_archiveStem(target.name)}"',
         icon: LucideIcons.folderArchive,
-        onTap: () => _extractTarget(context, browser, target,
-            intoSubfolder: true),
+        onTap: () =>
+            _extractTarget(context, browser, target, intoSubfolder: true),
       ),
       DeskMenuItem(
         label: 'Extract Here',
         icon: LucideIcons.packageOpen,
-        onTap: () => _extractTarget(context, browser, target,
-            intoSubfolder: false),
+        onTap: () =>
+            _extractTarget(context, browser, target, intoSubfolder: false),
       ),
     ]);
   }
@@ -1341,8 +1350,8 @@ List<DeskMenuItem> _quickActionsSubmenu(
         DeskMenuItem(
           label: 'Rotate Left',
           icon: LucideIcons.rotateCcw,
-          onTap: () =>
-              _transformImage(context, browser, target, ImageTransform.rotateLeft),
+          onTap: () => _transformImage(
+              context, browser, target, ImageTransform.rotateLeft),
         ),
         DeskMenuItem(
           label: 'Rotate Right',
@@ -1410,7 +1419,14 @@ List<DeskMenuItem> _convertSubmenu(
 String _archiveStem(String fileName) {
   final lower = fileName.toLowerCase();
   for (final suffix in const [
-    '.tar.gz', '.tar.bz2', '.tgz', '.tbz2', '.zip', '.jar', '.tar', '.gz',
+    '.tar.gz',
+    '.tar.bz2',
+    '.tgz',
+    '.tbz2',
+    '.zip',
+    '.jar',
+    '.tar',
+    '.gz',
     '.bz2',
   ]) {
     if (lower.endsWith(suffix)) {
@@ -1747,8 +1763,8 @@ Future<void> _newFolder(BuildContext context, BrowserProvider browser) async {
       context: context,
       builder: (ctx) => CupertinoAlertDialog(
         title: const Text('Couldn’t create folder'),
-        content: const Text(
-            'Check that the destination is writable and try again.'),
+        content:
+            const Text('Check that the destination is writable and try again.'),
         actions: [
           CupertinoDialogAction(
             isDefaultAction: true,
@@ -1887,6 +1903,29 @@ enum _Density {
   }
 }
 
+/// Thumbnail sizes the icon grid offers, as a multiplier on the density-scaled
+/// tile. Row density stops at 1.2 because list rows have to stay readable;
+/// these go far past it, which is the point — a folder of photos or PDF pages
+/// is worth looking at, not squinting at.
+enum _IconSize {
+  small('Small', 1.0),
+  medium('Medium', 1.5),
+  large('Large', 2.2),
+  huge('Very Large', 3.2);
+
+  const _IconSize(this.label, this.value);
+  final String label;
+  final double value;
+
+  static _IconSize nearest(double v) {
+    var best = _IconSize.small;
+    for (final s in _IconSize.values) {
+      if ((s.value - v).abs() < (best.value - v).abs()) best = s;
+    }
+    return best;
+  }
+}
+
 const Map<SortField, String> _sortFieldLabels = {
   SortField.name: 'Name',
   SortField.kind: 'Kind',
@@ -1920,6 +1959,7 @@ class _ViewOptionsDialogState extends State<_ViewOptionsDialog> {
     final colors = ShadTheme.of(context).colorScheme;
     final b = widget.browser;
     final density = _Density.nearest(b.rowDensity);
+    final iconSize = _IconSize.nearest(b.gridIconScale);
 
     return ShadDialog(
       title: const Text('View Options'),
@@ -1986,6 +2026,21 @@ class _ViewOptionsDialogState extends State<_ViewOptionsDialog> {
                     label: d.label,
                     selected: density == d,
                     onTap: () => b.setRowDensity(d.value),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            _OptionLabel('Icon size (icon view)', colors: colors),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final s in _IconSize.values)
+                  _ChoiceChip(
+                    label: s.label,
+                    selected: iconSize == s,
+                    onTap: () => b.setGridIconScale(s.value),
                   ),
               ],
             ),

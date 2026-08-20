@@ -88,8 +88,9 @@ void main() {
     expect(find.byType(ShadSwitch), findsOneWidget);
     expect(find.text('Sort by'), findsOneWidget);
     expect(find.text('Row density'), findsOneWidget);
-    // Four sort fields plus three densities.
-    expect(find.byType(ShadBadge), findsNWidgets(7));
+    expect(find.text('Icon size (icon view)'), findsOneWidget);
+    // Four sort fields, three densities, four icon sizes.
+    expect(find.byType(ShadBadge), findsNWidgets(11));
     expect(find.text('Done'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
@@ -107,7 +108,8 @@ void main() {
     expect(label.overflow, isNot(TextOverflow.ellipsis));
     // And it is not visually clipped either.
     final chip = tester.getRect(
-      find.ancestor(of: find.text('Modified'), matching: find.byType(ShadBadge))
+      find
+          .ancestor(of: find.text('Modified'), matching: find.byType(ShadBadge))
           .first,
     );
     final text = tester.getRect(find.text('Modified'));
@@ -123,7 +125,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('exactly one sort field and one density are selected',
+  testWidgets('exactly one sort field, density and icon size are selected',
       (tester) async {
     await openDialog(tester);
 
@@ -132,7 +134,7 @@ void main() {
         .where((b) => b.variant == ShadBadgeVariant.primary)
         .length;
     // One per group.
-    expect(filled(), 2);
+    expect(filled(), 3);
   });
 
   testWidgets('picking a sort field reaches the provider', (tester) async {
@@ -149,7 +151,7 @@ void main() {
         .widgetList<ShadBadge>(find.byType(ShadBadge))
         .where((b) => b.variant == ShadBadgeVariant.primary)
         .length;
-    expect(filled, 2);
+    expect(filled, 3);
   });
 
   testWidgets('re-picking the current sort field does not flip direction',
@@ -196,13 +198,39 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
 
     final spacious = tester.widget<ShadBadge>(
-      find.ancestor(
-        of: find.text('Spacious'),
-        matching: find.byType(ShadBadge),
-      ).first,
+      find
+          .ancestor(
+            of: find.text('Spacious'),
+            matching: find.byType(ShadBadge),
+          )
+          .first,
     );
     expect(spacious.variant, ShadBadgeVariant.primary);
     expect(browser.rowDensity, 1.3);
+  });
+
+  testWidgets('icon size buttons scale the grid past row density',
+      (tester) async {
+    final browser = await openDialog(tester);
+    expect(browser.gridIconScale, 1.0);
+
+    await tester.tap(find.text('Very Large'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 200));
+
+    // Well past the 1.2 ceiling row density stops at — a big thumbnail is the
+    // point of the setting.
+    expect(browser.gridIconScale, greaterThan(3.0));
+    final huge = tester.widget<ShadBadge>(
+      find
+          .ancestor(
+            of: find.text('Very Large'),
+            matching: find.byType(ShadBadge),
+          )
+          .first,
+    );
+    expect(huge.variant, ShadBadgeVariant.primary);
+    expect(browser.rowDensity, 1.0);
   });
 
   testWidgets('the switch toggles grouping', (tester) async {

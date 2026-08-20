@@ -39,6 +39,10 @@ class MarqueeController {
   void dispose() => scroll.dispose();
 }
 
+/// The rubber-band rectangle, keyed so a test can assert a drag started (or,
+/// for a trackpad scroll, did not) without reaching into private state.
+const Key marqueeOverlayKey = Key('marquee-overlay');
+
 class MarqueeSelectionLayer extends StatefulWidget {
   const MarqueeSelectionLayer({
     super.key,
@@ -72,6 +76,22 @@ class _MarqueeSelectionLayerState extends State<MarqueeSelectionLayer> {
 
   static const double _edgeZone = 48;
   static const double _startSlop = 4;
+
+  /// Pointer kinds the marquee drag listens to: everything except
+  /// [PointerDeviceKind.trackpad].
+  ///
+  /// Flutter routes a trackpad two-finger scroll to drag recognizers as a
+  /// pan-zoom gesture, so the marquee used to start on a plain scroll and
+  /// select every file the "drag" passed over. Scrolling is handled by
+  /// [_onPanZoom] instead. A click-drag on a trackpad still reports as
+  /// [PointerDeviceKind.mouse], so rubber-banding by hand is unaffected.
+  static const Set<PointerDeviceKind> _dragDevices = {
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.stylus,
+    PointerDeviceKind.invertedStylus,
+    PointerDeviceKind.touch,
+    PointerDeviceKind.unknown,
+  };
 
   MarqueeController get _c => widget.controller;
 
@@ -108,10 +128,10 @@ class _MarqueeSelectionLayerState extends State<MarqueeSelectionLayer> {
   void _onPanUpdate(DragUpdateDetails d) {
     if (!_dragging || _startContent == null) return;
     _currentLocal = d.localPosition;
-    final moved = (Offset(_currentLocal.dx, _currentLocal.dy + _offset) -
-                _startContent!)
-            .distance >
-        _startSlop;
+    final moved =
+        (Offset(_currentLocal.dx, _currentLocal.dy + _offset) - _startContent!)
+                .distance >
+            _startSlop;
     if (moved) {
       _recompute();
       _maybeAutoScroll();
@@ -205,6 +225,10 @@ class _MarqueeSelectionLayerState extends State<MarqueeSelectionLayer> {
   // macOS trackpad two-finger scroll arrives as pan-zoom, not a scroll signal.
   void _onPanZoom(PointerPanZoomUpdateEvent e) => _scrollBy(-e.panDelta.dy);
 
+  /// A trackpad gesture beginning while a marquee is somehow live ends the
+  /// marquee rather than letting the two fight over the same fingers.
+  void _onPanZoomStart(PointerPanZoomStartEvent e) => _onPanDone();
+
   Rect _overlayRect() {
     final start = Offset(_startContent!.dx, _startContent!.dy - _offset);
     return Rect.fromPoints(start, _currentLocal);
@@ -217,11 +241,13 @@ class _MarqueeSelectionLayerState extends State<MarqueeSelectionLayer> {
     final palette = AppColors.of(context);
     return Listener(
       onPointerSignal: _onSignal,
+      onPointerPanZoomStart: _onPanZoomStart,
       onPointerPanZoomUpdate: _onPanZoom,
       child: GestureDetector(
         // translucent: capture pans over empty space while still letting item
         // taps / double-taps through to their own detectors.
         behavior: HitTestBehavior.translucent,
+        supportedDevices: _dragDevices,
         onPanStart: _onPanStart,
         onPanUpdate: _onPanUpdate,
         onPanEnd: (_) => _onPanDone(),
@@ -231,6 +257,7 @@ class _MarqueeSelectionLayerState extends State<MarqueeSelectionLayer> {
             widget.child,
             if (_dragging && _startContent != null)
               Positioned.fromRect(
+                key: marqueeOverlayKey,
                 rect: _overlayRect(),
                 child: IgnorePointer(
                   child: DecoratedBox(
