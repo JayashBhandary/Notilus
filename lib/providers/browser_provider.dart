@@ -2,11 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:path/path.dart' as p;
 
 import '../models/file_entry.dart';
 import '../models/media_kind.dart';
 import '../services/file_service.dart';
+import '../services/remote/remote_hub.dart';
+import '../services/remote/remote_path.dart';
 
 enum SortField { name, kind, modified, size }
 
@@ -151,6 +152,9 @@ class BrowserProvider extends ChangeNotifier {
   }
 
   Future<void> init() async {
+    // Remote sources are part of the sidebar's "Locations" list, so they have
+    // to be loaded before the first frame that draws it.
+    await RemoteHub.instance.load();
     _shortcuts = await _fileService.shortcuts();
     _drives = await _fileService.drives();
     final home = _shortcuts['Home'];
@@ -188,15 +192,24 @@ class BrowserProvider extends ChangeNotifier {
   /// True when the current folder has a parent to go up to.
   bool get canGoUp {
     if (_currentPath.isEmpty) return false;
-    final parent = p.dirname(_currentPath);
+    final parent = VPath.dirname(_currentPath);
     return parent != _currentPath && parent.isNotEmpty;
   }
+
+  /// True when the folder on screen lives on a mounted remote source. Callers
+  /// use it to hide actions that only a local file can answer — "Reveal in
+  /// Finder", the integrated terminal's working directory, image transforms
+  /// that the Rust core runs against a real path.
+  bool get isRemote => VPath.isRemote(_currentPath);
+
+  /// The remote source the current folder belongs to, or null when local.
+  String? get remoteConnectionId => VPath.connectionOf(_currentPath);
 
   /// Navigates to the parent folder, recording the move in history so Back
   /// returns here.
   Future<void> goUp() async {
     if (!canGoUp) return;
-    await navigateTo(p.dirname(_currentPath));
+    await navigateTo(VPath.dirname(_currentPath));
   }
 
   Future<void> goForward() async {
@@ -228,6 +241,10 @@ class BrowserProvider extends ChangeNotifier {
   void _startWatching(String path) {
     _stopWatching();
     if (path.isEmpty) return;
+    // Cloud sources have nothing to watch: there is no inotify over HTTP, and
+    // polling every folder the user visits would burn quota for a change they
+    // can pick up with a refresh.
+    if (VPath.isRemote(path)) return;
     try {
       // Directory.watch isn't supported on every platform/filesystem; if it
       // throws we just skip auto-refresh and rely on manual navigation.
@@ -366,7 +383,7 @@ class BrowserProvider extends ChangeNotifier {
   /// in context, with the rest of its folder around it, rather than on a
   /// detached result.
   Future<void> revealPath(String path) async {
-    final parent = p.dirname(path);
+    final parent = VPath.dirname(path);
     if (parent != _currentPath) {
       await navigateTo(parent);
     }
@@ -484,7 +501,7 @@ class BrowserProvider extends ChangeNotifier {
 
   String _kindLabel(FileEntry e) {
     if (e.isDirectory) return 'Folder';
-    final ext = p.extension(e.name).toLowerCase();
+    final ext = VPath.extension(e.name).toLowerCase();
     if (ext.isEmpty) return 'Document';
     return '${ext.substring(1).toUpperCase()} file';
   }

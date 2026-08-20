@@ -8,6 +8,9 @@ import '../models/file_entry.dart';
 // native_core.dart, because BrowserProvider owns an enum by the same name.
 import '../src/rust/api/listing.dart' as rust_listing;
 import 'native_core.dart';
+import 'remote/remote_file_system.dart';
+import 'remote/remote_hub.dart';
+import 'remote/remote_path.dart';
 
 class DirectoryListing {
   DirectoryListing({required this.entries, this.error});
@@ -39,6 +42,11 @@ class FileService {
     String path, {
     bool showHidden = false,
   }) async {
+    // A `notilus://` path belongs to a mounted cloud source, not to the local
+    // disk. Answering it here — rather than at the widget layer — is what lets
+    // the browser, the breadcrumb, selection and drag-and-drop stay unaware
+    // that anything changed.
+    if (VPath.isRemote(path)) return _listRemote(path, showHidden: showHidden);
     try {
       final native = await NativeCore.instance.listDir(
         path,
@@ -54,6 +62,30 @@ class FileService {
       );
     } catch (e) {
       return DirectoryListing(entries: const [], error: _describe(path, e));
+    }
+  }
+
+  Future<DirectoryListing> _listRemote(
+    String path, {
+    required bool showHidden,
+  }) async {
+    final id = VPath.connectionOf(path);
+    try {
+      final fs = await RemoteHub.instance.fsFor(id!);
+      final entries = await fs.list(path);
+      RemoteHub.instance.reportSuccess(id);
+      return DirectoryListing(
+        entries: [
+          for (final e in entries)
+            if (showHidden || !e.name.startsWith('.')) e.toFileEntry(),
+        ],
+      );
+    } on RemoteException catch (e) {
+      if (id != null) RemoteHub.instance.reportFailure(id, e);
+      return DirectoryListing(entries: const [], error: e.message);
+    } catch (e) {
+      if (id != null) RemoteHub.instance.reportFailure(id, e);
+      return DirectoryListing(entries: const [], error: '$e');
     }
   }
 
@@ -213,6 +245,7 @@ class FileService {
   /// Creates a new directory inside [parent], returning the created path.
   /// Picks a unique name if [name] already exists (Finder-style "untitled folder 2").
   Future<String?> createDirectory(String parent, String name) async {
+    if (VPath.isRemote(parent)) return _createRemoteDirectory(parent, name);
     var candidate = name;
     var idx = 2;
     String fullPath() => p.join(parent, candidate);
@@ -225,6 +258,17 @@ class FileService {
       final dir = await Directory(fullPath()).create();
       return dir.path;
     } on FileSystemException {
+      return null;
+    }
+  }
+
+  Future<String?> _createRemoteDirectory(String parent, String name) async {
+    try {
+      final fs = await RemoteHub.instance.fsFor(VPath.connectionOf(parent)!);
+      final target = await fs.uniquePath(VPath.join(parent, name));
+      await fs.createDirectory(target);
+      return target;
+    } catch (_) {
       return null;
     }
   }

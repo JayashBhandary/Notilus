@@ -14,14 +14,21 @@ import '../providers/file_ops_provider.dart';
 import '../services/native_core.dart';
 import '../services/system_info_service.dart' show formatBytes;
 import '../screens/preview/file_preview_screen.dart';
+import '../screens/text_editor_screen.dart';
 import '../screens/transfer/send_to.dart';
 import '../services/file_actions_service.dart';
+import '../models/remote/remote_connection.dart';
+import '../services/remote/remote_hub.dart';
+import '../services/remote/remote_path.dart';
+import '../services/remote/sftp_file_system.dart';
+import '../services/text_document_service.dart';
 import '../theme.dart';
 import '../utils/responsive.dart';
 import 'desk_context_menu.dart';
 import 'file_drag_drop.dart';
 import 'file_icon_grid.dart';
 import 'path_status_bar.dart' show pathStatusBarKey;
+import 'terminal_panel.dart' show TerminalLauncher;
 import 'marquee_selection.dart';
 
 final FileActionsService _actions = FileActionsService();
@@ -39,16 +46,39 @@ DateTime? _lastRowMenuAt;
 
 /// Opens the FilePreviewScreen for [entry], using the current folder's
 /// other files as siblings for swipe / arrow-key navigation.
-void openFilePreview(
+Future<void> openFilePreview(
   BuildContext context,
   BrowserProvider browser,
   FileEntry entry,
-) {
+) async {
+  // A cloud file has no bytes on this machine yet. Everything the preview can
+  // do — decode an image, page a PDF, play a video — needs a real file, so the
+  // object is downloaded to the cache first and previewed from there. Its
+  // neighbours are left out of that: fetching a whole folder to populate a
+  // filmstrip would turn one click into a bill.
+  if (VPath.isRemote(entry.path)) {
+    final local = await localCopyOfEntry(context, entry);
+    if (local == null || !context.mounted) return;
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => FilePreviewScreen(
+          files: [local],
+          initialIndex: 0,
+          // The preview is of the downloaded copy; the editor must write back
+          // to the file on the source, not to the cache.
+          editEntry: entry,
+        ),
+      ),
+    );
+    return;
+  }
+
   final siblings =
       browser.entries.where((e) => !e.isDirectory).toList(growable: false);
   final idx = siblings.indexWhere((e) => e.path == entry.path);
   if (idx < 0) return;
-  Navigator.of(context).push(
+  if (!context.mounted) return;
+  await Navigator.of(context).push(
     CupertinoPageRoute(
       builder: (_) => FilePreviewScreen(
         files: siblings,
@@ -56,6 +86,25 @@ void openFilePreview(
       ),
     ),
   );
+}
+
+/// Downloads a remote entry to the local cache and returns it as a local
+/// [FileEntry], reporting any failure to the user. Returns the entry unchanged
+/// when it is already local.
+Future<FileEntry?> localCopyOfEntry(
+  BuildContext context,
+  FileEntry entry,
+) async {
+  if (!VPath.isRemote(entry.path)) return entry;
+  final ops = context.read<FileOpsProvider>();
+  try {
+    return await ops.localEntryFor(entry);
+  } catch (e) {
+    if (context.mounted) {
+      await _showError(context, 'Couldn\'t download "${entry.name}".\n$e');
+    }
+    return null;
+  }
 }
 
 /// Opens [entry] in the OS default application (double-click behaviour).
@@ -67,13 +116,19 @@ Future<void> openFileInDefaultApp(
   FileEntry entry,
 ) async {
   if (_isMacOS || _isIOS) {
-    final ok = await _actions.openInDefaultApp(entry);
+    // Remote files are opened from their downloaded copy; edits made in the
+    // other app stay local, which is why the menu says "Download a Copy"
+    // rather than pretending the cloud file is being edited in place.
+    final local = await localCopyOfEntry(context, entry);
+    if (local == null) return;
+    final ok = await _actions.openInDefaultApp(local);
     if (!ok && context.mounted) {
       await _showError(context, 'Couldn\'t open "${entry.name}".');
     }
     return;
   }
-  openFilePreview(context, browser, entry);
+  if (!context.mounted) return;
+  await openFilePreview(context, browser, entry);
 }
 
 class FileListView extends StatefulWidget {
@@ -124,6 +179,14 @@ class _FileListViewState extends State<FileListView> {
           return KeyEventResult.handled;
         case LogicalKeyboardKey.keyV:
           pasteIntoCurrentFolder(context, browser);
+          return KeyEventResult.handled;
+        // Cmd/Ctrl+E opens the built-in editor on a text file.
+        case LogicalKeyboardKey.keyE:
+          if (selected.length != 1) return KeyEventResult.ignored;
+          if (!TextDocumentService.canEdit(selected.first)) {
+            return KeyEventResult.ignored;
+          }
+          _editEntry(context, browser, selected.first);
           return KeyEventResult.handled;
         // Cmd/Ctrl+L puts the status-bar path into edit mode — the Explorer
         // and Nautilus binding.
@@ -795,6 +858,12 @@ List<DeskMenuItem> _baseMenuItems(
   final fileItems = <DeskMenuItem>[];
   if (target != null) {
     final isDir = target.isDirectory;
+    // A cloud item can't answer everything a local one can: there is no file
+    // for another app to open, nothing for the P2P sender to read, and the
+    // Rust quick actions work on real paths. Those rows are replaced with the
+    // ones that *do* make sense over a network, rather than left in place to
+    // fail when clicked.
+    final isRemote = VPath.isRemote(target.path);
     fileItems.addAll([
       DeskMenuItem(
         label: 'Open',
@@ -807,7 +876,13 @@ List<DeskMenuItem> _baseMenuItems(
           }
         },
       ),
-      if (!isDir)
+      if (TextDocumentService.canEdit(target))
+        DeskMenuItem(
+          label: 'Edit',
+          icon: LucideIcons.pencil,
+          onTap: () => _editEntry(context, browser, target),
+        ),
+      if (!isDir && !isRemote)
         DeskMenuItem(
           label: _isIOS ? 'Share…' : 'Open With',
           icon: LucideIcons.share2,
@@ -816,18 +891,25 @@ List<DeskMenuItem> _baseMenuItems(
               ? () async => _actions.openWithChooser(target)
               : null,
         ),
-      if (!isDir)
+      if (!isDir && !isRemote)
         DeskMenuItem(
           label: 'Send to…',
           icon: LucideIcons.send,
           onTap: () => showSendToSheet(context, _sendPaths(browser, target)),
         ),
       DeskMenuItem.divider(),
-      DeskMenuItem(
-        label: 'Quick Actions',
-        icon: LucideIcons.zap,
-        submenu: _quickActionsSubmenu(context, browser, target),
-      ),
+      if (isRemote)
+        DeskMenuItem(
+          label: 'Cloud Actions',
+          icon: LucideIcons.cloud,
+          submenu: _remoteActionsSubmenu(context, browser, target),
+        )
+      else
+        DeskMenuItem(
+          label: 'Quick Actions',
+          icon: LucideIcons.zap,
+          submenu: _quickActionsSubmenu(context, browser, target),
+        ),
       DeskMenuItem.divider(),
       DeskMenuItem(
         label: 'Get Info',
@@ -867,7 +949,7 @@ List<DeskMenuItem> _baseMenuItems(
         },
       ),
       DeskMenuItem(
-        label: _isIOS ? 'Open Parent Folder' : 'Reveal in Finder',
+        label: _isIOS || isRemote ? 'Open Parent Folder' : 'Reveal in Finder',
         icon: LucideIcons.folderOpen,
         onTap: () => _revealEntry(context, browser, target),
       ),
@@ -1065,6 +1147,148 @@ bool _isRotatable(FileEntry e) =>
 ///
 /// Per-type actions need one unambiguous subject, so a multi-selection is
 /// offered only the one action that genuinely takes a list.
+/// What a cloud item can do that a local one can't — and the cloud stand-ins
+/// for the local Quick Actions.
+List<DeskMenuItem> _remoteActionsSubmenu(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry target,
+) {
+  final downloads = browser.shortcuts['Downloads'];
+  // A server reached over SSH can offer a shell in the folder you're looking
+  // at, which is the thing you actually want half the time you open a VPS in a
+  // file manager. Object stores have no such thing, and no link either.
+  final isSsh = RemoteHub.instance.connectionForPath(target.path)?.kind ==
+      RemoteKind.sftp;
+  return [
+    if (!target.isDirectory)
+      DeskMenuItem(
+        label: 'Download a Copy',
+        icon: LucideIcons.download,
+        enabled: downloads != null && downloads.isNotEmpty,
+        onTap: () => _downloadCopy(context, browser, target, downloads!),
+      ),
+    if (target.isDirectory && downloads != null && downloads.isNotEmpty)
+      DeskMenuItem(
+        label: 'Download Folder',
+        icon: LucideIcons.folderDown,
+        onTap: () => _downloadCopy(context, browser, target, downloads),
+      ),
+    DeskMenuItem.divider(),
+    if (isSsh) ...[
+      DeskMenuItem(
+        label: 'Open SSH Session Here',
+        icon: LucideIcons.terminal,
+        onTap: () => _openSshSession(context, target, run: true),
+      ),
+      DeskMenuItem(
+        label: 'Copy SSH Command',
+        icon: LucideIcons.clipboard,
+        onTap: () => _openSshSession(context, target, run: false),
+      ),
+    ] else
+      DeskMenuItem(
+        label: 'Copy Link',
+        icon: LucideIcons.link,
+        onTap: () => _copyShareLink(context, target),
+      ),
+    DeskMenuItem(
+      label: 'Refresh Source',
+      icon: LucideIcons.refreshCw,
+      onTap: () {
+        final id = VPath.connectionOf(target.path);
+        if (id != null) RemoteHub.instance.unmount(id);
+        browser.refresh();
+      },
+    ),
+  ];
+}
+
+/// Copies a remote item into the local Downloads folder, through the same
+/// transfer engine (and progress HUD) a paste would use.
+Future<void> _downloadCopy(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry target,
+  String destination,
+) async {
+  final ops = context.read<FileOpsProvider>();
+  final result = await ops.copyTo(_targetPaths(browser, target), destination);
+  if (!context.mounted) return;
+  if (result.failed.isNotEmpty) {
+    await _showError(
+      context,
+      'Couldn\'t download this item:\n${result.failed.first.error}',
+    );
+  }
+}
+
+/// Opens the built-in text editor on [entry], wherever the file lives, and
+/// refreshes the listing if it was written to.
+Future<void> _editEntry(
+  BuildContext context,
+  BrowserProvider browser,
+  FileEntry entry,
+) async {
+  final saved = await openTextEditor(context, entry);
+  // The editor refreshes the folder it saved into; this covers the case where
+  // the user navigated elsewhere and came back.
+  if (saved && context.mounted && browser.currentPath == VPath.dirname(entry.path)) {
+    await browser.refresh();
+  }
+}
+
+/// Opens the integrated terminal on the server, in the folder on screen — or
+/// puts the equivalent `ssh` command on the clipboard.
+///
+/// The command runs in the *local* shell the app already hosts, so it uses the
+/// user's own ssh client, their agent and their `~/.ssh/config`. Notilus's own
+/// SFTP session is for browsing; it is not a second place to keep keys.
+Future<void> _openSshSession(
+  BuildContext context,
+  FileEntry target, {
+  required bool run,
+}) async {
+  final directory =
+      target.isDirectory ? target.path : VPath.dirname(target.path);
+  try {
+    final fs = await RemoteHub.instance.fsFor(VPath.connectionOf(directory)!);
+    if (fs is! SftpFileSystem) return;
+    final command = fs.sshCommandFor(directory);
+    if (run) {
+      TerminalLauncher.run(command);
+    } else {
+      await Clipboard.setData(ClipboardData(text: command));
+    }
+  } catch (e) {
+    if (context.mounted) {
+      await _showError(context, 'Couldn\'t reach that server:\n$e');
+    }
+  }
+}
+
+/// Puts a shareable URL for a remote item on the clipboard.
+///
+/// The link grants nothing new: S3 hands back a presigned URL that expires in
+/// an hour, Drive hands back the same link its own UI shows. Neither changes
+/// who can reach the file.
+Future<void> _copyShareLink(BuildContext context, FileEntry target) async {
+  final ops = context.read<FileOpsProvider>();
+  try {
+    final link = await ops.shareLinkFor(target.path);
+    if (!context.mounted) return;
+    if (link == null || link.isEmpty) {
+      await _showError(context, 'This source doesn\'t provide links.');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: link));
+  } catch (e) {
+    if (context.mounted) {
+      await _showError(context, 'Couldn\'t get a link:\n$e');
+    }
+  }
+}
+
 List<DeskMenuItem> _quickActionsSubmenu(
   BuildContext context,
   BrowserProvider browser,
@@ -1430,6 +1654,9 @@ Future<void> _afterQuickAction(
 Future<void> _newFile(BuildContext context, BrowserProvider browser) async {
   final controller = TextEditingController(text: 'untitled.txt');
   final palette = AppColors.of(context);
+  // Resolved before the dialog await, so the provider lookup can't outlive
+  // the element that owns this context.
+  final ops = context.read<FileOpsProvider>();
   final name = await showCupertinoDialog<String?>(
     context: context,
     builder: (ctx) => CupertinoAlertDialog(
@@ -1458,13 +1685,30 @@ Future<void> _newFile(BuildContext context, BrowserProvider browser) async {
   );
   if (name == null || name.isEmpty) return;
 
+  final String created;
   try {
-    await NativeCore.instance.createFile(browser.currentPath, name);
+    created = await ops.createFileIn(browser.currentPath, name);
   } catch (e) {
     if (context.mounted) await _showError(context, '$e');
     return;
   }
   await browser.refresh();
+
+  // A new text file exists to be typed into. Opening the editor on it saves
+  // the round trip of creating, finding and then opening the thing you just
+  // asked for.
+  if (!context.mounted || !TextDocumentService.looksEditable(name)) return;
+  await _editEntry(
+    context,
+    browser,
+    FileEntry(
+      path: created,
+      name: name,
+      isDirectory: false,
+      size: 0,
+      modified: DateTime.now(),
+    ),
+  );
 }
 
 Future<void> _newFolder(BuildContext context, BrowserProvider browser) async {
@@ -1810,6 +2054,7 @@ Future<void> _renameEntry(
 ) async {
   final controller = TextEditingController(text: entry.name);
   final palette = AppColors.of(context);
+  final ops = context.read<FileOpsProvider>();
   final newName = await showCupertinoDialog<String?>(
     context: context,
     builder: (ctx) => CupertinoAlertDialog(
@@ -1836,9 +2081,9 @@ Future<void> _renameEntry(
       ],
     ),
   );
-  if (newName == null) return;
+  if (newName == null || newName.isEmpty || newName == entry.name) return;
   try {
-    await NativeCore.instance.rename(entry.path, newName);
+    await ops.renameEntry(entry.path, newName);
   } catch (e) {
     if (context.mounted) await _showError(context, 'Couldn\'t rename: $e');
     return;
@@ -1853,7 +2098,7 @@ Future<void> _duplicateEntry(
 ) async {
   final result = await context
       .read<FileOpsProvider>()
-      .copyTo([entry.path], p.dirname(entry.path));
+      .copyTo([entry.path], VPath.dirname(entry.path));
   if (result.failed.isNotEmpty && context.mounted) {
     await _showError(
       context,
@@ -1869,12 +2114,13 @@ Future<void> _revealEntry(
   BrowserProvider browser,
   FileEntry entry,
 ) async {
-  if (_isMacOS) {
+  // A cloud item has no Finder entry to reveal; going to its folder inside
+  // Notilus is the equivalent move.
+  if (_isMacOS && !VPath.isRemote(entry.path)) {
     await _actions.revealInOs(entry);
     return;
   }
-  // iOS / others: just navigate to the parent inside Notilus.
-  final parent = p.dirname(entry.path);
+  final parent = VPath.dirname(entry.path);
   await browser.navigateTo(parent);
 }
 

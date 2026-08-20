@@ -9,8 +9,10 @@ import '../models/chat_message.dart';
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../providers/chat_provider.dart';
+import '../providers/file_ops_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/llm/llm_client.dart';
+import '../services/remote/remote_path.dart';
 import '../theme.dart';
 
 class ChatPanel extends StatefulWidget {
@@ -60,8 +62,18 @@ class _ChatPanelState extends State<ChatPanel> {
     }
 
     // An explicitly picked file wins over the browser selection.
-    final attached =
+    var attached =
         _pickedFile ?? (_attachSelection ? browser.primarySelection : null);
+    // A cloud file has to come down before it can be read into a prompt.
+    if (attached != null && VPath.isRemote(attached.path)) {
+      try {
+        attached = await context.read<FileOpsProvider>().localEntryFor(attached);
+      } catch (_) {
+        // Send the message without the attachment rather than swallowing it:
+        // the transfer HUD already showed why the download failed.
+        attached = null;
+      }
+    }
     _controller.clear();
     if (_pickedFile != null) {
       setState(() => _pickedFile = null); // one-shot attachment

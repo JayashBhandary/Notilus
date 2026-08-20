@@ -5,10 +5,15 @@ import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../models/media_kind.dart';
+import '../models/remote/remote_connection.dart';
 import '../providers/browser_provider.dart';
 import '../screens/media_screen.dart' show iconForMediaKind;
 import '../services/file_service.dart';
+import '../services/remote/remote_hub.dart';
+import '../services/remote/remote_path.dart';
 import '../theme.dart';
+import 'desk_context_menu.dart';
+import 'remote/remote_source_dialog.dart';
 
 class Sidebar extends StatelessWidget {
   const Sidebar({
@@ -34,6 +39,10 @@ class Sidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final browser = context.watch<BrowserProvider>();
+    // The hub is read from its singleton rather than through Provider: it is
+    // the same object either way, and a widget that can be dropped into a
+    // harness with only a BrowserProvider around it stays droppable.
+    final hub = RemoteHub.instance;
     final palette = AppColors.of(context);
     final colors = ShadTheme.of(context).colorScheme;
     final shortcuts = browser.shortcuts.entries
@@ -53,7 +62,9 @@ class Sidebar extends StatelessWidget {
         !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
     final topPadding = isDesktopMac ? 36.0 : 14.0;
 
-    return Container(
+    return ListenableBuilder(
+      listenable: hub,
+      builder: (context, _) => Container(
       width: width,
       color: palette.sidebarBg,
       child: SafeArea(
@@ -114,23 +125,26 @@ class Sidebar extends StatelessWidget {
             const SizedBox(height: 14),
             _SectionHeader(
               label: 'Locations',
-              trailing: GestureDetector(
-                onTap: browser.refreshDrives,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 2,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Adding a cloud source sits here rather than in Settings
+                  // because this is the list it joins: a remote is a location,
+                  // and the row it produces behaves like the drives above it.
+                  _HeaderAction(
+                    icon: LucideIcons.plus,
+                    tooltip: 'Add a remote source',
+                    onTap: () => _addRemote(context, after),
                   ),
-                  child: Icon(
-                    LucideIcons.refreshCw,
-                    size: 12,
-                    color: palette.sidebarHeader,
-                    semanticLabel: 'Refresh drives',
+                  _HeaderAction(
+                    icon: LucideIcons.refreshCw,
+                    tooltip: 'Refresh drives',
+                    onTap: browser.refreshDrives,
                   ),
-                ),
+                ],
               ),
             ),
-            if (drives.isEmpty)
+            if (drives.isEmpty && hub.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -157,6 +171,27 @@ class Sidebar extends StatelessWidget {
                   onTap: () => after(() => browser.navigateTo(d.path)),
                 );
               }),
+            // Mounted cloud sources, in the same list as the physical drives:
+            // to the rest of the app a bucket is just another place files are.
+            ...hub.connections.map(
+              (connection) => _RemoteItem(
+                connection: connection,
+                status: hub.statusOf(connection.id),
+                error: hub.errorOf(connection.id),
+                selected: browser.centerView == CenterView.files &&
+                    VPath.connectionOf(browser.currentPath) == connection.id,
+                onTap: () => after(
+                  () => browser.navigateTo(VPath.root(connection.id)),
+                ),
+              ),
+            ),
+            if (hub.isEmpty)
+              _SidebarItem(
+                label: 'Add remote source…',
+                icon: LucideIcons.cloudUpload,
+                selected: false,
+                onTap: () => _addRemote(context, after),
+              ),
             const SizedBox(height: 14),
             const _SectionHeader(label: 'Tags'),
             ..._kTags.map(
@@ -164,6 +199,7 @@ class Sidebar extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -185,6 +221,218 @@ class Sidebar extends StatelessWidget {
 
   IconData _iconForDrive(DriveEntry d) =>
       d.isRoot ? LucideIcons.laptop : LucideIcons.hardDrive;
+
+  /// Opens the add-source dialog and, if a source was added, navigates to it —
+  /// the point of adding one is to look at it.
+  Future<void> _addRemote(
+    BuildContext context,
+    void Function(VoidCallback) after,
+  ) async {
+    final browser = context.read<BrowserProvider>();
+    final id = await showRemoteSourceDialog(context);
+    if (id == null) return;
+    after(() => browser.navigateTo(VPath.root(id)));
+  }
+}
+
+/// A mounted remote source. Carries a status dot — connecting, ready, or
+/// broken — because a network location can fail in ways a local disk can't,
+/// and the right-click menu that manages it.
+class _RemoteItem extends StatefulWidget {
+  const _RemoteItem({
+    required this.connection,
+    required this.status,
+    required this.error,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final RemoteConnection connection;
+  final RemoteStatus status;
+  final String? error;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  State<_RemoteItem> createState() => _RemoteItemState();
+}
+
+class _RemoteItemState extends State<_RemoteItem> {
+  bool _hover = false;
+
+  void _showMenu(BuildContext context, Offset position) {
+    final browser = context.read<BrowserProvider>();
+    final connection = widget.connection;
+    showDeskContextMenu(
+      context,
+      globalPosition: position,
+      items: [
+        DeskMenuItem(
+          label: 'Open',
+          icon: LucideIcons.folderOpen,
+          onTap: () => browser.navigateTo(VPath.root(connection.id)),
+        ),
+        DeskMenuItem(
+          label: 'Reconnect',
+          icon: LucideIcons.refreshCw,
+          onTap: () {
+            RemoteHub.instance.unmount(connection.id);
+            if (VPath.connectionOf(browser.currentPath) == connection.id) {
+              browser.refresh();
+            }
+          },
+        ),
+        DeskMenuItem.divider(),
+        DeskMenuItem(
+          label: 'Edit…',
+          icon: LucideIcons.settings,
+          onTap: () => showRemoteSourceDialog(context, existing: connection),
+        ),
+        DeskMenuItem(
+          label: 'Eject',
+          icon: LucideIcons.circleMinus,
+          onTap: () => RemoteHub.instance.unmount(connection.id),
+        ),
+        DeskMenuItem.divider(),
+        DeskMenuItem(
+          label: 'Remove source…',
+          icon: LucideIcons.trash,
+          onTap: () => confirmRemoveRemote(context, connection),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
+    final bg = widget.selected
+        ? palette.sidebarSelected
+        : (_hover ? colors.accent : null);
+
+    final row = MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: widget.onTap,
+        onSecondaryTapUp: (details) =>
+            _showMenu(context, details.globalPosition),
+        onLongPressStart: (details) =>
+            _showMenu(context, details.globalPosition),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                widget.connection.kind.icon,
+                size: 14,
+                color: widget.status == RemoteStatus.error
+                    ? colors.destructive
+                    : (widget.selected
+                        ? colors.primary
+                        : colors.mutedForeground),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  widget.connection.label,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    color: colors.foreground,
+                    fontWeight:
+                        widget.selected ? FontWeight.w500 : FontWeight.normal,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              _StatusDot(status: widget.status, palette: palette),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final error = widget.error;
+    if (error == null) return row;
+    return ShadTooltip(
+      builder: (_) => Text(error, style: const TextStyle(fontSize: 11.5)),
+      child: row,
+    );
+  }
+}
+
+class _StatusDot extends StatelessWidget {
+  const _StatusDot({required this.status, required this.palette});
+
+  final RemoteStatus status;
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    // Idle draws nothing: a source that simply hasn't been opened yet is not
+    // a state worth a light.
+    if (status == RemoteStatus.idle) return const SizedBox(width: 8);
+    final color = switch (status) {
+      RemoteStatus.ready => palette.success,
+      RemoteStatus.error => colors.destructive,
+      RemoteStatus.connecting => colors.mutedForeground,
+      RemoteStatus.idle => colors.mutedForeground,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Container(
+        width: 6,
+        height: 6,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+      ),
+    );
+  }
+}
+
+/// A small icon button for a section header — the `+` and the refresh arrow.
+class _HeaderAction extends StatelessWidget {
+  const _HeaderAction({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    return ShadTooltip(
+      builder: (_) => Text(tooltip, style: const TextStyle(fontSize: 11.5)),
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Icon(
+              icon,
+              size: 12,
+              color: palette.sidebarHeader,
+              semanticLabel: tooltip,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _TagSpec {

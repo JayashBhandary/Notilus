@@ -65,6 +65,48 @@ no telemetry.
   rendered once and disk-cached; cache keys include mtime + size, so
   external edits refresh automatically.
 
+## ☁️ Remote sources — your cloud in the same window
+
+**Mount your VPS, S3, Google Drive or WebDAV next to your local folders,
+and copy between them by dragging.**
+
+- **Four providers, one behaviour** — SSH/SFTP (any server you can `ssh`
+  into), Amazon S3 and everything that speaks its API (MinIO, Cloudflare
+  R2, Wasabi, Backblaze B2, DigitalOcean Spaces), Google Drive, and WebDAV
+  (Nextcloud, ownCloud, Box, Synology).
+- **Your VPS as a folder** — browse `/var/www` like any other directory,
+  drag a build into it, and right-click → **Open SSH Session Here** to drop
+  the integrated terminal into that exact path on the server. The host key
+  is pinned on first connection, so a swapped server fails loudly instead
+  of quietly.
+- **Added from the sidebar**, not buried in settings: the **+** on the
+  Locations header. The connection is tested before it is saved, and every
+  source shows a status dot with the reason when something is wrong.
+- **A remote folder *is* a folder** — back/forward history, breadcrumbs,
+  multi-select, rename, New Folder, delete, and the location bar all work
+  unchanged, because a mounted source is addressed by a virtual path the
+  rest of the app never has to special-case.
+- **Copy and paste across the boundary** — ⌘C/⌘V, drag and drop, and
+  Duplicate move files local → cloud, cloud → local, and cloud → cloud.
+  Copies inside one provider are done server-side (S3 `CopyObject`, Drive
+  `files.copy`, WebDAV `COPY`, `cp -p` over SSH), so a 2 GB duplicate costs
+  no bandwidth.
+- **A progress card, not a modal** — transfers stack in the bottom-right
+  corner with throughput, ETA and per-transfer cancel; you can keep
+  browsing while they run, and several run at once.
+- **Credentials in the OS keychain** — Keychain / Credential Manager /
+  libsecret. Google Drive uses the standard loopback + PKCE flow in your
+  real browser and stores only a refresh token; nothing is proxied through
+  a Notilus server, because there isn't one.
+- **Nothing is fetched behind your back** — listings are metadata only.
+  A file's bytes come down when you preview it, open it, attach it to the
+  chat, or copy it, and are cached so the second open is instant.
+- **Sharing that grants nothing** — "Copy Link" hands back an S3 presigned
+  URL that expires in an hour, or the Drive link the file already has. No
+  ACL or permission is ever changed on your behalf.
+
+---
+
 ## 👁 Quick Look previews — press Space, see anything
 
 **A full-screen previewer for nearly every file type — no external apps needed.**
@@ -113,6 +155,29 @@ Claude, Gemini, or OpenAI API keys — plus any OpenAI-compatible server
 - **Fully configurable** — per-provider settings (Ollama host URL, API
   keys, custom base URL), model picker populated live from each
   provider, temperature slider (0.0–1.5), and a Save & Test button.
+
+## ✏️ Text editor — fix the config without leaving the window
+
+**Edit source and config files in place, on this machine or on a server.**
+
+- **One editor, every source** — local disk, a VPS over SSH, S3, Google
+  Drive, WebDAV. Remote files are read from and written straight back to the
+  provider, not to a cache.
+- **Opens where you already are** — ⌘E / Ctrl+E on a selection, right-click
+  → Edit, or the pencil in the Quick Look toolbar. A new text file opens in
+  the editor as soon as it's created.
+- **Keeps the file the way it was** — CRLF stays CRLF, a byte-order mark
+  survives, and saving writes in place, so permissions, ownership, hard
+  links and symlinks aren't quietly replaced. `~/.ssh/config` stays the same
+  file it was.
+- **Won't lose someone else's work** — if the file changed on disk (or on
+  the server) while it was open, saving asks before overwriting.
+- **Won't corrupt what it can't read** — binaries, non-UTF-8 files and
+  anything over 5 MB are declined with a reason rather than opened.
+- ⌘S saves, ⌘W closes, Tab indents, Shift+Tab outdents, and a status bar
+  reports line, column, line count, line ending and encoding.
+
+---
 
 ## ⛓ Workflows — reusable AI pipelines for your files
 
@@ -273,5 +338,17 @@ Claude, Gemini, or OpenAI API keys — plus any OpenAI-compatible server
   the quarantine flag).
 - iOS/iPadOS are build-from-source and sandbox-limited to the app's
   Documents folder.
+- The text editor has **no syntax highlighting**, no find-and-replace and
+  no undo beyond the text field's own. It is a good editor for a config
+  file, not a replacement for one.
 - Sidebar **Tags** section is a visual placeholder (no persistence yet).
+- SSH sources are exercised by unit tests only — path mapping, shell
+  quoting and host-key pinning. There is no end-to-end test against a real
+  `sshd`, so first-run behaviour against an unusual server is unproven.
+- Remote sources show file-type icons rather than thumbnails, and search
+  them by **name only** — both would mean downloading the folder. Uploads
+  are single-request (no multipart), so an individual file above ~5 GB is
+  out of reach on S3, and an interrupted upload restarts rather than
+  resuming. Google Drive folders that hold two files with the same name
+  resolve to the first one by path.
 - No in-folder file search yet (on the roadmap).

@@ -2,7 +2,6 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
@@ -10,6 +9,8 @@ import '../models/media_kind.dart';
 import '../providers/browser_provider.dart';
 import '../providers/search_provider.dart';
 import '../providers/settings_provider.dart';
+import '../services/remote/remote_hub.dart';
+import '../services/remote/remote_path.dart';
 import '../theme.dart';
 import '../utils/responsive.dart';
 import '../widgets/chat_panel.dart';
@@ -19,6 +20,7 @@ import '../widgets/file_drag_drop.dart';
 import '../widgets/search_bar.dart';
 import '../widgets/info_panel.dart';
 import '../widgets/path_status_bar.dart';
+import '../widgets/remote/transfer_hud.dart';
 import '../widgets/sidebar.dart';
 import '../widgets/terminal_panel.dart';
 import '../widgets/window_chrome.dart';
@@ -141,12 +143,23 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     HardwareKeyboard.instance.addHandler(_handleGlobalKey);
+    // The terminal's open/closed state lives here, so anything elsewhere that
+    // wants a shell — "Open SSH Session Here" on a server folder — asks
+    // through this hook.
+    TerminalLauncher.onOpenRequested = _openTerminal;
   }
 
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_handleGlobalKey);
+    if (TerminalLauncher.onOpenRequested == _openTerminal) {
+      TerminalLauncher.onOpenRequested = null;
+    }
     super.dispose();
+  }
+
+  void _openTerminal() {
+    if (!_terminalOpen && mounted) setState(() => _terminalOpen = true);
   }
 
   // Cmd+J (macOS) / Ctrl+J (others) toggles the integrated terminal,
@@ -199,9 +212,27 @@ class _HomeScreenState extends State<HomeScreen> {
     // A ColoredBox is enough in place of CupertinoPageScaffold: both layouts
     // apply their own SafeArea, and a desktop file manager has no on-screen
     // keyboard for the scaffold's inset handling to work around.
+    //
+    // The transfer HUD floats over both layouts rather than sitting in either
+    // one's column: a cloud copy outlives the pane the user started it from,
+    // and it has to keep the same corner while they browse somewhere else.
     return ColoredBox(
       color: colors.background,
-      child: compact
+      child: Stack(
+        children: [
+          Positioned.fill(child: _layout(compact)),
+          const Positioned(
+            right: 0,
+            bottom: 34,
+            child: SafeArea(child: TransferHud()),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _layout(bool compact) {
+    return compact
           ? _CompactLayout(
               tab: _compactTab,
               onTabChanged: (i) => setState(() => _compactTab = i),
@@ -226,8 +257,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onCloseTerminal: _closeTerminal,
               onResizeTerminal: _resizeTerminal,
               overviewKey: _overviewKey,
-            ),
-    );
+            );
   }
 }
 
@@ -264,7 +294,11 @@ class _WideLayout extends StatelessWidget {
     final settings = context.watch<SettingsProvider>();
     final width = MediaQuery.sizeOf(context).width;
     final browser = context.watch<BrowserProvider>();
-    final cwd = browser.currentPath;
+    // The integrated terminal needs somewhere it can actually `cd`; a
+    // `notilus://` folder isn't one, so a cloud location falls back to home.
+    final cwd = browser.isRemote
+        ? (browser.shortcuts['Home'] ?? '')
+        : browser.currentPath;
     final centerView = browser.centerView;
 
     final sidebarCollapsed = settings.sidebarCollapsed;
@@ -325,6 +359,7 @@ class _WideLayout extends StatelessWidget {
                             ),
                             if (terminalOpen)
                               TerminalPanel(
+                                key: terminalPanelKey,
                                 cwd: cwd,
                                 height: clampTerminalHeight(
                                   terminalHeight,
@@ -424,7 +459,11 @@ class _CompactLayout extends StatelessWidget {
     final palette = AppColors.of(context);
     final colors = ShadTheme.of(context).colorScheme;
     final browser = context.watch<BrowserProvider>();
-    final cwd = browser.currentPath;
+    // The integrated terminal needs somewhere it can actually `cd`; a
+    // `notilus://` folder isn't one, so a cloud location falls back to home.
+    final cwd = browser.isRemote
+        ? (browser.shortcuts['Home'] ?? '')
+        : browser.currentPath;
     final centerView = browser.centerView;
 
     return Stack(
@@ -460,6 +499,7 @@ class _CompactLayout extends StatelessWidget {
                       ),
                       if (terminalOpen)
                         TerminalPanel(
+                          key: terminalPanelKey,
                           cwd: cwd,
                           height: clampTerminalHeight(
                             terminalHeight,
@@ -828,7 +868,12 @@ class _CurrentFolderLabel extends StatelessWidget {
   String _displayName(String path) {
     if (path.isEmpty) return '';
     if (path == '/' || path == r'\') return '/';
-    final base = p.basename(path);
+    // At the root of a cloud source the last path segment is a connection id,
+    // which means nothing to anyone; show what the sidebar calls it.
+    if (VPath.isRemoteRoot(path)) {
+      return RemoteHub.instance.labelForPath(path) ?? 'Remote';
+    }
+    final base = VPath.basename(path);
     return base.isEmpty ? path : base;
   }
 }

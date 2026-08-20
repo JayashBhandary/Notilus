@@ -22,6 +22,7 @@ class PreviewViewerHost extends StatelessWidget {
     super.key,
     required this.file,
     required this.isActive,
+    this.onEdit,
   });
 
   final FileEntry file;
@@ -29,6 +30,11 @@ class PreviewViewerHost extends StatelessWidget {
   /// False for the off-screen pages the [PageView] keeps alive; media viewers
   /// use it to pause themselves when swiped away from.
   final bool isActive;
+
+  /// Opens the editor on whatever this preview is *of*. Null when the file
+  /// isn't text, or when the preview is showing a downloaded copy whose
+  /// original isn't known — editing the copy would write to a cache.
+  final VoidCallback? onEdit;
 
   @override
   Widget build(BuildContext context) {
@@ -38,9 +44,9 @@ class PreviewViewerHost extends StatelessWidget {
       case PreviewKind.svg:
         return SvgViewer(file: file);
       case PreviewKind.markdown:
-        return MarkdownViewer(file: file);
+        return MarkdownViewer(file: file, onEdit: onEdit);
       case PreviewKind.text:
-        return TextViewer(file: file);
+        return TextViewer(file: file, onEdit: onEdit);
       case PreviewKind.pdf:
         // pdfx ships no Linux plugin, so that platform renders through poppler.
         if (!kIsWeb && Platform.isLinux) return PopplerPdfViewer(file: file);
@@ -289,8 +295,9 @@ Future<String> _readCapped(String path, {int cap = 1024 * 1024}) async {
 }
 
 class MarkdownViewer extends StatefulWidget {
-  const MarkdownViewer({super.key, required this.file});
+  const MarkdownViewer({super.key, required this.file, this.onEdit});
   final FileEntry file;
+  final VoidCallback? onEdit;
 
   @override
   State<MarkdownViewer> createState() => _MarkdownViewerState();
@@ -415,6 +422,12 @@ class _MarkdownViewerState extends State<MarkdownViewer> {
               onPressed: () => setState(() => _raw = !_raw),
             ),
             PreviewToolbarLabel(text: _raw ? 'Source' : 'Rendered'),
+            if (widget.onEdit != null)
+              PreviewToolbarButton(
+                icon: LucideIcons.pencil,
+                tooltip: 'Edit',
+                onPressed: widget.onEdit!,
+              ),
           ],
         ),
       ],
@@ -427,8 +440,9 @@ class _MarkdownViewerState extends State<MarkdownViewer> {
 // ──────────────────────────────────────────────────────────────────────────
 
 class TextViewer extends StatefulWidget {
-  const TextViewer({super.key, required this.file});
+  const TextViewer({super.key, required this.file, this.onEdit});
   final FileEntry file;
+  final VoidCallback? onEdit;
 
   @override
   State<TextViewer> createState() => _TextViewerState();
@@ -486,6 +500,12 @@ class _TextViewerState extends State<TextViewer> {
               onPressed: () => setState(() => _wrap = !_wrap),
             ),
             PreviewToolbarLabel(text: _wrap ? 'Wrapped' : 'No wrap'),
+            if (widget.onEdit != null)
+              PreviewToolbarButton(
+                icon: LucideIcons.pencil,
+                tooltip: 'Edit',
+                onPressed: widget.onEdit!,
+              ),
           ],
         ),
       ],

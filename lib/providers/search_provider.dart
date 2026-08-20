@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../services/native_core.dart';
+import '../services/remote/remote_file_system.dart';
+import '../services/remote/remote_hub.dart';
+import '../services/remote/remote_path.dart';
 
 /// Drives filename and content search over the current folder subtree.
 ///
@@ -21,7 +24,9 @@ class SearchProvider extends ChangeNotifier {
 
   Timer? _debounceTimer;
   StreamSubscription<SearchEvent>? _subscription;
+  StreamSubscription<RemoteEntry>? _remoteSubscription;
   String? _activeOpId;
+  int _remoteRun = 0;
 
   String _query = '';
   String _root = '';
@@ -38,6 +43,10 @@ class SearchProvider extends ChangeNotifier {
   bool get truncated => _truncated;
   int get filesScanned => _filesScanned;
   List<SearchHit> get hits => _hits;
+
+  /// True while the results come from a cloud source, where matching is by
+  /// name only — content search would mean downloading the folder.
+  bool get isRemoteSearch => VPath.isRemote(_root);
 
   /// Updates the query and schedules a run. Safe to call on every keystroke.
   void setQuery(String value, {required String root}) {
@@ -83,6 +92,10 @@ class SearchProvider extends ChangeNotifier {
   Future<void> _start() async {
     if (_root.isEmpty) return;
     _cancelActive();
+    if (VPath.isRemote(_root)) {
+      await _startRemote();
+      return;
+    }
 
     final opId = _core.newOpId();
     _activeOpId = opId;
@@ -150,9 +163,83 @@ class SearchProvider extends ChangeNotifier {
     }
   }
 
+  /// Name search against a mounted cloud source.
+  ///
+  /// Hits are shaped into the same [SearchHit] the Rust search emits, so the
+  /// results list, the reveal-on-tap and the row rendering are all shared —
+  /// only where the names come from differs.
+  Future<void> _startRemote() async {
+    final run = ++_remoteRun;
+    _running = true;
+    _hits = const [];
+    _truncated = false;
+    _filesScanned = 0;
+    notifyListeners();
+
+    final query = _query;
+    final root = _root;
+    final RemoteFileSystem? fs;
+    try {
+      fs = await RemoteHub.instance.fsForPath(root);
+    } catch (_) {
+      if (run == _remoteRun) {
+        _running = false;
+        notifyListeners();
+      }
+      return;
+    }
+    if (fs == null || run != _remoteRun) return;
+
+    final buffer = <SearchHit>[];
+    Timer? flush;
+    void publish() {
+      if (run != _remoteRun) return;
+      _hits = List.unmodifiable(buffer);
+      notifyListeners();
+    }
+
+    _remoteSubscription = fs.search(root, query).listen(
+      (entry) {
+        buffer.add(SearchHit(
+          entry: DirEntryInfo(
+            path: entry.path,
+            name: entry.name,
+            isDir: entry.isDirectory,
+            size: BigInt.from(entry.size),
+            modifiedMs: entry.modified.millisecondsSinceEpoch,
+          ),
+          kind: HitKind.name,
+        ));
+        flush ??= Timer(const Duration(milliseconds: 120), () {
+          flush = null;
+          publish();
+        });
+      },
+      onError: (_) {
+        flush?.cancel();
+        if (run != _remoteRun) return;
+        _running = false;
+        publish();
+        notifyListeners();
+      },
+      onDone: () {
+        flush?.cancel();
+        if (run != _remoteRun) return;
+        _filesScanned = buffer.length;
+        _running = false;
+        publish();
+        notifyListeners();
+      },
+      cancelOnError: true,
+    );
+  }
+
   void _cancelActive() {
     final opId = _activeOpId;
     _activeOpId = null;
+    _remoteRun++;
+    _remoteSubscription?.cancel();
+    _remoteSubscription = null;
     _subscription?.cancel();
     _subscription = null;
     if (opId != null) {

@@ -1,11 +1,11 @@
 import 'package:flutter/widgets.dart';
-import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../services/system_info_service.dart' show formatBytes;
+import '../services/remote/remote_path.dart';
 import '../theme.dart';
 import 'file_thumbnail.dart';
 
@@ -117,7 +117,7 @@ class _Details extends StatelessWidget {
           const _SectionLabel('Information'),
           const SizedBox(height: 6),
           _Row(label: 'Modified', value: modified),
-          _Row(label: 'Where', value: p.dirname(entry.path), wrap: true),
+          _Row(label: 'Where', value: VPath.dirname(entry.path), wrap: true),
           _Row(label: 'Kind', value: _kind()),
           if (!entry.isDirectory)
             _Row(label: 'Size', value: formatBytes(entry.size)),

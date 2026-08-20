@@ -1,8 +1,16 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+
+import '../models/file_entry.dart';
 import '../services/native_core.dart';
+import '../services/remote/remote_file_system.dart';
+import '../services/remote/remote_hub.dart';
+import '../services/remote/remote_path.dart';
+import '../services/remote/transfer_engine.dart';
 
 /// What a pending clipboard payload will do when pasted.
 enum ClipboardMode { copy, cut }
@@ -138,9 +146,15 @@ class QuickResult {
 /// All the heavy lifting (recursive walks, byte copying, cross-device moves)
 /// happens in Rust; this class only holds UI state and forwards progress.
 class FileOpsProvider extends ChangeNotifier {
-  FileOpsProvider({NativeCore? core}) : _core = core ?? NativeCore.instance;
+  FileOpsProvider({NativeCore? core, TransferEngine? engine})
+      : _core = core ?? NativeCore.instance,
+        _engine = engine;
 
   final NativeCore _core;
+
+  /// Moves bytes to and from mounted cloud sources. Null in tests and on the
+  /// paths that never touch a remote — everything local still goes to Rust.
+  final TransferEngine? _engine;
 
   FileClipboard? _clipboard;
   ActiveOperation? _active;
@@ -200,6 +214,30 @@ class FileOpsProvider extends ChangeNotifier {
     required bool isMove,
   }) async {
     if (sources.isEmpty) return const OpResult.empty();
+
+    // Anything with a cloud source on either end goes to the transfer engine
+    // instead of the Rust core, which only knows about local paths. It runs
+    // outside the single-operation guard below on purpose: network transfers
+    // are slow and independent of each other, and each gets its own row in the
+    // progress HUD.
+    final engine = _engine;
+    if (engine != null && TransferEngine.involvesRemote(sources, destDir)) {
+      final report = await engine.transfer(
+        sources: sources,
+        destDir: destDir,
+        move: isMove,
+      );
+      return OpResult(
+        completed: report.completed,
+        skipped: const [],
+        failed: [
+          for (final f in report.failed)
+            FailedItem(path: f.path, error: f.error),
+        ],
+        cancelled: report.cancelled,
+      );
+    }
+
     if (_active != null) {
       // One operation at a time: two concurrent writes into the same folder
       // would race on collision-free naming.
@@ -414,11 +452,116 @@ class FileOpsProvider extends ChangeNotifier {
   }
 
   /// Moves [paths] to the platform recycle bin.
-  Future<TrashOutcome> trash(List<String> paths) =>
-      _core.moveToTrash(paths);
+  ///
+  /// Cloud sources have their own idea of a recycle bin — Drive trashes,
+  /// S3 deletes (or versions, if the bucket is versioned) — so a remote path
+  /// is handed to its provider rather than to the local trash.
+  Future<TrashOutcome> trash(List<String> paths) => _delete(paths);
 
   /// Deletes without going through the recycle bin. The caller must have
   /// confirmed this with the user.
   Future<TrashOutcome> deleteForever(List<String> paths) =>
-      _core.deletePermanently(paths);
+      _delete(paths, permanent: true);
+
+  Future<TrashOutcome> _delete(
+    List<String> paths, {
+    bool permanent = false,
+  }) async {
+    final local = [for (final path in paths) if (!VPath.isRemote(path)) path];
+    final remote = [for (final path in paths) if (VPath.isRemote(path)) path];
+
+    final trashed = <String>[];
+    final failed = <FailedItem>[];
+
+    if (local.isNotEmpty) {
+      final outcome = permanent
+          ? await _core.deletePermanently(local)
+          : await _core.moveToTrash(local);
+      trashed.addAll(outcome.trashed);
+      failed.addAll(outcome.failed);
+    }
+
+    for (final path in remote) {
+      try {
+        final fs = await RemoteHub.instance.fsFor(VPath.connectionOf(path)!);
+        final entry = await fs.stat(path);
+        await fs.delete(path, isDirectory: entry?.isDirectory ?? false);
+        trashed.add(path);
+      } catch (e) {
+        failed.add(FailedItem(
+          path: path,
+          error: e is RemoteException ? e.message : '$e',
+        ));
+      }
+    }
+
+    if (remote.isNotEmpty) notifyListeners();
+    return TrashOutcome(trashed: trashed, failed: failed);
+  }
+
+  /// A real local file for [path], downloading it first when it lives on a
+  /// remote source.
+  ///
+  /// Preview, "Open With", the workflows and the Rust quick actions all need a
+  /// path they can `open()`. Rather than teach each of them about cloud
+  /// storage, a remote file becomes a local one here — cached, so opening the
+  /// same file twice costs one download.
+  Future<String> localCopyOf(String path) async {
+    if (!VPath.isRemote(path)) return path;
+    final engine = _engine;
+    if (engine == null) {
+      throw RemoteException('Remote sources are not available.');
+    }
+    return engine.materialize(path);
+  }
+
+  /// The same as [localCopyOf], as a [FileEntry] the rest of the app can pass
+  /// around — the chat panel, the workflow runner and the preview all take an
+  /// entry, not a path.
+  Future<FileEntry> localEntryFor(FileEntry entry) async {
+    if (!VPath.isRemote(entry.path)) return entry;
+    final path = await localCopyOf(entry.path);
+    final stat = await File(path).stat();
+    return FileEntry(
+      path: path,
+      name: p.basename(path),
+      isDirectory: false,
+      size: stat.size,
+      modified: stat.modified,
+    );
+  }
+
+  /// Forgets any downloaded copy of a remote file, after something wrote to
+  /// the original.
+  Future<void> forgetCachedCopy(String path) async {
+    if (!VPath.isRemote(path)) return;
+    await _engine?.forgetCached(path);
+  }
+
+  /// Creates an empty file in [dir], local or remote. Returns its path.
+  Future<String> createFileIn(String dir, String name) async {
+    if (!VPath.isRemote(dir)) return _core.createFile(dir, name);
+    final fs = await RemoteHub.instance.fsFor(VPath.connectionOf(dir)!);
+    final target = await fs.uniquePath(VPath.join(dir, name));
+    await fs.upload(
+      vpath: target,
+      data: const Stream<List<int>>.empty(),
+      length: 0,
+    );
+    return target;
+  }
+
+  /// A shareable URL for a remote item, or null when the provider has none.
+  Future<String?> shareLinkFor(String path) async {
+    if (!VPath.isRemote(path)) return null;
+    final fs = await RemoteHub.instance.fsFor(VPath.connectionOf(path)!);
+    return fs.shareLink(path);
+  }
+
+  /// Renames a single item, wherever it lives. Returns the new path.
+  Future<String> renameEntry(String path, String newName) async {
+    if (!VPath.isRemote(path)) return _core.rename(path, newName);
+    final fs = await RemoteHub.instance.fsFor(VPath.connectionOf(path)!);
+    return fs.rename(path, newName);
+  }
 }

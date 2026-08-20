@@ -3,13 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 import 'package:super_drag_and_drop/super_drag_and_drop.dart';
 
 import '../models/file_entry.dart';
 import '../providers/browser_provider.dart';
 import '../providers/file_ops_provider.dart';
+import '../services/remote/remote_path.dart';
 import '../theme.dart';
 
 /// Drag and drop for files, both inside the app and to/from the OS.
@@ -71,9 +71,18 @@ class DraggableFileItem extends StatelessWidget {
           localData: {'paths': paths},
           suggestedName: entry.name,
         );
-        // A real file URI is what makes the drop land in Finder/Explorer.
         for (final path in paths) {
-          item.add(Formats.fileUri(Uri.file(path)));
+          if (VPath.isRemote(path)) {
+            // There is no file on disk to hand the OS. The virtual path goes
+            // out as text — which is what a drop into an editor or a terminal
+            // wants anyway — while the localData above keeps drops *inside*
+            // Notilus working normally, including onto a local folder, where
+            // they become a download.
+            item.add(Formats.plainText(path));
+          } else {
+            // A real file URI is what makes the drop land in Finder/Explorer.
+            item.add(Formats.fileUri(Uri.file(path)));
+          }
         }
         return item;
       },
@@ -113,7 +122,7 @@ class _FolderDropTargetState extends State<FolderDropTarget> {
     final palette = AppColors.of(context);
 
     return DropRegion(
-      formats: const [Formats.fileUri],
+      formats: const [Formats.fileUri, Formats.plainText],
       hitTestBehavior: HitTestBehavior.opaque,
       onDropOver: (event) {
         final paths = _incomingPaths(event.session);
@@ -165,7 +174,7 @@ class _CurrentFolderDropTargetState extends State<CurrentFolderDropTarget> {
     final browser = context.watch<BrowserProvider>();
 
     return DropRegion(
-      formats: const [Formats.fileUri],
+      formats: const [Formats.fileUri, Formats.plainText],
       hitTestBehavior: HitTestBehavior.deferToChild,
       onDropOver: (event) {
         if (browser.currentPath.isEmpty) return DropOperation.none;
@@ -173,7 +182,7 @@ class _CurrentFolderDropTargetState extends State<CurrentFolderDropTarget> {
         // Rust skips them, but don't invite the gesture.
         final paths = _incomingPaths(event.session);
         if (paths.isNotEmpty &&
-            paths.every((path) => p.dirname(path) == browser.currentPath)) {
+            paths.every((path) => VPath.dirname(path) == browser.currentPath)) {
           if (_hovering) setState(() => _hovering = false);
           return DropOperation.none;
         }
@@ -240,7 +249,7 @@ Future<void> handleDrop(
   // Drop onto a folder that is itself being dragged, or into the folder the
   // items already occupy — nothing to do.
   paths = paths
-      .where((path) => path != destDir && p.dirname(path) != destDir)
+      .where((path) => path != destDir && VPath.dirname(path) != destDir)
       .toList();
   if (paths.isEmpty) return;
 

@@ -3,7 +3,9 @@ import 'package:flutter/widgets.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../models/file_entry.dart';
+import '../../services/text_document_service.dart';
 import '../../widgets/window_chrome.dart';
+import '../text_editor_screen.dart';
 import 'preview_common.dart';
 import 'preview_filmstrip.dart';
 import 'preview_info_panel.dart';
@@ -26,10 +28,18 @@ class FilePreviewScreen extends StatefulWidget {
     super.key,
     required this.files,
     required this.initialIndex,
+    this.editEntry,
   });
 
   final List<FileEntry> files;
   final int initialIndex;
+
+  /// What the Edit button should open, when it isn't the file being shown.
+  ///
+  /// A cloud file is previewed from a downloaded copy; editing that copy would
+  /// write to a cache nobody reads back. The caller passes the original here,
+  /// and the editor writes to the source.
+  final FileEntry? editEntry;
 
   @override
   State<FilePreviewScreen> createState() => _FilePreviewScreenState();
@@ -43,11 +53,31 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
   bool _infoOpen = false;
   bool _stripOpen = false;
 
+  /// Bumped after an edit so the viewer re-reads instead of showing the text
+  /// it loaded before the save.
+  int _reloadToken = 0;
+
   /// Below this the info panel would leave too little room for content, so it
   /// is presented as a sheet over the top instead of as a fixed side panel.
   static const double _sidePanelMinWidth = 820;
 
   bool get _hasSiblings => widget.files.length > 1;
+
+  /// The Edit action for a shown file, or null when there is nothing sensible
+  /// to edit.
+  VoidCallback? _editActionFor(FileEntry shown) {
+    final target = widget.editEntry ?? shown;
+    // An override applies to the single file the preview was opened with; it
+    // would be wrong to point it at a sibling.
+    if (widget.editEntry != null && shown.path != widget.files.first.path) {
+      return null;
+    }
+    if (!TextDocumentService.canEdit(target)) return null;
+    return () async {
+      final saved = await openTextEditor(context, target);
+      if (saved && mounted) setState(() => _reloadToken++);
+    };
+  }
 
   @override
   void initState() {
@@ -178,8 +208,12 @@ class _FilePreviewScreenState extends State<FilePreviewScreen> {
                           itemCount: widget.files.length,
                           onPageChanged: (i) => setState(() => _index = i),
                           itemBuilder: (_, i) => PreviewViewerHost(
+                            key: ValueKey(
+                              '${widget.files[i].path}#$_reloadToken',
+                            ),
                             file: widget.files[i],
                             isActive: i == _index,
+                            onEdit: _editActionFor(widget.files[i]),
                           ),
                         ),
                       ),

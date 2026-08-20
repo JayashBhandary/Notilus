@@ -14,6 +14,43 @@ import '../theme.dart';
 /// Parent owns visibility + height. The panel exposes a drag handle on its
 /// top edge that calls [onResize] with delta pixels (negative = drag up =
 /// grow). Closing the last tab calls [onClose].
+/// Reaches the integrated terminal from elsewhere in the app.
+///
+/// Mirrors `pathStatusBarKey`: the panel is owned by the home screen, and this
+/// is how a menu item that wants a shell — "Open SSH Session Here" on a remote
+/// folder — gets one without threading callbacks through five widgets.
+final GlobalKey<TerminalPanelState> terminalPanelKey =
+    GlobalKey<TerminalPanelState>();
+
+/// Opens the terminal (if it is closed) and runs a command in it.
+class TerminalLauncher {
+  const TerminalLauncher._();
+
+  /// Registered by the home screen, which owns the open/closed state.
+  static VoidCallback? onOpenRequested;
+
+  static String? _pending;
+
+  static void run(String command) {
+    final state = terminalPanelKey.currentState;
+    if (state != null) {
+      state.runCommand(command);
+      return;
+    }
+    // The panel isn't on screen. Hold the command; the panel picks it up when
+    // it mounts, which the opener below is about to cause.
+    _pending = command;
+    onOpenRequested?.call();
+  }
+
+  /// Consumed once, by the next panel to mount.
+  static String? takePending() {
+    final pending = _pending;
+    _pending = null;
+    return pending;
+  }
+}
+
 class TerminalPanel extends StatefulWidget {
   const TerminalPanel({
     super.key,
@@ -31,10 +68,10 @@ class TerminalPanel extends StatefulWidget {
   final VoidCallback onClose;
 
   @override
-  State<TerminalPanel> createState() => _TerminalPanelState();
+  State<TerminalPanel> createState() => TerminalPanelState();
 }
 
-class _TerminalPanelState extends State<TerminalPanel> {
+class TerminalPanelState extends State<TerminalPanel> {
   final List<_TerminalSession> _sessions = [];
   int _activeIndex = 0;
   int _nextId = 1;
@@ -43,6 +80,14 @@ class _TerminalPanelState extends State<TerminalPanel> {
   void initState() {
     super.initState();
     _spawnSession();
+    final pending = TerminalLauncher.takePending();
+    if (pending != null) runCommand(pending);
+  }
+
+  /// Types [command] into the active session and runs it. The PTY buffers
+  /// input, so this is safe before the shell has drawn its first prompt.
+  void runCommand(String command) {
+    _activeSession?.sendCommand(command);
   }
 
   @override
@@ -210,6 +255,15 @@ class _TerminalSession {
     final shell = Platform.environment['SHELL'] ??
         (Platform.isMacOS ? '/bin/zsh' : '/bin/bash');
     return (shell, const ['-l']);
+  }
+
+  /// Sends a whole command line, Ctrl-U first so it can't be spliced into
+  /// something the user had half-typed.
+  void sendCommand(String command) {
+    final p = pty;
+    if (p == null) return;
+    final line = Platform.isWindows ? '$command\r' : '\x15 $command\r';
+    p.write(Uint8List.fromList(utf8.encode(line)));
   }
 
   void sendCd(String path) {

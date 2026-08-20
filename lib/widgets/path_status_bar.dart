@@ -5,6 +5,8 @@ import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
 
 import '../providers/browser_provider.dart';
+import '../services/remote/remote_hub.dart';
+import '../services/remote/remote_path.dart';
 import '../theme.dart';
 
 /// Lets Cmd/Ctrl+L put the status bar into path-editing mode from elsewhere.
@@ -76,6 +78,14 @@ class PathStatusBarState extends State<PathStatusBar> {
       _stopEditing();
       return;
     }
+    // A cloud path can't be probed with dart:io; the listing itself reports
+    // whether it exists, and the browser shows that error in place.
+    if (VPath.isRemote(target)) {
+      final browser = context.read<BrowserProvider>();
+      _stopEditing();
+      await browser.navigateTo(target);
+      return;
+    }
     // Accept a path to a file too, and land on its folder with it selected —
     // pasting a full file path is a normal thing to do.
     final type = await FileSystemEntity.type(target);
@@ -97,6 +107,13 @@ class PathStatusBarState extends State<PathStatusBar> {
   /// Resolves `~` and makes a relative entry relative to the current folder.
   String _expand(String input) {
     if (input.isEmpty) return input;
+    if (VPath.isRemote(input)) return input;
+    // A relative entry typed while browsing a cloud folder resolves against
+    // that folder, exactly as it would on disk.
+    final current = context.read<BrowserProvider>().currentPath;
+    if (VPath.isRemote(current) && !input.startsWith('/') && !input.startsWith('~')) {
+      return VPath.join(current, input);
+    }
     var out = input;
     if (out == '~' || out.startsWith('~/')) {
       final home =
@@ -117,7 +134,7 @@ class PathStatusBarState extends State<PathStatusBar> {
     final browser = context.watch<BrowserProvider>();
     final palette = AppColors.of(context);
     final path = browser.currentPath;
-    final parts = path.isEmpty ? <String>[] : p.split(path);
+    final parts = VPath.split(path);
     final count = browser.entryCount;
     final selected = browser.selectedPaths.length;
 
@@ -209,16 +226,28 @@ class PathStatusBarState extends State<PathStatusBar> {
     AppPalette palette,
   ) {
     final out = <Widget>[];
-    String acc = '';
+    final remote = VPath.parse(browser.currentPath);
+    // On a remote path the first crumb is the connection: its id is the
+    // addressable part, but the label is what the user named it.
+    String acc = remote == null ? '' : VPath.root(remote.connectionId);
     for (var i = 0; i < parts.length; i++) {
-      acc = i == 0 ? parts[i] : p.join(acc, parts[i]);
+      if (remote == null) {
+        acc = i == 0 ? parts[i] : p.join(acc, parts[i]);
+      } else if (i > 0) {
+        acc = VPath.join(acc, parts[i]);
+      }
       final target = acc;
-      final segment = parts[i].isEmpty ? '/' : parts[i];
+      final isSource = i == 0 && remote != null;
+      final segment = isSource
+          ? (RemoteHub.instance.byId(parts[i])?.label ?? 'Remote')
+          : (parts[i].isEmpty ? '/' : parts[i]);
       out.add(
         _MiniCrumb(
-          icon: i == 0
-              ? CupertinoIcons.device_laptop
-              : CupertinoIcons.folder_fill,
+          icon: isSource
+              ? CupertinoIcons.cloud_fill
+              : (i == 0
+                  ? CupertinoIcons.device_laptop
+                  : CupertinoIcons.folder_fill),
           label: segment,
           onTap: () => browser.navigateTo(target),
           palette: palette,

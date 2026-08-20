@@ -6,6 +6,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'providers/browser_provider.dart';
 import 'providers/chat_provider.dart';
+import 'providers/copy_jobs_provider.dart';
 import 'providers/file_ops_provider.dart';
 import 'providers/media_provider.dart';
 import 'providers/search_provider.dart';
@@ -14,6 +15,7 @@ import 'providers/transfer_controller.dart';
 import 'providers/workflow_provider.dart';
 import 'screens/home_screen.dart';
 import 'services/file_service.dart';
+import 'services/remote/transfer_engine.dart';
 import 'services/settings_store.dart';
 import 'theme.dart';
 import 'widgets/transfer_request_gate.dart';
@@ -25,9 +27,13 @@ class NotilusApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final fileService = FileService();
     final settingsStore = SettingsStore();
+    // Copy jobs are shared: the engine writes progress into them and the HUD
+    // reads it, so both sides have to see the same object.
+    final copyJobs = CopyJobs();
 
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider<CopyJobs>.value(value: copyJobs),
         ChangeNotifierProvider(
           create: (_) => SettingsProvider(settingsStore)..load(),
         ),
@@ -35,7 +41,9 @@ class NotilusApp extends StatelessWidget {
           create: (_) => BrowserProvider(fileService)..init(),
         ),
         ChangeNotifierProvider(
-          create: (_) => FileOpsProvider(),
+          create: (_) => FileOpsProvider(
+            engine: TransferEngine(jobs: copyJobs),
+          ),
         ),
         ChangeNotifierProvider(
           create: (_) => SearchProvider(),

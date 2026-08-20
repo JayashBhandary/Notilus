@@ -1,11 +1,14 @@
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 
+import '../models/file_entry.dart';
 import '../models/workflow.dart';
 import '../providers/browser_provider.dart';
+import '../providers/file_ops_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/workflow_provider.dart';
 import '../screens/workflow_editor_screen.dart';
+import '../services/remote/remote_path.dart';
 import '../theme.dart';
 import 'workflow_run_view.dart';
 
@@ -88,12 +91,15 @@ class WorkflowTab extends StatelessWidget {
                         running: running,
                         canRun: !wf.running && settings.model != null,
                         onEdit: () => _openEditor(context, w),
-                        onRun: () => wf.run(
+                        onRun: () async => wf.run(
                           workflow: w,
                           llm: settings.defaultClient(),
                           model: settings.model!,
                           temperature: settings.temperature,
-                          selectedFile: selection,
+                          // A step that interpolates {file_content} reads the
+                          // file, so a cloud selection is downloaded first.
+                          selectedFile:
+                              await _runnableFile(context, selection),
                         ),
                       );
                     },
@@ -106,6 +112,21 @@ class WorkflowTab extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// The local file a workflow can actually read, or null when a cloud
+  /// selection couldn't be fetched — a run without `{file_content}` is more
+  /// useful than no run at all, and the HUD has already reported the failure.
+  Future<FileEntry?> _runnableFile(
+    BuildContext context,
+    FileEntry? selection,
+  ) async {
+    if (selection == null || !VPath.isRemote(selection.path)) return selection;
+    try {
+      return await context.read<FileOpsProvider>().localEntryFor(selection);
+    } catch (_) {
+      return null;
+    }
   }
 
   void _openEditor(BuildContext context, Workflow? w) {

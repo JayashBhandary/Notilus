@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../models/file_entry.dart';
+import '../services/remote/remote_path.dart';
 import '../models/media_kind.dart';
 import '../services/thumbnail_service.dart';
 
@@ -155,6 +156,11 @@ class _FilePreviewBuilderState extends State<FilePreviewBuilder> {
   /// for a file the image codec can open directly.
   FilePreview? _immediate(FileEntry entry) {
     if (entry.isDirectory) return const FilePreviewNone();
+    // Cloud items get their type icon rather than a thumbnail. Rendering one
+    // means downloading the file, and a folder of photos on S3 would quietly
+    // pull every megabyte of it just by being scrolled past; the preview
+    // window downloads on demand instead, when the user asks for that file.
+    if (VPath.isRemote(entry.path)) return const FilePreviewNone();
     final ext = entry.extension;
     if (kImageExtensions.contains(ext) && !kSvgExtensions.contains(ext)) {
       return FilePreviewImage(File(entry.path));

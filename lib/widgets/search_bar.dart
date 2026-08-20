@@ -46,7 +46,9 @@ class _FolderSearchBarState extends State<FolderSearchBar> {
             child: CupertinoSearchTextField(
               controller: _controller,
               focusNode: _focusNode,
-              placeholder: 'Search this folder',
+              placeholder: browser.isRemote
+                  ? 'Search this folder by name'
+                  : 'Search this folder',
               style: TextStyle(fontSize: 12, color: palette.text),
               backgroundColor: palette.contentBg,
               onChanged: (value) =>
@@ -60,6 +62,9 @@ class _FolderSearchBarState extends State<FolderSearchBar> {
           const SizedBox(width: 8),
           _ContentToggle(
             enabled: search.searchContent,
+            // Grepping a cloud folder means downloading it, so the toggle is
+            // shown as unavailable there rather than silently doing nothing.
+            available: !browser.isRemote,
             palette: palette,
             onTap: () => search.setSearchContent(!search.searchContent),
           ),
@@ -78,11 +83,13 @@ class _FolderSearchBarState extends State<FolderSearchBar> {
 class _ContentToggle extends StatelessWidget {
   const _ContentToggle({
     required this.enabled,
+    required this.available,
     required this.palette,
     required this.onTap,
   });
 
   final bool enabled;
+  final bool available;
   final AppPalette palette;
   final VoidCallback onTap;
 
@@ -91,22 +98,23 @@ class _ContentToggle extends StatelessWidget {
     return CupertinoButton(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       minimumSize: Size.zero,
-      onPressed: onTap,
+      onPressed: available ? onTap : null,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
             CupertinoIcons.doc_text_search,
             size: 14,
-            color: enabled ? palette.accent : palette.subtleText,
+            color: enabled && available ? palette.accent : palette.subtleText,
           ),
           const SizedBox(width: 4),
           Text(
             'Contents',
             style: TextStyle(
               fontSize: 11,
-              color: enabled ? palette.accent : palette.subtleText,
-              fontWeight: enabled ? FontWeight.w600 : FontWeight.w400,
+              color: enabled && available ? palette.accent : palette.subtleText,
+              fontWeight:
+                  enabled && available ? FontWeight.w600 : FontWeight.w400,
             ),
           ),
         ],
@@ -131,7 +139,9 @@ class SearchResultsView extends StatelessWidget {
         child: Text(
           search.isRunning
               ? 'Searching…'
-              : 'No matches for "${search.query}"',
+              : search.isRemoteSearch
+                  ? 'No file names match "${search.query}" here'
+                  : 'No matches for "${search.query}"',
           style: TextStyle(fontSize: 13, color: palette.subtleText),
         ),
       );
