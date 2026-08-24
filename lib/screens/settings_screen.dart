@@ -5,6 +5,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import '../providers/settings_provider.dart';
 import '../services/llm/llm_client.dart';
 import '../theme.dart';
+import '../utils/platform.dart';
 import '../widgets/shad_spinner.dart';
 
 /// Shows the settings as a centered modal dialog. Settings hold only a handful
@@ -204,14 +205,19 @@ class _SettingsDialogState extends State<SettingsDialog> {
               // `direction: rtl` — which ShadSwitch also applies to the thumb's
               // own stack, parking the thumb on the left while the track still
               // reads as on. An explicit Row keeps the thumb correct.
-              _SwitchRow(
-                label: 'Receive in the background',
-                sublabel: 'Closing the window keeps Notilus in the tray so '
-                    'friends can still send you files.',
-                value: settings.backgroundReception,
-                onChanged: settings.setBackgroundReception,
-              ),
-              const SizedBox(height: 14),
+              // The tray is what this setting is about, and mobile has none —
+              // the OS decides when a backgrounded app stops listening, not a
+              // switch in here.
+              if (!isMobilePlatform) ...[
+                _SwitchRow(
+                  label: 'Receive in the background',
+                  sublabel: 'Closing the window keeps Notilus in the tray so '
+                      'friends can still send you files.',
+                  value: settings.backgroundReception,
+                  onChanged: settings.setBackgroundReception,
+                ),
+                const SizedBox(height: 14),
+              ],
               _SwitchRow(
                 label: 'Prefer local network',
                 sublabel: 'When a contact is on the same network, send '
@@ -225,7 +231,11 @@ class _SettingsDialogState extends State<SettingsDialog> {
                 label: 'Save received files to',
                 child: ShadInput(
                   controller: _destCtrl,
-                  placeholder: const Text('~/Downloads/Notilus (default)'),
+                  placeholder: Text(
+                    isMobilePlatform
+                        ? 'Documents/Notilus (default)'
+                        : '~/Downloads/Notilus (default)',
+                  ),
                   onSubmitted: settings.setTransferDestination,
                   onPressedOutside: (_) =>
                       settings.setTransferDestination(_destCtrl.text),

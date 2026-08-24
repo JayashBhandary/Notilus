@@ -79,7 +79,7 @@ class _FileSharingViewState extends State<FileSharingView> {
 
   Future<void> _editFolder(int index) async {
     final folder = _controller.folders[index];
-    final result = await _showFolderDialog(context, folder);
+    final result = await _showFolderDialog(context, folder, _controller.users);
     if (result == null || !mounted) return;
     final error = await _controller.updateFolder(index, result);
     if (!mounted) return;
@@ -584,6 +584,26 @@ class _FolderRow extends StatelessWidget {
                         style: const TextStyle(fontSize: 10),
                       ),
                     ),
+                    if (folder.isRestricted) ...[
+                      const SizedBox(width: 6),
+                      ShadBadge.outline(
+                        child: Text(
+                          folder.allowedUsers.length == 1
+                              ? folder.allowedUsers.single
+                              : '${folder.allowedUsers.length} accounts',
+                          style: const TextStyle(fontSize: 10),
+                        ),
+                      ),
+                    ],
+                    if (folder.guestOk) ...[
+                      const SizedBox(width: 6),
+                      const ShadBadge.outline(
+                        child: Text(
+                          'Guests',
+                          style: TextStyle(fontSize: 10),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 2),
@@ -1008,49 +1028,134 @@ class _Switch extends StatelessWidget {
 Future<SharedFolder?> _showFolderDialog(
   BuildContext context,
   SharedFolder folder,
+  List<ShareUser> users,
 ) {
   final name = TextEditingController(text: folder.name);
   var readOnly = folder.readOnly;
+  var guestOk = folder.guestOk;
+  // Only accounts that still exist can be ticked. A name left over from a
+  // deleted account is dropped by saving, which is the user saying who the
+  // share is for.
+  final chosen = <String>{
+    for (final user in users)
+      if (folder.allowedUsers
+          .any((u) => u.toLowerCase() == user.name.toLowerCase()))
+        user.name,
+  };
+  // No ticks means every account, which is what a one-person setup wants.
+  var everyone = chosen.isEmpty;
 
   return showShadDialog<SharedFolder>(
     context: context,
     builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setState) => ShadDialog(
-        title: const Text('Share settings'),
-        description: Text(folder.path),
-        constraints: const BoxConstraints(maxWidth: 420),
-        actions: [
-          ShadButton.outline(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          ShadButton(
-            onPressed: () => Navigator.of(ctx).pop(
-              folder.copyWith(name: name.text.trim(), readOnly: readOnly),
+      builder: (ctx, setState) {
+        final noneChosen = !everyone && chosen.isEmpty;
+        return ShadDialog(
+          title: const Text('Share settings'),
+          description: Text(folder.path),
+          constraints: const BoxConstraints(maxWidth: 420),
+          actions: [
+            ShadButton.outline(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
             ),
-            child: const Text('Save'),
-          ),
-        ],
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _LabelledField(
-              label: 'Share name',
-              hint: 'What other devices see in the list of shares.',
-              child: ShadInput(controller: name, autofocus: true),
-            ),
-            const SizedBox(height: 16),
-            _Switch(
-              label: 'Allow changes',
-              sublabel: 'Off means people can open and copy files but not '
-                  'add, edit or delete them.',
-              value: !readOnly,
-              onChanged: (value) => setState(() => readOnly = !value),
+            ShadButton(
+              onPressed: noneChosen
+                  ? null
+                  : () => Navigator.of(ctx).pop(
+                        folder.copyWith(
+                          name: name.text.trim(),
+                          readOnly: readOnly,
+                          allowedUsers:
+                              everyone ? const [] : chosen.toList(),
+                          guestOk: guestOk,
+                        ),
+                      ),
+              child: const Text('Save'),
             ),
           ],
-        ),
-      ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _LabelledField(
+                label: 'Share name',
+                hint: 'What other devices see in the list of shares.',
+                child: ShadInput(controller: name, autofocus: true),
+              ),
+              const SizedBox(height: 16),
+              _Switch(
+                label: 'Allow changes',
+                sublabel: 'Off means people can open and copy files but not '
+                    'add, edit or delete them.',
+                value: !readOnly,
+                onChanged: (value) => setState(() => readOnly = !value),
+              ),
+              const SizedBox(height: 16),
+              _LabelledField(
+                label: 'Who can use it',
+                hint: noneChosen
+                    ? 'Pick at least one account.'
+                    : 'Applies the next time sharing starts.',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ShadCheckbox(
+                      value: everyone,
+                      onChanged: (value) => setState(() {
+                        everyone = value;
+                        if (value) chosen.clear();
+                      }),
+                      label: const Text(
+                        'Everyone with an account',
+                        style: TextStyle(fontSize: 12.5),
+                      ),
+                    ),
+                    if (!everyone)
+                      for (final user in users)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 20, top: 6),
+                          child: ShadCheckbox(
+                            value: chosen.contains(user.name),
+                            onChanged: (value) => setState(() {
+                              if (value) {
+                                chosen.add(user.name);
+                              } else {
+                                chosen.remove(user.name);
+                              }
+                            }),
+                            label: Text(
+                              user.name,
+                              style: const TextStyle(fontSize: 12.5),
+                            ),
+                          ),
+                        ),
+                    if (!everyone && users.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 20, top: 6),
+                        child: Text(
+                          'No accounts yet — add one first.',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: ShadTheme.of(ctx).colorScheme.mutedForeground,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _Switch(
+                label: 'Allow guests',
+                sublabel: 'Anyone who can reach this machine may read the '
+                    'folder without a password. Guests never write.',
+                value: guestOk,
+                onChanged: (value) => setState(() => guestOk = value),
+              ),
+            ],
+          ),
+        );
+      },
     ),
   );
 }

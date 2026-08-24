@@ -23,6 +23,7 @@ import '../services/remote/remote_path.dart';
 import '../services/remote/sftp_file_system.dart';
 import '../services/text_document_service.dart';
 import '../theme.dart';
+import '../utils/platform.dart';
 import '../utils/responsive.dart';
 import 'desk_context_menu.dart';
 import 'file_drag_drop.dart';
@@ -285,6 +286,18 @@ class _FileListViewState extends State<FileListView> {
     // Marquee + Shift selection are desktop-only; touch layouts tap-to-open.
     _marquee.enabled = !isCompact(context);
 
+    // Loading, failed and empty are properties of the folder, not of how it is
+    // being drawn — so they are decided here rather than inside one of the two
+    // view modes. The icon grid used to have no empty state at all, which on a
+    // phone (where the grid is the default) made a new install open on a blank
+    // screen.
+    final groups = browser.groupedEntries();
+    final placeholder = browser.loading
+        ? const Center(child: CupertinoActivityIndicator())
+        : groups.every((g) => g.entries.isEmpty)
+            ? _FolderPlaceholder(browser: browser, palette: palette)
+            : null;
+
     return Focus(
       focusNode: _focusNode,
       autofocus: true,
@@ -293,7 +306,8 @@ class _FileListViewState extends State<FileListView> {
         color: palette.contentBg,
         child: Column(
           children: [
-            if (isList) _Header(palette: palette, browser: browser),
+            if (isList && placeholder == null)
+              _Header(palette: palette, browser: browser),
             Expanded(
               child: _BackgroundCatcher(
                 onTap: () {
@@ -307,13 +321,14 @@ class _FileListViewState extends State<FileListView> {
                   value: _marquee,
                   child: MarqueeSelectionLayer(
                     controller: _marquee,
-                    child: isList
-                        ? _body(browser, palette)
-                        : FileIconGrid(
-                            onSecondaryRowTap: (entry, pos) =>
-                                showRowContextMenu(
-                                    context, browser, entry, pos),
-                          ),
+                    child: placeholder ??
+                        (isList
+                            ? _body(browser, palette)
+                            : FileIconGrid(
+                                onSecondaryRowTap: (entry, pos) =>
+                                    showRowContextMenu(
+                                        context, browser, entry, pos),
+                              )),
                   ),
                 ),
               ),
@@ -325,48 +340,7 @@ class _FileListViewState extends State<FileListView> {
   }
 
   Widget _body(BrowserProvider browser, AppPalette palette) {
-    if (browser.loading) {
-      return const Center(child: CupertinoActivityIndicator());
-    }
     final groups = browser.groupedEntries();
-    final isEmpty = groups.every((g) => g.entries.isEmpty);
-
-    if (isEmpty) {
-      if (browser.error != null) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  CupertinoIcons.exclamationmark_triangle,
-                  size: 32,
-                  color: palette.danger,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  browser.error!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: palette.subtleText,
-                    height: 1.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      }
-      return Center(
-        child: Text(
-          'This folder is empty',
-          style: TextStyle(color: palette.subtleText, fontSize: 13),
-        ),
-      );
-    }
-
     final flat = <_ListItem>[];
     var altIndex = 0;
     for (final g in groups) {
@@ -542,6 +516,79 @@ class _SortableHeader extends StatelessWidget {
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// What fills the pane when a folder has nothing to list: the reason it
+/// failed, or that it is simply empty.
+class _FolderPlaceholder extends StatelessWidget {
+  const _FolderPlaceholder({required this.browser, required this.palette});
+
+  final BrowserProvider browser;
+  final AppPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    final error = browser.error;
+    if (error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                CupertinoIcons.exclamationmark_triangle,
+                size: 32,
+                color: palette.danger,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                error,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: palette.subtleText,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // On a phone an empty folder is what a fresh install opens on — the app's
+    // own container starts out with nothing in it — so it says where files come
+    // from instead of leaving the screen blank. A desktop folder that is empty
+    // is just empty.
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'This folder is empty',
+              style: TextStyle(color: palette.subtleText, fontSize: 13),
+            ),
+            if (isMobilePlatform && !browser.isRemote) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Add a file server under Places, or copy files in from the '
+                'Files app.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: palette.subtleText,
+                  fontSize: 11.5,
+                  height: 1.4,
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -1186,11 +1233,15 @@ List<DeskMenuItem> _remoteActionsSubmenu(
       ),
     DeskMenuItem.divider(),
     if (isSsh) ...[
-      DeskMenuItem(
-        label: 'Open SSH Session Here',
-        icon: LucideIcons.terminal,
-        onTap: () => _openSshSession(context, target, run: true),
-      ),
+      // Running it needs the integrated terminal; copying the command is
+      // still useful on a phone, where it can be pasted somewhere that has
+      // a shell.
+      if (hasIntegratedTerminal)
+        DeskMenuItem(
+          label: 'Open SSH Session Here',
+          icon: LucideIcons.terminal,
+          onTap: () => _openSshSession(context, target, run: true),
+        ),
       DeskMenuItem(
         label: 'Copy SSH Command',
         icon: LucideIcons.clipboard,

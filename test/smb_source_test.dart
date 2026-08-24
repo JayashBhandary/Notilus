@@ -132,6 +132,8 @@ void main() {
                   path: root.path,
                   readOnly: false,
                   comment: '',
+                  allowedUsers: const [],
+                  guestOk: false,
                 ),
               ],
               users: [

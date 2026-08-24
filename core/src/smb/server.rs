@@ -44,6 +44,14 @@ const CREDITS_GRANTED: u16 = 64;
 const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
+/// `\xffSMB` — the header every SMB1 packet starts with.
+const SMB1_PROTOCOL_ID: [u8; 4] = [0xFF, b'S', b'M', b'B'];
+const SMB1_HEADER: usize = 32;
+const SMB1_NEGOTIATE: u8 = 0x72;
+/// The revision a server answers a multi-protocol negotiate with: "I speak
+/// SMB2 — ask me again there."
+const SMB2_WILDCARD_DIALECT: u16 = 0x02FF;
+
 // ── configuration ──────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug)]
@@ -421,6 +429,13 @@ fn serve(
         connection: id,
         peer: peer.to_string(),
     });
+    // The listener is non-blocking so the accept loop can notice a stop, and on
+    // BSD — macOS included — an accepted socket inherits that flag. Left set, a
+    // read returns `WouldBlock` at once: the timeouts below would do nothing,
+    // the serve loop would spin through its idle budget in milliseconds and
+    // hang up on a working client, and a packet that arrived in pieces would
+    // fail mid-body. Clear it explicitly rather than rely on the platform.
+    let _ = stream.set_nonblocking(false);
     let _ = stream.set_nodelay(true);
     let _ = stream.set_read_timeout(Some(POLL_INTERVAL));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(60)));
@@ -513,6 +528,54 @@ fn read_packet(stream: &mut TcpStream) -> std::io::Result<Option<Vec<u8>>> {
     Ok(Some(body))
 }
 
+/// The dialect strings offered by an SMB1 negotiate.
+///
+/// After the fixed header comes `WordCount` (always zero here), a byte count,
+/// then a run of `0x02`-tagged NUL-terminated ASCII names.
+fn smb1_dialects(packet: &[u8]) -> Vec<String> {
+    let mut names = Vec::new();
+    // WordCount, then the two-byte ByteCount.
+    let Some(&word_count) = packet.get(SMB1_HEADER) else {
+        return names;
+    };
+    let mut at = SMB1_HEADER + 1 + word_count as usize * 2;
+    let Some(count) = packet
+        .get(at..at + 2)
+        .map(|b| u16::from_le_bytes([b[0], b[1]]) as usize)
+    else {
+        return names;
+    };
+    at += 2;
+    let end = (at + count).min(packet.len());
+    while at < end {
+        if packet[at] != 0x02 {
+            break;
+        }
+        at += 1;
+        let Some(len) = packet[at..end].iter().position(|b| *b == 0) else {
+            break;
+        };
+        if let Ok(name) = std::str::from_utf8(&packet[at..at + len]) {
+            names.push(name.to_string());
+        }
+        at += len + 1;
+    }
+    names
+}
+
+/// An SMB1 negotiate response saying none of the offered dialects will do.
+fn smb1_no_dialect(request: &[u8]) -> Vec<u8> {
+    let mut reply = vec![0u8; SMB1_HEADER + 1 + 2 + 2];
+    reply[..SMB1_HEADER].copy_from_slice(&request[..SMB1_HEADER]);
+    reply[9] |= 0x80; // SMB_FLAGS_REPLY
+    reply[5..9].copy_from_slice(&0u32.to_le_bytes()); // STATUS_SUCCESS
+    reply[14..22].fill(0); // no signature
+    reply[SMB1_HEADER] = 1; // WordCount
+    reply[SMB1_HEADER + 1..SMB1_HEADER + 3].copy_from_slice(&0xFFFFu16.to_le_bytes());
+    reply[SMB1_HEADER + 3..].copy_from_slice(&0u16.to_le_bytes()); // ByteCount
+    reply
+}
+
 fn write_packet(stream: &mut TcpStream, body: &[u8]) -> std::io::Result<()> {
     let length = body.len() as u32;
     let header = [0u8, (length >> 16) as u8, (length >> 8) as u8, length as u8];
@@ -544,6 +607,14 @@ impl Conn {
     /// Handles one packet, which may hold a compound chain of requests, and
     /// returns the packet to send back.
     fn handle_packet(&mut self, packet: &[u8]) -> Vec<u8> {
+        // Finder, Explorer and mount.cifs all open with an SMB1 negotiate
+        // listing "SMB 2.???" among its dialects. Ignoring it leaves the client
+        // waiting for a reply that never comes, which is how a share that works
+        // between two Notilus instances still looks dead to the rest of the
+        // network.
+        if packet.starts_with(&SMB1_PROTOCOL_ID) {
+            return self.smb1(packet);
+        }
         let mut out: Vec<u8> = Vec::with_capacity(packet.len().min(64 * 1024));
         let mut offset = 0usize;
         // Related requests inherit these from the request before them.
@@ -643,18 +714,25 @@ impl Conn {
                 }
             }
 
-            self.sign_response(session_id, &mut out[start..]);
-
             offset += chunk;
-            if header.next_command == 0 {
+            let last = header.next_command == 0;
+            if !last {
+                // Every response but the last announces where the next begins,
+                // eight-byte aligned.
+                let padding = (8 - (out.len() % 8)) % 8;
+                out.resize(out.len() + padding, 0);
+                let size = (out.len() - start) as u32;
+                out[start + 20..start + 24].copy_from_slice(&size.to_le_bytes());
+            }
+            // Signing comes last, once this response is exactly the bytes that
+            // go on the wire. Signing before `NextCommand` and the padding were
+            // written left every chained response with a signature over the
+            // wrong bytes — invisible to a client that doesn't check, fatal to
+            // one that does, and a compound request is how macOS opens a file.
+            self.sign_response(session_id, &mut out[start..]);
+            if last {
                 break;
             }
-            // Every response but the last announces where the next begins,
-            // eight-byte aligned.
-            let padding = (8 - (out.len() % 8)) % 8;
-            out.resize(out.len() + padding, 0);
-            let size = (out.len() - start) as u32;
-            out[start + 20..start + 24].copy_from_slice(&size.to_le_bytes());
         }
         out
     }
@@ -753,6 +831,58 @@ impl Conn {
 
     // ── NEGOTIATE ──────────────────────────────────────────────────────────
 
+    /// Answers the SMB1 packet a client opens with before it will speak SMB2.
+    ///
+    /// Only the multi-protocol negotiate is answered, and only ever with SMB2:
+    /// a client offering `SMB 2.???` is told to ask again in SMB2 (the `0x02FF`
+    /// wildcard), one offering `SMB 2.002` gets that dialect outright, and one
+    /// offering neither is told no dialect matched — which fails it fast
+    /// instead of leaving it to time out. This server speaks no SMB1 beyond
+    /// this one exchange, and there is no plan to: SMB1 is off by default on
+    /// every current client for good reason.
+    fn smb1(&mut self, packet: &[u8]) -> Vec<u8> {
+        if packet.len() < SMB1_HEADER || packet[4] != SMB1_NEGOTIATE {
+            return Vec::new();
+        }
+        let dialects = smb1_dialects(packet);
+        let wildcard = dialects.iter().any(|d| d == "SMB 2.???");
+        let smb2002 = dialects.iter().any(|d| d == "SMB 2.002");
+
+        if !wildcard && !smb2002 {
+            return smb1_no_dialect(packet);
+        }
+        // The wildcard means "answer in SMB2 and I'll negotiate properly"; the
+        // dialect is settled by the SMB2 negotiate that follows, and the
+        // preauth hash starts there too, so nothing is recorded here.
+        let code = if wildcard {
+            SMB2_WILDCARD_DIALECT
+        } else {
+            self.dialect = Dialect::Smb202;
+            self.negotiated = true;
+            Dialect::Smb202.code()
+        };
+        let Ok(body) = self.negotiate_body(code) else {
+            return Vec::new();
+        };
+
+        let header = Header {
+            credit_charge: 0,
+            status: status::SUCCESS,
+            command: command::NEGOTIATE,
+            credits: 1,
+            flags: flags::SERVER_TO_REDIR,
+            next_command: 0,
+            message_id: 0,
+            tree_id: 0,
+            session_id: 0,
+            signature: [0u8; 16],
+        };
+        let mut w = Writer::with_capacity(HEADER_SIZE + body.len());
+        header.write(&mut w);
+        w.bytes(&body);
+        w.into_vec()
+    }
+
     fn negotiate(&mut self, message: &[u8], body: &[u8]) -> Handled {
         let mut r = Reader::new(body);
         let _structure_size = r.u16().map_err(|_| status::INVALID_PARAMETER)?;
@@ -791,8 +921,25 @@ impl Conn {
             return Err(status::INVALID_PARAMETER);
         }
 
+        let body = self.negotiate_body(chosen.code())?;
+
+        if chosen == Dialect::Smb311 {
+            // First half of the preauth hash; `handle_packet` folds in the
+            // response once it has been framed.
+            self.preauth = crypto::extend_preauth(&[0u8; 64], message);
+        }
+        Ok(Reply::ok(body))
+    }
+
+    /// The body of a NEGOTIATE response announcing `dialect_code`.
+    ///
+    /// Taken by code rather than [`Dialect`] because the answer to an SMB1
+    /// multi-protocol negotiate carries `0x02FF`, the wildcard revision, which
+    /// names no dialect at all — it tells the client to ask again in SMB2.
+    fn negotiate_body(&self, dialect_code: u16) -> Result<Vec<u8>, u32> {
         let security_buffer = spnego::server_mech_list();
         let salt: [u8; 32] = crypto::random_array().map_err(|_| status::NOT_SUPPORTED)?;
+        let is_311 = dialect_code == Dialect::Smb311.code();
 
         let mut w = Writer::with_capacity(128 + security_buffer.len());
         w.u16(65)
@@ -802,8 +949,8 @@ impl Conn {
                 } else {
                     0
                 })
-            .u16(chosen.code())
-            .u16(if chosen == Dialect::Smb311 { 1 } else { 0 })
+            .u16(dialect_code)
+            .u16(if is_311 { 1 } else { 0 })
             .bytes(&self.server_guid)
             // Large MTU only. Leasing, multi-channel, persistent handles and
             // encryption are all things a client would then be entitled to
@@ -823,7 +970,7 @@ impl Conn {
         w.bytes(&security_buffer);
         w.patch_u16(buffer_offset_at, buffer_offset as u16);
 
-        if chosen == Dialect::Smb311 {
+        if is_311 {
             w.align_to(8);
             let contexts_at = HEADER_SIZE + w.len();
             w.patch_u32(context_offset_at, contexts_at as u32);
@@ -836,13 +983,7 @@ impl Conn {
                 .u16(1) // SHA-512
                 .bytes(&salt);
         }
-
-        if chosen == Dialect::Smb311 {
-            // First half of the preauth hash; `handle_packet` folds in the
-            // response once it has been framed.
-            self.preauth = crypto::extend_preauth(&[0u8; 64], message);
-        }
-        Ok(Reply::ok(w.into_vec()))
+        Ok(w.into_vec())
     }
 
     // ── SESSION_SETUP ──────────────────────────────────────────────────────
@@ -893,7 +1034,6 @@ impl Conn {
                 session.preauth = crypto::extend_preauth(&session.preauth, message);
             }
         }
-
         match ntlm::message_type(token) {
             Some(1) => self.send_challenge(session_id, token),
             Some(3) => self.accept_authenticate(session_id, token),
@@ -988,6 +1128,7 @@ impl Conn {
         session.authenticated = true;
         session.is_guest = false;
         session.pending = None;
+
 
         (self.events)(ServerEvent::ClientAuthenticated {
             connection,

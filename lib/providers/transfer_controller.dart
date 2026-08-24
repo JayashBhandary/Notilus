@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 
 import '../config/transfer_config.dart';
 import '../utils/device_code.dart';
+import '../utils/platform.dart';
 import '../models/transfer/contact.dart';
 import '../models/transfer/inbox_message.dart';
 import '../models/transfer/transfer_request.dart';
@@ -1018,16 +1019,27 @@ class TransferController extends ChangeNotifier {
   }
 
   /// Destination for received files: the folder set in Settings, else
-  /// `~/Downloads/Notilus`.
+  /// `~/Downloads/Notilus` — or `Documents/Notilus` on mobile.
   Future<String> _destDir() async {
     try {
       final custom = await SettingsStore().getTransferDestination();
       if (custom.isNotEmpty) return custom;
     } catch (_) {}
     Directory? base;
-    try {
-      base = await getDownloadsDirectory();
-    } catch (_) {}
+    // There is no Downloads folder on a phone, and `$HOME/Downloads` inside an
+    // app container is a folder nothing can open: it isn't what the Files app
+    // exports, and the app's own browser starts at Documents. So received
+    // files land where the user can actually find them again.
+    if (isMobilePlatform) {
+      try {
+        base = await getApplicationDocumentsDirectory();
+      } catch (_) {}
+    }
+    if (base == null) {
+      try {
+        base = await getDownloadsDirectory();
+      } catch (_) {}
+    }
     if (base == null) {
       final home = Platform.environment['HOME'] ??
           Platform.environment['USERPROFILE'] ??

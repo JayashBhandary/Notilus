@@ -1,0 +1,9 @@
+# Match the iOS deployment target the Xcode project sets (13.0).
+#
+# Without this a bare `cargo build --target aarch64-apple-ios` links against
+# rustc's own floor of iOS 10, where `__chkstk_darwin` — which the modern SDK's
+# C code (zstd) calls — doesn't exist yet, and the build dies on an undefined
+# symbol that has nothing to do with this crate. Cargo leaves an inherited
+# value alone, so the app's own build (which Xcode sets this for) is unaffected.
+[env]
+IPHONEOS_DEPLOYMENT_TARGET = "13.0"

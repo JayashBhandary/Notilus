@@ -384,6 +384,78 @@ fn a_share_without_guest_access_refuses_an_anonymous_client() {
     assert!(error.is_auth_failure(), "got {error}");
 }
 
+/// A compound request is how a real client opens a file — Finder sends
+/// create/query/close as one chained packet — and every response in the chain
+/// has to verify on its own. This once signed each part before its
+/// `NextCommand` and padding were written, which no in-crate test noticed
+/// because the client only checks the reply it was waiting for.
+#[test]
+fn every_response_in_a_chain_is_signed_over_what_it_sends() {
+    let fixture = start("compound", false);
+    let mut client = connect(&fixture, "correct horse").unwrap();
+
+    let verdicts = client.compound_signature_probe("Files").unwrap();
+    assert_eq!(verdicts.len(), 2, "expected a response per request");
+    assert!(
+        verdicts.iter().all(|ok| *ok),
+        "a chained response was signed over the wrong bytes: {verdicts:?}"
+    );
+
+    client.disconnect();
+}
+
+/// Windows, Finder and `mount.cifs` all open with an SMB1 negotiate rather
+/// than an SMB2 one. Answering it with the SMB2 wildcard revision is what lets
+/// them get as far as speaking SMB2 at all.
+#[test]
+fn an_smb1_negotiate_is_answered_in_smb2() {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+
+    let fixture = start("smb1", false);
+    let mut stream =
+        TcpStream::connect(("127.0.0.1", fixture.port)).expect("the server should accept");
+
+    // An SMB1 NEGOTIATE offering NT LM 0.12 and the SMB2 wildcard.
+    let mut body = vec![0u8; 32];
+    body[..4].copy_from_slice(&[0xFF, b'S', b'M', b'B']);
+    body[4] = 0x72; // SMB_COM_NEGOTIATE
+    body[9] = 0x18; // flags
+    body[10..12].copy_from_slice(&0xC853u16.to_le_bytes());
+    body.push(0); // WordCount
+    let mut dialects = Vec::new();
+    for name in ["NT LM 0.12", "SMB 2.002", "SMB 2.???"] {
+        dialects.push(0x02);
+        dialects.extend_from_slice(name.as_bytes());
+        dialects.push(0);
+    }
+    body.extend_from_slice(&(dialects.len() as u16).to_le_bytes());
+    body.extend_from_slice(&dialects);
+
+    let length = body.len() as u32;
+    let framing = [0u8, (length >> 16) as u8, (length >> 8) as u8, length as u8];
+    stream.write_all(&framing).unwrap();
+    stream.write_all(&body).unwrap();
+    stream.flush().unwrap();
+
+    let mut header = [0u8; 4];
+    stream.read_exact(&mut header).unwrap();
+    let size = u32::from_be_bytes([0, header[1], header[2], header[3]]) as usize;
+    let mut reply = vec![0u8; size];
+    stream.read_exact(&mut reply).unwrap();
+
+    assert_eq!(&reply[..4], &[0xFE, b'S', b'M', b'B'], "expected an SMB2 reply");
+    assert_eq!(
+        u16::from_le_bytes([reply[12], reply[13]]),
+        0,
+        "expected a NEGOTIATE response"
+    );
+    // Body: StructureSize, SecurityMode, then the dialect — the wildcard, which
+    // asks the client to negotiate again in SMB2.
+    let dialect = u16::from_le_bytes([reply[68], reply[69]]);
+    assert_eq!(dialect, 0x02FF, "expected the wildcard revision");
+}
+
 // ── share enumeration ──────────────────────────────────────────────────────
 
 #[test]

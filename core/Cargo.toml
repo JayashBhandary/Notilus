@@ -30,9 +30,14 @@ rayon = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.10"
 tar = "0.4.46"
-trash = "5.2.6"
 walkdir = "2.5.0"
 zip = "8.6.0"
+
+# The recycle bin is a desktop concept, and the crate has no mobile backend:
+# it fails to compile for iOS and Android. Those builds fall back to a trash
+# folder inside the app's own container — see `api::trash`.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+trash = "5.2.6"
 
 # statvfs, for reporting a share's free space to SMB clients. Only the Unix
 # desktop builds host a share.

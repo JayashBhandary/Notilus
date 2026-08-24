@@ -12,6 +12,7 @@ import '../providers/settings_provider.dart';
 import '../services/remote/remote_hub.dart';
 import '../services/remote/remote_path.dart';
 import '../theme.dart';
+import '../utils/platform.dart';
 import '../utils/responsive.dart';
 import '../widgets/chat_panel.dart';
 import '../widgets/file_list_view.dart';
@@ -150,8 +151,9 @@ class _HomeScreenState extends State<HomeScreen> {
     HardwareKeyboard.instance.addHandler(_handleGlobalKey);
     // The terminal's open/closed state lives here, so anything elsewhere that
     // wants a shell — "Open SSH Session Here" on a server folder — asks
-    // through this hook.
-    TerminalLauncher.onOpenRequested = _openTerminal;
+    // through this hook. There is no shell to open on mobile, so nothing
+    // registers and the callers fall back to doing nothing.
+    if (hasIntegratedTerminal) TerminalLauncher.onOpenRequested = _openTerminal;
   }
 
   @override
@@ -164,6 +166,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openTerminal() {
+    if (!hasIntegratedTerminal) return;
     if (!_terminalOpen && mounted) setState(() => _terminalOpen = true);
   }
 
@@ -188,7 +191,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_drawerOpen) setState(() => _drawerOpen = false);
   }
 
-  void _toggleTerminal() => setState(() => _terminalOpen = !_terminalOpen);
+  void _toggleTerminal() {
+    if (!hasIntegratedTerminal) return;
+    setState(() => _terminalOpen = !_terminalOpen);
+  }
   void _closeTerminal() {
     if (_terminalOpen) setState(() => _terminalOpen = false);
   }
@@ -428,6 +434,42 @@ class _WideLayout extends StatelessWidget {
 // Bottom tab bar with Files/Info/Chat/Workflows + slide-in sidebar drawer.
 // ──────────────────────────────────────────────────────────────────────────
 
+/// One entry in the compact layout: what the bottom bar shows for it, and what
+/// fills the content area when it is selected.
+class _CompactTab {
+  const _CompactTab({
+    required this.icon,
+    required this.label,
+    required this.body,
+  });
+
+  final IconData icon;
+  final String label;
+  final Widget body;
+}
+
+/// The sidebar as a full-width page.
+///
+/// On a phone the places list *is* a destination — the drives, the shares, the
+/// media libraries — so it gets the whole width and the bottom bar rather than
+/// a drawer that has to be swiped away before anything can be tapped.
+class _PlacesTab extends StatelessWidget {
+  const _PlacesTab({required this.onOpen});
+
+  /// Called once the user picks somewhere, to hand the screen back to Files.
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (ctx, c) => Sidebar(
+        width: c.maxWidth,
+        onFocusCenter: onOpen,
+      ),
+    );
+  }
+}
+
 class _CompactLayout extends StatelessWidget {
   const _CompactLayout({
     required this.tab,
@@ -471,6 +513,43 @@ class _CompactLayout extends StatelessWidget {
         : browser.currentPath;
     final centerView = browser.centerView;
 
+    // A phone gets the places as a tab rather than a drawer: reaching a share
+    // is the whole point of the mobile app, and a swipe-in panel is a worse
+    // place for the thing you came to tap. Workflow editing goes the other
+    // way — it needs a canvas, so it stays on the desktop layouts.
+    final tabs = <_CompactTab>[
+      _CompactTab(
+        icon: LucideIcons.folder,
+        label: 'Files',
+        body: _centerBody(centerView, overviewKey),
+      ),
+      if (isMobilePlatform)
+        _CompactTab(
+          icon: LucideIcons.hardDrive,
+          label: 'Places',
+          body: _PlacesTab(onOpen: () => onTabChanged(0)),
+        ),
+      const _CompactTab(
+        icon: LucideIcons.info,
+        label: 'Info',
+        body: InfoPanel(),
+      ),
+      const _CompactTab(
+        icon: LucideIcons.messageSquare,
+        label: 'Chat',
+        body: ChatPanel(),
+      ),
+      if (!isMobilePlatform)
+        const _CompactTab(
+          icon: LucideIcons.zap,
+          label: 'Flows',
+          body: WorkflowTab(),
+        ),
+    ];
+    // A resize can outrun the stored index (the desktop set is longer).
+    final index = tab.clamp(0, tabs.length - 1);
+    final hasDrawer = !isMobilePlatform;
+
     return Stack(
       children: [
         SafeArea(
@@ -478,11 +557,16 @@ class _CompactLayout extends StatelessWidget {
           child: Column(
             children: [
               _CompactTopBar(
-                onMenu: onToggleDrawer,
+                onMenu: hasDrawer ? onToggleDrawer : null,
                 onSettings: onSettings,
                 onToggleTerminal: onToggleTerminal,
                 terminalOpen: terminalOpen,
-                title: tab == 0 ? _centerTitle(centerView) : '',
+                title: index == 0 ? _centerTitle(centerView) : '',
+                // No keyboard shortcuts on a phone, so the two moves a browser
+                // needs most get buttons of their own.
+                showNavigation: isMobilePlatform &&
+                    index == 0 &&
+                    centerView == CenterView.files,
               ),
               Expanded(
                 // Same reason as the wide layout: the terminal shares the
@@ -493,13 +577,8 @@ class _CompactLayout extends StatelessWidget {
                     children: [
                       Expanded(
                         child: IndexedStack(
-                          index: tab,
-                          children: [
-                            _centerBody(centerView, overviewKey),
-                            const InfoPanel(),
-                            const ChatPanel(),
-                            const WorkflowTab(),
-                          ],
+                          index: index,
+                          children: [for (final t in tabs) t.body],
                         ),
                       ),
                       if (terminalOpen)
@@ -522,15 +601,16 @@ class _CompactLayout extends StatelessWidget {
               SafeArea(
                 top: false,
                 child: _CompactTabBar(
-                  index: tab,
+                  index: index,
+                  items: tabs,
                   onChanged: onTabChanged,
                 ),
               ),
             ],
           ),
         ),
-        // Scrim + drawer.
-        IgnorePointer(
+        // Scrim + drawer. Absent on mobile, where Places is a tab.
+        if (hasDrawer) IgnorePointer(
           ignoring: !drawerOpen,
           child: AnimatedOpacity(
             opacity: drawerOpen ? 1 : 0,
@@ -542,7 +622,7 @@ class _CompactLayout extends StatelessWidget {
             ),
           ),
         ),
-        AnimatedPositioned(
+        if (hasDrawer) AnimatedPositioned(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
           top: 0,
@@ -765,11 +845,19 @@ class _CompactTopBar extends StatelessWidget {
     required this.onToggleTerminal,
     required this.terminalOpen,
     this.title = '',
+    this.showNavigation = false,
   });
-  final VoidCallback onMenu;
+
+  /// Opens the drawer, or null where there isn't one (mobile, which has a
+  /// Places tab instead).
+  final VoidCallback? onMenu;
   final VoidCallback onSettings;
   final VoidCallback onToggleTerminal;
   final bool terminalOpen;
+
+  /// Whether to show back/up buttons. Set on touch platforms, where the
+  /// keyboard shortcuts that serve the desktop layouts don't exist.
+  final bool showNavigation;
 
   /// When non-empty, shown in place of the current-folder label (used when a
   /// non-file page occupies the center pane).
@@ -808,12 +896,27 @@ class _CompactTopBar extends StatelessWidget {
   ) {
     return Row(
       children: [
-        _ToolbarIconButton(
-          icon: LucideIcons.panelLeft,
-          tooltip: 'Menu',
-          onPressed: onMenu,
-        ),
-        const SizedBox(width: 4),
+        if (onMenu != null) ...[
+          _ToolbarIconButton(
+            icon: LucideIcons.panelLeft,
+            tooltip: 'Menu',
+            onPressed: onMenu,
+          ),
+          const SizedBox(width: 4),
+        ],
+        if (showNavigation) ...[
+          _ToolbarIconButton(
+            icon: LucideIcons.chevronLeft,
+            tooltip: 'Back',
+            onPressed: browser.canGoBack ? browser.goBack : null,
+          ),
+          _ToolbarIconButton(
+            icon: LucideIcons.arrowUp,
+            tooltip: 'Up',
+            onPressed: browser.canGoUp ? browser.goUp : null,
+          ),
+          const SizedBox(width: 4),
+        ],
         Expanded(
           child: title.isNotEmpty
               ? Text(
@@ -829,12 +932,13 @@ class _CompactTopBar extends StatelessWidget {
               : _CurrentFolderLabel(path: browser.currentPath),
         ),
         const SizedBox(width: 4),
-        _ToolbarIconButton(
-          icon: LucideIcons.terminal,
-          tooltip: 'Terminal',
-          onPressed: onToggleTerminal,
-          highlighted: terminalOpen,
-        ),
+        if (hasIntegratedTerminal)
+          _ToolbarIconButton(
+            icon: LucideIcons.terminal,
+            tooltip: 'Terminal',
+            onPressed: onToggleTerminal,
+            highlighted: terminalOpen,
+          ),
         _ConnectionDot(connected: settings.connected, onTap: onSettings),
         _ToolbarIconButton(
           icon: LucideIcons.settings,
@@ -920,16 +1024,15 @@ class _ConnectionDot extends StatelessWidget {
 // ──────────────────────────────────────────────────────────────────────────
 
 class _CompactTabBar extends StatelessWidget {
-  const _CompactTabBar({required this.index, required this.onChanged});
-  final int index;
-  final ValueChanged<int> onChanged;
+  const _CompactTabBar({
+    required this.index,
+    required this.items,
+    required this.onChanged,
+  });
 
-  static const _items = [
-    (LucideIcons.folder, 'Files'),
-    (LucideIcons.info, 'Info'),
-    (LucideIcons.messageSquare, 'Chat'),
-    (LucideIcons.zap, 'Flows'),
-  ];
+  final int index;
+  final List<_CompactTab> items;
+  final ValueChanged<int> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -947,9 +1050,9 @@ class _CompactTabBar extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(minHeight: 52),
         child: Row(
-          children: List.generate(_items.length, (i) {
+          children: List.generate(items.length, (i) {
             final selected = i == index;
-            final item = _items[i];
+            final item = items[i];
             final tint = selected ? colors.primary : colors.mutedForeground;
             return Expanded(
               child: GestureDetector(
@@ -961,10 +1064,10 @@ class _CompactTabBar extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(item.$1, size: 22, color: tint),
+                      Icon(item.icon, size: 22, color: tint),
                       const SizedBox(height: 2),
                       Text(
-                        item.$2,
+                        item.label,
                         maxLines: 1,
                         softWrap: false,
                         overflow: TextOverflow.ellipsis,

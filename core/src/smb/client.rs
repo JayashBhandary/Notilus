@@ -475,6 +475,80 @@ impl Client {
         Ok((header, payload, packet, response))
     }
 
+    /// Sends a two-request compound — tree connect plus tree disconnect, the
+    /// shape a real client uses to open a file — and reports whether every
+    /// response in the chain carried a valid signature.
+    ///
+    /// Only tests call this. It exists because a chained response is the one
+    /// place a server can sign the wrong bytes: `NextCommand` and the padding
+    /// after it are part of the message, and a signature taken before they are
+    /// written verifies nowhere but in an implementation that never checks.
+    #[cfg(test)]
+    pub(crate) fn compound_signature_probe(&mut self, share: &str) -> Result<Vec<bool>> {
+        let Some(key) = self.signing_key else {
+            return Err(ClientError::local("The session isn't signed."));
+        };
+
+        let path = format!("\\\\{}\\{}", self.server_name, share);
+        let encoded = string_to_utf16le(&path);
+        let mut w = Writer::with_capacity(8 + encoded.len());
+        w.u16(9).u16(0);
+        let offset_at = w.len();
+        w.u16(0).u16(encoded.len() as u16);
+        let offset = HEADER_SIZE + w.len();
+        w.bytes(&encoded);
+        w.patch_u16(offset_at, offset as u16);
+        let connect = self.frame(command::TREE_CONNECT, &w.into_vec());
+
+        let mut w = Writer::with_capacity(4);
+        w.u16(4).u16(0);
+        let disconnect = self.frame(command::TREE_DISCONNECT, &w.into_vec());
+
+        // The first message announces the second, eight-byte aligned, and the
+        // second inherits the tree the first opened.
+        let mut first = connect;
+        let padding = (8 - (first.len() % 8)) % 8;
+        first.resize(first.len() + padding, 0);
+        let next = first.len() as u32;
+        first[20..24].copy_from_slice(&next.to_le_bytes());
+        let mut second = disconnect;
+        let related = flags::RELATED_OPERATIONS;
+        let flags = u32::from_le_bytes([second[16], second[17], second[18], second[19]]) | related;
+        second[16..20].copy_from_slice(&flags.to_le_bytes());
+        second[36..40].copy_from_slice(&u32::MAX.to_le_bytes()); // inherit the tree
+
+        // Each message in a chain is signed on its own.
+        crypto::apply_signature(self.dialect, &key, &mut first[..next as usize]);
+        crypto::apply_signature(self.dialect, &key, &mut second);
+
+        let mut packet = first;
+        packet.extend_from_slice(&second);
+        self.send(&packet)?;
+        let response = self.receive()?;
+
+        let mut verdicts = Vec::new();
+        let mut at = 0usize;
+        while at + HEADER_SIZE <= response.len() {
+            let next = u32::from_le_bytes([
+                response[at + 20],
+                response[at + 21],
+                response[at + 22],
+                response[at + 23],
+            ]) as usize;
+            let end = if next == 0 {
+                response.len()
+            } else {
+                (at + next).min(response.len())
+            };
+            verdicts.push(crypto::verify_packet(self.dialect, &key, &response[at..end]));
+            if next == 0 {
+                break;
+            }
+            at = end;
+        }
+        Ok(verdicts)
+    }
+
     fn tree_connect(&mut self, share: &str) -> Result<()> {
         let path = format!("\\\\{}\\{}", self.server_name, share);
         let encoded = string_to_utf16le(&path);

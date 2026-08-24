@@ -12,6 +12,7 @@ import '../services/file_service.dart';
 import '../services/remote/remote_hub.dart';
 import '../services/remote/remote_path.dart';
 import '../theme.dart';
+import '../utils/platform.dart';
 import 'desk_context_menu.dart';
 import 'remote/remote_source_dialog.dart';
 
@@ -62,152 +63,179 @@ class Sidebar extends StatelessWidget {
         !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS;
     final topPadding = isDesktopMac ? 36.0 : 14.0;
 
-    return ListenableBuilder(
-      listenable: hub,
-      builder: (context, _) => Container(
-      width: width,
-      color: palette.sidebarBg,
-      child: SafeArea(
-        right: false,
-        bottom: false,
-        child: ListView(
-          padding: EdgeInsets.only(top: topPadding, bottom: 16),
+    // The tools that read a whole machine, and the server that publishes part
+    // of it, are desktop-only — see `utils/platform.dart`. On a phone the list
+    // is only what you can browse, so it leads with the places instead.
+    final tools = <Widget>[
+      const _SectionHeader(label: 'System'),
+      if (hasMachineTools) ...[
+        _SidebarItem(
+          label: 'System Overview',
+          icon: LucideIcons.gauge,
+          selected: browser.centerView == CenterView.systemOverview,
+          onTap: () => after(
+            () => browser.showCenterView(CenterView.systemOverview),
+          ),
+        ),
+        _SidebarItem(
+          label: 'Duplicate Finder',
+          icon: LucideIcons.copy,
+          selected: browser.centerView == CenterView.duplicates,
+          onTap: () => after(
+            () => browser.showCenterView(CenterView.duplicates),
+          ),
+        ),
+      ],
+      _SidebarItem(
+        label: 'File Transfer',
+        icon: LucideIcons.arrowDownUp,
+        selected: browser.centerView == CenterView.transfers,
+        onTap: () => after(
+          () => browser.showCenterView(CenterView.transfers),
+        ),
+      ),
+      if (canHostShares)
+        _SidebarItem(
+          label: 'File Sharing',
+          icon: LucideIcons.share2,
+          selected: browser.centerView == CenterView.sharing,
+          onTap: () => after(
+            () => browser.showCenterView(CenterView.sharing),
+          ),
+        ),
+    ];
+
+    final favorites = <Widget>[
+      const _SectionHeader(label: 'Favorites'),
+      ...shortcuts.map((e) {
+        final selected = browser.centerView == CenterView.files &&
+            browser.currentPath == e.value;
+        return _SidebarItem(
+          label: e.key,
+          icon: _iconForShortcut(e.key),
+          selected: selected,
+          onTap: () => after(() => browser.navigateTo(e.value!)),
+        );
+      }),
+    ];
+
+    final media = <Widget>[
+      const _SectionHeader(label: 'Media'),
+      ...MediaKind.values.map(
+        (kind) => _SidebarItem(
+          label: kind.label,
+          icon: iconForMediaKind(kind),
+          selected: browser.centerView == centerViewForMedia(kind),
+          onTap: () => after(
+            () => browser.showCenterView(centerViewForMedia(kind)),
+          ),
+        ),
+      ),
+    ];
+
+    final locations = <Widget>[
+      _SectionHeader(
+        label: 'Locations',
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            const _SectionHeader(label: 'System'),
-            _SidebarItem(
-              label: 'System Overview',
-              icon: LucideIcons.gauge,
-              selected: browser.centerView == CenterView.systemOverview,
-              onTap: () => after(
-                () => browser.showCenterView(CenterView.systemOverview),
-              ),
+            // Adding a cloud source sits here rather than in Settings
+            // because this is the list it joins: a remote is a location,
+            // and the row it produces behaves like the drives above it.
+            _HeaderAction(
+              icon: LucideIcons.plus,
+              tooltip: 'Add a remote source',
+              onTap: () => _addRemote(context, after),
             ),
-            _SidebarItem(
-              label: 'Duplicate Finder',
-              icon: LucideIcons.copy,
-              selected: browser.centerView == CenterView.duplicates,
-              onTap: () => after(
-                () => browser.showCenterView(CenterView.duplicates),
-              ),
-            ),
-            _SidebarItem(
-              label: 'File Transfer',
-              icon: LucideIcons.arrowDownUp,
-              selected: browser.centerView == CenterView.transfers,
-              onTap: () => after(
-                () => browser.showCenterView(CenterView.transfers),
-              ),
-            ),
-            _SidebarItem(
-              label: 'File Sharing',
-              icon: LucideIcons.share2,
-              selected: browser.centerView == CenterView.sharing,
-              onTap: () => after(
-                () => browser.showCenterView(CenterView.sharing),
-              ),
-            ),
-            const SizedBox(height: 14),
-            const _SectionHeader(label: 'Favorites'),
-            ...shortcuts.map((e) {
-              final selected = browser.centerView == CenterView.files &&
-                  browser.currentPath == e.value;
-              return _SidebarItem(
-                label: e.key,
-                icon: _iconForShortcut(e.key),
-                selected: selected,
-                onTap: () => after(() => browser.navigateTo(e.value!)),
-              );
-            }),
-            const SizedBox(height: 14),
-            const _SectionHeader(label: 'Media'),
-            ...MediaKind.values.map(
-              (kind) => _SidebarItem(
-                label: kind.label,
-                icon: iconForMediaKind(kind),
-                selected: browser.centerView == centerViewForMedia(kind),
-                onTap: () => after(
-                  () => browser.showCenterView(centerViewForMedia(kind)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            _SectionHeader(
-              label: 'Locations',
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Adding a cloud source sits here rather than in Settings
-                  // because this is the list it joins: a remote is a location,
-                  // and the row it produces behaves like the drives above it.
-                  _HeaderAction(
-                    icon: LucideIcons.plus,
-                    tooltip: 'Add a remote source',
-                    onTap: () => _addRemote(context, after),
-                  ),
-                  _HeaderAction(
-                    icon: LucideIcons.refreshCw,
-                    tooltip: 'Refresh drives',
-                    onTap: browser.refreshDrives,
-                  ),
-                ],
-              ),
-            ),
-            if (drives.isEmpty && hub.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 4,
-                ),
-                child: Text(
-                  'No drives detected',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: colors.mutedForeground,
-                  ),
-                ),
-              )
-            else
-              ...drives.map((d) {
-                final selected = browser.centerView == CenterView.files &&
-                    browser.currentPath == d.path;
-                return _SidebarItem(
-                  label: d.name,
-                  icon: _iconForDrive(d),
-                  iconColor:
-                      d.isRoot ? colors.mutedForeground : palette.folderIcon,
-                  selected: selected,
-                  onTap: () => after(() => browser.navigateTo(d.path)),
-                );
-              }),
-            // Mounted cloud sources, in the same list as the physical drives:
-            // to the rest of the app a bucket is just another place files are.
-            ...hub.connections.map(
-              (connection) => _RemoteItem(
-                connection: connection,
-                status: hub.statusOf(connection.id),
-                error: hub.errorOf(connection.id),
-                selected: browser.centerView == CenterView.files &&
-                    VPath.connectionOf(browser.currentPath) == connection.id,
-                onTap: () => after(
-                  () => browser.navigateTo(VPath.root(connection.id)),
-                ),
-              ),
-            ),
-            if (hub.isEmpty)
-              _SidebarItem(
-                label: 'Add remote source…',
-                icon: LucideIcons.cloudUpload,
-                selected: false,
-                onTap: () => _addRemote(context, after),
-              ),
-            const SizedBox(height: 14),
-            const _SectionHeader(label: 'Tags'),
-            ..._kTags.map(
-              (t) => _TagItem(label: t.name, color: t.color),
+            _HeaderAction(
+              icon: LucideIcons.refreshCw,
+              tooltip: 'Refresh drives',
+              onTap: browser.refreshDrives,
             ),
           ],
         ),
       ),
+      if (drives.isEmpty && hub.isEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
+          ),
+          child: Text(
+            'No drives detected',
+            style: TextStyle(
+              fontSize: 11,
+              color: colors.mutedForeground,
+            ),
+          ),
+        )
+      else
+        ...drives.map((d) {
+          final selected = browser.centerView == CenterView.files &&
+              browser.currentPath == d.path;
+          return _SidebarItem(
+            label: d.name,
+            icon: _iconForDrive(d),
+            iconColor: d.isRoot ? colors.mutedForeground : palette.folderIcon,
+            selected: selected,
+            onTap: () => after(() => browser.navigateTo(d.path)),
+          );
+        }),
+      // Mounted cloud sources, in the same list as the physical drives:
+      // to the rest of the app a bucket is just another place files are.
+      ...hub.connections.map(
+        (connection) => _RemoteItem(
+          connection: connection,
+          status: hub.statusOf(connection.id),
+          error: hub.errorOf(connection.id),
+          selected: browser.centerView == CenterView.files &&
+              VPath.connectionOf(browser.currentPath) == connection.id,
+          onTap: () => after(
+            () => browser.navigateTo(VPath.root(connection.id)),
+          ),
+        ),
+      ),
+      if (hub.isEmpty)
+        _SidebarItem(
+          label: 'Add remote source…',
+          icon: LucideIcons.cloudUpload,
+          selected: false,
+          onTap: () => _addRemote(context, after),
+        ),
+    ];
+
+    final tags = <Widget>[
+      const _SectionHeader(label: 'Tags'),
+      ..._kTags.map(
+        (t) => _TagItem(label: t.name, color: t.color),
+      ),
+    ];
+
+    // Phone order puts the places first — the drives and the remote sources
+    // are what a client is opened to reach, and the tools below them are a
+    // short list once the desktop-only ones are gone.
+    final sections = isMobilePlatform
+        ? [locations, favorites, media, tools, tags]
+        : [tools, favorites, media, locations, tags];
+
+    return ListenableBuilder(
+      listenable: hub,
+      builder: (context, _) => Container(
+        width: width,
+        color: palette.sidebarBg,
+        child: SafeArea(
+          right: false,
+          bottom: false,
+          child: ListView(
+            padding: EdgeInsets.only(top: topPadding, bottom: 16),
+            children: [
+              for (final (index, section) in sections.indexed) ...[
+                if (index > 0) const SizedBox(height: 14),
+                ...section,
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -486,8 +514,7 @@ class _TagItemState extends State<_TagItem> {
         onTap: () {},
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 6),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
             color: _hover ? colors.accent : null,
             borderRadius: BorderRadius.circular(5),
@@ -594,8 +621,7 @@ class _SidebarItemState extends State<_SidebarItem> {
         onTap: widget.onTap,
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 6),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(5),
@@ -614,9 +640,8 @@ class _SidebarItemState extends State<_SidebarItem> {
                   style: TextStyle(
                     fontSize: 12.5,
                     color: colors.foreground,
-                    fontWeight: widget.selected
-                        ? FontWeight.w500
-                        : FontWeight.normal,
+                    fontWeight:
+                        widget.selected ? FontWeight.w500 : FontWeight.normal,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),

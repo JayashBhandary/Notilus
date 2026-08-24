@@ -52,6 +52,7 @@ const SERVER_FLAGS: u32 = flag::UNICODE
     | flag::TARGET_TYPE_SERVER
     | flag::EXTENDED_SESSION_SECURITY
     | flag::TARGET_INFO
+    | flag::VERSION
     | flag::KEY_128
     | flag::KEY_EXCH
     | flag::KEY_56;
@@ -150,7 +151,8 @@ pub fn build_challenge(
     target_info.u16(av::EOL).u16(0);
     let target_info = target_info.into_vec();
 
-    let target_name = string_to_utf16le(domain);
+    // TARGET_TYPE_SERVER says this name is the server's, not a domain's.
+    let target_name = string_to_utf16le(netbios_name);
     // Payload follows the fixed 56-byte part.
     let target_name_offset = 56u32;
     let target_info_offset = target_name_offset + target_name.len() as u32;

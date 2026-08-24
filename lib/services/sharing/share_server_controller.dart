@@ -16,6 +16,8 @@ class SharedFolder {
     required this.name,
     required this.path,
     this.readOnly = true,
+    this.allowedUsers = const [],
+    this.guestOk = false,
   });
 
   /// What clients see — the `Files` in `\\host\Files`.
@@ -26,20 +28,51 @@ class SharedFolder {
   /// and letting strangers write to it is a second one.
   final bool readOnly;
 
-  SharedFolder copyWith({String? name, String? path, bool? readOnly}) =>
+  /// Accounts that may attach to this share. Empty means every account that
+  /// can sign in, which is what a one-person setup wants and what this did
+  /// before per-share access existed.
+  final List<String> allowedUsers;
+
+  /// Whether someone with no account may attach. Off unless asked for: a guest
+  /// share is readable by anyone who can reach the port. A guest never writes,
+  /// whatever [readOnly] says.
+  final bool guestOk;
+
+  /// Whether the share is limited to named accounts rather than open to all.
+  bool get isRestricted => allowedUsers.isNotEmpty;
+
+  SharedFolder copyWith({
+    String? name,
+    String? path,
+    bool? readOnly,
+    List<String>? allowedUsers,
+    bool? guestOk,
+  }) =>
       SharedFolder(
         name: name ?? this.name,
         path: path ?? this.path,
         readOnly: readOnly ?? this.readOnly,
+        allowedUsers: allowedUsers ?? this.allowedUsers,
+        guestOk: guestOk ?? this.guestOk,
       );
 
-  Map<String, dynamic> toJson() =>
-      {'name': name, 'path': path, 'readOnly': readOnly};
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'path': path,
+        'readOnly': readOnly,
+        'allowedUsers': allowedUsers,
+        'guestOk': guestOk,
+      };
 
   factory SharedFolder.fromJson(Map<String, dynamic> json) => SharedFolder(
         name: '${json['name'] ?? ''}',
         path: '${json['path'] ?? ''}',
         readOnly: json['readOnly'] != false,
+        allowedUsers: [
+          for (final u in (json['allowedUsers'] as List? ?? const []))
+            '$u'.trim(),
+        ]..removeWhere((u) => u.isEmpty),
+        guestOk: json['guestOk'] == true,
       );
 
   /// A share name derived from a folder, with the characters SMB can't carry
@@ -300,6 +333,10 @@ class ShareServerController extends ChangeNotifier {
       for (final u in _users)
         if (u.name.toLowerCase() != name.toLowerCase()) u,
     ];
+    // The name is left on any share that listed it deliberately. Quietly
+    // dropping it would turn "only Alice" into "every account" the moment
+    // Alice is deleted; instead [start] refuses until the user says who the
+    // share is for. Stale names are ignored while the server runs.
     try {
       await _secure.delete(key: _secretKey(name));
     } catch (_) {
@@ -308,6 +345,13 @@ class ShareServerController extends ChangeNotifier {
     await _persist();
     notifyListeners();
   }
+
+  /// The share's allow list narrowed to accounts that still exist.
+  List<String> _allowedThatExist(SharedFolder folder) => [
+        for (final wanted in folder.allowedUsers)
+          for (final user in _users)
+            if (user.name.toLowerCase() == wanted.toLowerCase()) user.name,
+      ];
 
   static String _secretKey(String user) => 'smb_share_user_${user.toLowerCase()}';
 
@@ -340,6 +384,13 @@ class ShareServerController extends ChangeNotifier {
     for (final folder in _folders) {
       if (!await Directory(folder.path).exists()) {
         return '"${folder.name}" points at ${folder.path}, which is gone.';
+      }
+      // A share limited to accounts that no longer exist would be reachable by
+      // nobody, and the empty list Rust reads as "everyone" would silently
+      // widen it instead — so say so rather than guess.
+      if (folder.isRestricted && _allowedThatExist(folder).isEmpty) {
+        return '"${folder.name}" is limited to accounts that no longer exist. '
+            'Choose who can use it.';
       }
     }
 
@@ -376,6 +427,8 @@ class ShareServerController extends ChangeNotifier {
               path: folder.path,
               readOnly: folder.readOnly,
               comment: '',
+              allowedUsers: _allowedThatExist(folder),
+              guestOk: folder.guestOk,
             ),
         ],
         users: users,

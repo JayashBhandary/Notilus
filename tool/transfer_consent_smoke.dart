@@ -64,7 +64,7 @@ Future<void> main() async {
     b.sig.messages.listen((m) async {
       if (m.type != InboxMessage.typeTransferRequest) return;
       final ok = await verifySignedMessage(b.id, m,
-          myDeviceId: b.id.deviceId!, senderPublicKey: a.id.publicKeyBase64);
+          myId: b.id.myCode, senderPublicKey: a.id.publicKeyBase64);
       print('   B received request (verified=$ok)');
       if (m.id != null) await b.sig.deleteInboxMessage(m.id!);
       if (!ok) return;
@@ -75,14 +75,14 @@ Future<void> main() async {
         ts: _now,
         payload: {'requestId': m.payload['requestId'], 'accepted': true},
       );
-      await b.sig.send(m.from, resp);
+      await b.sig.send(a.id.deviceId!, resp);
     });
 
     // A: receive the signed response.
     a.sig.messages.listen((m) async {
       if (m.type != InboxMessage.typeTransferResponse) return;
       final ok = await verifySignedMessage(a.id, m,
-          myDeviceId: a.id.deviceId!, senderPublicKey: b.id.publicKeyBase64);
+          myId: a.id.myCode, senderPublicKey: b.id.publicKeyBase64);
       if (m.id != null) await a.sig.deleteInboxMessage(m.id!);
       if (ok && !accepted.isCompleted) {
         accepted.complete(m.payload['accepted'] == true);
@@ -94,7 +94,7 @@ Future<void> main() async {
     print('2. A → signed transfer-request to B…');
     final req = await buildSignedMessage(
       a.id,
-      to: b.id.deviceId!,
+      to: b.id.myCode,
       type: InboxMessage.typeTransferRequest,
       ts: _now,
       payload: {
@@ -114,7 +114,7 @@ Future<void> main() async {
 
     print('4. negative checks (forgery rejection)…');
     final good = await buildSignedMessage(a.id,
-        to: b.id.deviceId!, type: 'x', ts: _now, payload: {'n': 1});
+        to: b.id.myCode, type: 'x', ts: _now, payload: {'n': 1});
     final tampered = InboxMessage(
         type: good.type,
         from: good.from,
@@ -124,13 +124,13 @@ Future<void> main() async {
         signature: good.signature);
     final checks = {
       'valid': await verifySignedMessage(b.id, good,
-          myDeviceId: b.id.deviceId!, senderPublicKey: a.id.publicKeyBase64),
+          myId: b.id.myCode, senderPublicKey: a.id.publicKeyBase64),
       'tampered-rejected': !await verifySignedMessage(b.id, tampered,
-          myDeviceId: b.id.deviceId!, senderPublicKey: a.id.publicKeyBase64),
+          myId: b.id.myCode, senderPublicKey: a.id.publicKeyBase64),
       'wrong-key-rejected': !await verifySignedMessage(b.id, good,
-          myDeviceId: b.id.deviceId!, senderPublicKey: b.id.publicKeyBase64),
+          myId: b.id.myCode, senderPublicKey: b.id.publicKeyBase64),
       'wrong-recipient-rejected': !await verifySignedMessage(b.id, good,
-          myDeviceId: 'someone-else', senderPublicKey: a.id.publicKeyBase64),
+          myId: 'someone-else', senderPublicKey: a.id.publicKeyBase64),
     };
     print('   $checks');
     if (checks.values.any((v) => v == false)) {

@@ -10,6 +10,12 @@
 //! on Windows, `NSFileManager`'s trashItem on macOS, and the XDG Trash spec
 //! (`~/.local/share/Trash` with `.trashinfo` records) on Linux — which means
 //! items land where the desktop's own Trash UI can restore them.
+//!
+//! iOS and Android have no system recycle bin, and the crate has no backend
+//! for them. There the item is moved into a `.Trash` folder inside the app's
+//! own container instead: still one rename, still undoable by hand, and — the
+//! part that matters — still not a hard delete behind a button labelled
+//! "Move to Trash".
 
 use crate::api::fileops::FailedItem;
 use serde::{Deserialize, Serialize};
@@ -51,21 +57,90 @@ pub fn move_to_trash(paths: Vec<String>) -> TrashOutcome {
         return outcome;
     }
 
-    match trash::delete_all(&present) {
+    match delete_batch(&present) {
         Ok(()) => outcome.trashed = present,
         Err(_) => {
             for path in present {
-                match trash::delete(&path) {
+                match delete_one(&path) {
                     Ok(()) => outcome.trashed.push(path),
-                    Err(e) => outcome.failed.push(FailedItem {
-                        path,
-                        error: e.to_string(),
-                    }),
+                    Err(e) => outcome.failed.push(FailedItem { path, error: e }),
                 }
             }
         }
     }
     outcome
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn delete_batch(paths: &[String]) -> Result<(), String> {
+    trash::delete_all(paths).map_err(|e| e.to_string())
+}
+
+#[cfg(not(any(target_os = "ios", target_os = "android")))]
+fn delete_one(path: &str) -> Result<(), String> {
+    trash::delete(path).map_err(|e| e.to_string())
+}
+
+/// Mobile has no system recycle bin, so the batch is just the loop: there is
+/// no platform call to make once for the whole selection.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn delete_batch(paths: &[String]) -> Result<(), String> {
+    for path in paths {
+        delete_one(path)?;
+    }
+    Ok(())
+}
+
+/// Moves one item into the app container's own `.Trash`.
+///
+/// A rename inside the container is atomic and cheap. It can still fail across
+/// devices — an item on a mounted document provider, say — and that is reported
+/// rather than escalated to a delete: losing the file is the one outcome worse
+/// than the button not working.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn delete_one(path: &str) -> Result<(), String> {
+    use std::path::Path;
+
+    let source = Path::new(path);
+    let name = source
+        .file_name()
+        .ok_or_else(|| "That path has no file name.".to_string())?;
+    let bin = container_trash_dir();
+    std::fs::create_dir_all(&bin)
+        .map_err(|e| format!("Couldn't open the trash folder: {e}"))?;
+
+    // Two files called the same thing can be deleted from different folders, so
+    // the name in the bin is suffixed until it is free rather than overwriting
+    // what is already there.
+    let mut target = bin.join(name);
+    let mut attempt = 1u32;
+    while target.symlink_metadata().is_ok() {
+        let stem = Path::new(name).file_stem().unwrap_or(name);
+        let mut candidate = stem.to_string_lossy().into_owned();
+        candidate.push_str(&format!(" ({attempt})"));
+        if let Some(extension) = source.extension() {
+            candidate.push('.');
+            candidate.push_str(&extension.to_string_lossy());
+        }
+        target = bin.join(candidate);
+        attempt += 1;
+        if attempt > 1000 {
+            return Err("The trash folder already holds a thousand copies of                         that name."
+                .into());
+        }
+    }
+    std::fs::rename(source, &target).map_err(|e| e.to_string())
+}
+
+/// `<app container>/.Trash`.
+///
+/// Derived from the temporary directory, which on both platforms is a child of
+/// the container the app can write to — so the bin sits beside it rather than
+/// inside a folder the user browses.
+#[cfg(any(target_os = "ios", target_os = "android"))]
+fn container_trash_dir() -> std::path::PathBuf {
+    let tmp = std::env::temp_dir();
+    tmp.parent().unwrap_or(&tmp).join(".Trash")
 }
 
 /// Permanently deletes, bypassing the recycle bin.
