@@ -6,10 +6,12 @@ import 'package:uuid/uuid.dart';
 import '../src/rust/api/archive.dart' as rust_archive;
 import '../src/rust/api/bridge.dart' as rust;
 import '../src/rust/api/dedupe.dart' as rust_dedupe;
+import '../src/rust/api/email.dart' as rust_email;
 import '../src/rust/api/fileops.dart' as rust_fileops;
 import '../src/rust/api/listing.dart' as rust_listing;
 import '../src/rust/api/quick.dart' as rust_quick;
 import '../src/rust/api/search.dart' as rust_search;
+import '../src/rust/api/sharing.dart' as rust_sharing;
 import '../src/rust/api/thumbnail.dart' as rust_thumbnail;
 import '../src/rust/api/trash.dart' as rust_trash;
 import '../src/rust/frb_generated.dart';
@@ -40,6 +42,13 @@ export '../src/rust/api/bridge.dart'
         StatsEvent_Progress;
 export '../src/rust/api/dedupe.dart'
     show DuplicateGroup, ScanPhase, ScanProgress, ScanRequest;
+export '../src/rust/api/email.dart'
+    show
+        EmailAddressInfo,
+        EmailAttachmentData,
+        EmailAttachmentInfo,
+        EmailHeaderInfo,
+        EmailMessageInfo;
 export '../src/rust/api/fileops.dart'
     show Collision, FailedItem, OpOutcome, OpProgress;
 export '../src/rust/api/listing.dart' show DirEntryInfo, SortSpec;
@@ -47,6 +56,26 @@ export '../src/rust/api/quick.dart'
     show FolderStats, ImageTarget, ImageTransform, QuickOutcome, QuickProgress;
 export '../src/rust/api/search.dart'
     show HitKind, SearchHit, SearchRequest, SearchSummary;
+export '../src/rust/api/sharing.dart'
+    show
+        SmbClientSettings,
+        SmbConnectionEvent,
+        SmbEntry,
+        SmbOpenFile,
+        SmbServerEvent,
+        SmbServerEvent_Authenticated,
+        SmbServerEvent_Connected,
+        SmbServerEvent_Disconnected,
+        SmbServerEvent_Rejected,
+        SmbServerEvent_Started,
+        SmbServerEvent_Stopped,
+        SmbServerEvent_Transfer,
+        SmbServerSettings,
+        SmbServerStatus,
+        SmbSession,
+        SmbShareConfig,
+        SmbTransferEvent,
+        SmbUserConfig;
 export '../src/rust/api/thumbnail.dart' show ThumbnailInfo;
 export '../src/rust/api/trash.dart' show TrashOutcome;
 
@@ -69,8 +98,15 @@ class NativeCore {
 
   /// Loads the native library. Safe to call repeatedly; must complete before
   /// anything else here.
+  ///
+  /// The bridge refuses to initialise twice, and something else may already
+  /// have done it — a test harness opening the library from `cargo build`
+  /// output is the case that matters — so its own flag is checked before ours.
   static Future<void> ensureInitialized() async {
-    if (_initialised) return;
+    if (_initialised || NotilusCore.instance.initialized) {
+      _initialised = true;
+      return;
+    }
     await NotilusCore.init();
     _initialised = true;
   }
@@ -269,4 +305,136 @@ class NativeCore {
         size: BigInt.from(size),
         dim: dim,
       );
+
+  // ── mail files ───────────────────────────────────────────────────────────
+
+  /// Parses a `.eml` or `.msg` into headers, bodies and an attachment list.
+  ///
+  /// Attachment *contents* are deliberately left behind: a message with a
+  /// 40 MB deck in it would otherwise cost 40 MB of Dart heap just to show its
+  /// subject line.
+  Future<rust_email.EmailMessageInfo> readEmail(String path) =>
+      rust.readEmailMessage(path: path);
+
+  /// The bytes of one attachment, addressed by its index in the parsed
+  /// message.
+  Future<rust_email.EmailAttachmentData> readEmailAttachment(
+    String path,
+    int index,
+  ) =>
+      rust.readEmailAttachmentBytes(path: path, index: index);
+
+  /// Writes one attachment into [destDir] and returns the path it was given.
+  /// Never overwrites: a name that is taken gets numbered.
+  Future<String> saveEmailAttachment({
+    required String path,
+    required int index,
+    required String destDir,
+  }) =>
+      rust.saveEmailAttachmentTo(path: path, index: index, destDir: destDir);
+
+  // ── file sharing: the server ─────────────────────────────────────────────
+
+  /// Starts the SMB server and streams what it does.
+  ///
+  /// The stream stays open until [stopSharing]; listening to it is what keeps
+  /// the server's event sink alive, so the caller must not drop it early.
+  Stream<rust_sharing.SmbServerEvent> startSharing(
+    rust_sharing.SmbServerSettings settings,
+  ) =>
+      rust.smbServerStart(settings: settings);
+
+  Future<bool> stopSharing() => rust.smbServerStop();
+
+  Future<rust_sharing.SmbServerStatus> sharingStatus() =>
+      rust.smbServerStatus();
+
+  // ── file sharing: the client ─────────────────────────────────────────────
+
+  Future<rust_sharing.SmbSession> smbConnect(
+    rust_sharing.SmbClientSettings settings,
+  ) =>
+      rust.smbClientConnect(settings: settings);
+
+  /// Checks credentials without keeping a session, returning the dialect that
+  /// was negotiated.
+  Future<String> smbProbe(rust_sharing.SmbClientSettings settings) =>
+      rust.smbClientProbe(settings: settings);
+
+  Future<bool> smbDisconnect(String sessionId) =>
+      rust.smbClientDisconnect(sessionId: sessionId);
+
+  Future<List<rust_sharing.SmbEntry>> smbList(String sessionId, String path) =>
+      rust.smbClientList(sessionId: sessionId, path: path);
+
+  Future<rust_sharing.SmbEntry?> smbStat(String sessionId, String path) =>
+      rust.smbClientStat(sessionId: sessionId, path: path);
+
+  Future<rust_sharing.SmbOpenFile> smbOpen({
+    required String sessionId,
+    required String path,
+    bool write = false,
+    bool truncate = false,
+  }) =>
+      rust.smbClientOpen(
+        sessionId: sessionId,
+        path: path,
+        write: write,
+        truncate: truncate,
+      );
+
+  /// Reads at most [length] bytes. An empty result means end of file.
+  Future<Uint8List> smbRead({
+    required String sessionId,
+    required BigInt handle,
+    required int offset,
+    required int length,
+  }) =>
+      rust.smbClientRead(
+        sessionId: sessionId,
+        handle: handle,
+        offset: BigInt.from(offset),
+        length: length,
+      );
+
+  /// Writes at [offset], returning how many bytes the server took — which may
+  /// be fewer than were offered, so callers loop.
+  Future<int> smbWrite({
+    required String sessionId,
+    required BigInt handle,
+    required int offset,
+    required Uint8List data,
+  }) =>
+      rust.smbClientWrite(
+        sessionId: sessionId,
+        handle: handle,
+        offset: BigInt.from(offset),
+        data: data,
+      );
+
+  Future<void> smbClose(String sessionId, BigInt handle) =>
+      rust.smbClientClose(sessionId: sessionId, handle: handle);
+
+  Future<void> smbCreateDirectory(String sessionId, String path) =>
+      rust.smbClientCreateDirectory(sessionId: sessionId, path: path);
+
+  Future<void> smbDelete(String sessionId, String path, bool isDir) =>
+      rust.smbClientDelete(sessionId: sessionId, path: path, isDir: isDir);
+
+  Future<void> smbRename({
+    required String sessionId,
+    required String from,
+    required String to,
+    bool replace = false,
+  }) =>
+      rust.smbClientRename(
+        sessionId: sessionId,
+        from: from,
+        to: to,
+        replace: replace,
+      );
+
+  /// Copies a file inside one share, server-side where the server supports it.
+  Future<BigInt> smbCopy(String sessionId, String from, String to) =>
+      rust.smbClientCopy(sessionId: sessionId, from: from, to: to);
 }

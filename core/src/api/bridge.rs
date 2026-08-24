@@ -15,6 +15,11 @@
 //! UUID.
 
 use crate::api::dedupe::{self, CancelToken, DuplicateGroup, ScanProgress, ScanRequest};
+use crate::api::email::{self, EmailAttachmentData, EmailMessageInfo};
+use crate::api::sharing::{
+    self, SmbClientSettings, SmbEntry, SmbOpenFile, SmbServerEvent, SmbServerSettings,
+    SmbServerStatus, SmbSession,
+};
 use crate::api::fileops::{self, Collision, OpOutcome, OpProgress};
 use crate::api::listing::{DirEntryInfo, SortSpec};
 use crate::api::quick::{
@@ -387,4 +392,157 @@ mod tests {
         end("op-a");
         end("op-b");
     }
+}
+
+// ── mail files ─────────────────────────────────────────────────────────────
+
+/// Parses a `.eml` or `.msg` into headers, bodies and an attachment list.
+///
+/// The attachments come back as descriptions only. Their bytes are fetched one
+/// at a time through [`read_email_attachment_bytes`], so opening a message with
+/// a 40 MB deck in it doesn't move 40 MB into Dart before anything is shown.
+pub fn read_email_message(path: String) -> Result<EmailMessageInfo, String> {
+    email::read_email(path)
+}
+
+/// The bytes of one attachment, addressed by its index in the parsed message.
+pub fn read_email_attachment_bytes(
+    path: String,
+    index: u32,
+) -> Result<EmailAttachmentData, String> {
+    email::read_email_attachment(path, index)
+}
+
+/// Writes one attachment into `dest_dir`, returning the path it was given.
+pub fn save_email_attachment_to(
+    path: String,
+    index: u32,
+    dest_dir: String,
+) -> Result<String, String> {
+    email::save_email_attachment(path, index, dest_dir)
+}
+
+// ── file sharing: the server ───────────────────────────────────────────────
+
+/// Starts the SMB server and streams what it does.
+///
+/// The sink is held for the server's lifetime, so the Dart stream stays open
+/// until [`smb_server_stop`] — closing it early would leave the UI blind to
+/// clients connecting.
+pub fn smb_server_start(
+    settings: SmbServerSettings,
+    sink: StreamSink<SmbServerEvent>,
+) -> Result<u16, String> {
+    sharing::start_server(
+        settings,
+        std::sync::Arc::new(move |event| {
+            let _ = sink.add(event);
+        }),
+    )
+}
+
+/// Stops the server. False when nothing was running.
+pub fn smb_server_stop() -> bool {
+    sharing::stop_server()
+}
+
+pub fn smb_server_status() -> SmbServerStatus {
+    sharing::server_status()
+}
+
+// ── file sharing: the client ───────────────────────────────────────────────
+
+/// Opens a session against a share and keeps it for later calls.
+pub fn smb_client_connect(settings: SmbClientSettings) -> Result<SmbSession, String> {
+    sharing::client_connect(settings)
+}
+
+/// Checks credentials without keeping a session, returning the dialect that
+/// was negotiated.
+pub fn smb_client_probe(settings: SmbClientSettings) -> Result<String, String> {
+    sharing::client_probe(settings)
+}
+
+pub fn smb_client_disconnect(session_id: String) -> bool {
+    sharing::client_disconnect(session_id)
+}
+
+pub fn smb_client_list(session_id: String, path: String) -> Result<Vec<SmbEntry>, String> {
+    sharing::client_list(session_id, path)
+}
+
+pub fn smb_client_stat(
+    session_id: String,
+    path: String,
+) -> Result<Option<SmbEntry>, String> {
+    sharing::client_stat(session_id, path)
+}
+
+/// Opens a file for reading or writing, returning a handle scoped to the
+/// session.
+pub fn smb_client_open(
+    session_id: String,
+    path: String,
+    write: bool,
+    truncate: bool,
+) -> Result<SmbOpenFile, String> {
+    sharing::client_open(session_id, path, write, truncate)
+}
+
+/// Reads at most `length` bytes. An empty result means end of file.
+pub fn smb_client_read(
+    session_id: String,
+    handle: u64,
+    offset: u64,
+    length: u32,
+) -> Result<Vec<u8>, String> {
+    sharing::client_read(session_id, handle, offset, length)
+}
+
+/// Writes at `offset`, returning how many bytes the server accepted — which
+/// may be fewer than were offered.
+pub fn smb_client_write(
+    session_id: String,
+    handle: u64,
+    offset: u64,
+    data: Vec<u8>,
+) -> Result<u32, String> {
+    sharing::client_write(session_id, handle, offset, data)
+}
+
+pub fn smb_client_close(session_id: String, handle: u64) -> Result<(), String> {
+    sharing::client_close(session_id, handle)
+}
+
+pub fn smb_client_create_directory(
+    session_id: String,
+    path: String,
+) -> Result<(), String> {
+    sharing::client_create_directory(session_id, path)
+}
+
+pub fn smb_client_delete(
+    session_id: String,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    sharing::client_delete(session_id, path, is_dir)
+}
+
+pub fn smb_client_rename(
+    session_id: String,
+    from: String,
+    to: String,
+    replace: bool,
+) -> Result<(), String> {
+    sharing::client_rename(session_id, from, to, replace)
+}
+
+/// Copies a file inside one share, server-side where the server supports it.
+pub fn smb_client_copy(
+    session_id: String,
+    from: String,
+    to: String,
+) -> Result<u64, String> {
+    sharing::client_copy(session_id, from, to)
 }

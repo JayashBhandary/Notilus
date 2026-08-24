@@ -470,6 +470,9 @@ class _Thumbnail extends StatelessWidget {
         return CupertinoIcons.chevron_left_slash_chevron_right;
       case '.pdf':
         return CupertinoIcons.doc_richtext;
+      case '.eml':
+      case '.msg':
+        return CupertinoIcons.envelope;
       default:
         return CupertinoIcons.doc;
     }

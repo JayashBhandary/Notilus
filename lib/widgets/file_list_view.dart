@@ -765,6 +765,9 @@ class _FileRowState extends State<_FileRow>
         return CupertinoIcons.photo;
       case '.pdf':
         return CupertinoIcons.doc_richtext;
+      case '.eml':
+      case '.msg':
+        return CupertinoIcons.envelope;
       default:
         return CupertinoIcons.doc;
     }

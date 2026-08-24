@@ -98,6 +98,14 @@ class Sidebar extends StatelessWidget {
                 () => browser.showCenterView(CenterView.transfers),
               ),
             ),
+            _SidebarItem(
+              label: 'File Sharing',
+              icon: LucideIcons.share2,
+              selected: browser.centerView == CenterView.sharing,
+              onTap: () => after(
+                () => browser.showCenterView(CenterView.sharing),
+              ),
+            ),
             const SizedBox(height: 14),
             const _SectionHeader(label: 'Favorites'),
             ...shortcuts.map((e) {

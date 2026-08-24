@@ -6,11 +6,13 @@ import 'package:flutter/widgets.dart' show IconData;
 /// S3 covers far more than AWS — the same signature and API serve MinIO,
 /// Cloudflare R2, Backblaze B2, Wasabi and DigitalOcean Spaces — so a single
 /// implementation with a configurable endpoint buys most of the object-store
-/// world. WebDAV does the same job for Nextcloud / ownCloud / Box.
+/// world. WebDAV does the same job for Nextcloud / ownCloud / Box, and SMB for
+/// Windows machines, NAS boxes, Samba servers and Notilus's own sharing.
 enum RemoteKind {
   s3('s3', 'Amazon S3 (or compatible)'),
   gdrive('gdrive', 'Google Drive'),
   sftp('sftp', 'SSH / SFTP server'),
+  smb('smb', 'Windows share (SMB)'),
   webdav('webdav', 'WebDAV');
 
   const RemoteKind(this.id, this.label);
@@ -31,6 +33,8 @@ enum RemoteKind {
         return LucideIcons.hardDriveUpload;
       case RemoteKind.sftp:
         return LucideIcons.server;
+      case RemoteKind.smb:
+        return LucideIcons.network;
       case RemoteKind.webdav:
         return LucideIcons.globe;
     }
@@ -127,6 +131,12 @@ class RemoteKeys {
   static const port = 'port';
   static const privateKeyPath = 'privateKeyPath';
   static const passphrase = 'passphrase';
+
+  // SMB. `host`, `port`, `username` and `password` are shared with the above.
+  /// The share to attach to — the `Files` in `\\server\Files`.
+  static const shareName = 'shareName';
+  /// NT domain or workgroup. Empty lets the server name one.
+  static const workgroup = 'workgroup';
 
   /// Directory the virtual root maps to. Empty means the login home.
   static const basePath = 'basePath';

@@ -14,6 +14,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../models/file_entry.dart';
+import '../../services/native_core.dart';
 import '../../widgets/shad_spinner.dart';
 import 'preview_common.dart';
 
@@ -56,6 +57,8 @@ class PreviewViewerHost extends StatelessWidget {
         return OfficeViewer(file: file);
       case PreviewKind.archive:
         return ArchiveViewer(file: file);
+      case PreviewKind.email:
+        return EmailViewer(file: file);
       case PreviewKind.video:
         return VideoViewer(file: file, isActive: isActive);
       case PreviewKind.audio:
@@ -1759,6 +1762,611 @@ List<ArchiveEntryInfo> decodeArchiveListing(String path) {
       .toList();
   entries.sort((a, b) => a.name.compareTo(b.name));
   return entries;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Email (.eml / .msg)
+// ──────────────────────────────────────────────────────────────────────────
+
+/// What the body pane is showing.
+enum _EmailTab { message, source, headers }
+
+/// Reads a mail file through the Rust core and shows it the way a mail client
+/// would: a header block, the body, and the attachments.
+///
+/// The body is rendered as text rather than as live HTML. Notilus ships no
+/// browser engine, and rendering a stranger's HTML — with its remote images
+/// and tracking pixels — is exactly the thing a preview should not do
+/// silently. "Open in browser" is offered instead, which hands the decision to
+/// the user and to a program built for it.
+class EmailViewer extends StatefulWidget {
+  const EmailViewer({super.key, required this.file});
+
+  final FileEntry file;
+
+  @override
+  State<EmailViewer> createState() => _EmailViewerState();
+}
+
+class _EmailViewerState extends State<EmailViewer> {
+  Future<EmailMessageInfo>? _future;
+  _EmailTab _tab = _EmailTab.message;
+
+  /// Set while an attachment is being written, so the row can show it and a
+  /// double-click can't start the same save twice.
+  int? _savingIndex;
+  String? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  @override
+  void didUpdateWidget(EmailViewer old) {
+    super.didUpdateWidget(old);
+    if (old.file.path != widget.file.path) {
+      setState(() {
+        _tab = _EmailTab.message;
+        _notice = null;
+        _future = _load();
+      });
+    }
+  }
+
+  Future<EmailMessageInfo> _load() async {
+    await NativeCore.ensureInitialized();
+    return NativeCore.instance.readEmail(widget.file.path);
+  }
+
+  Future<void> _saveAttachment(EmailAttachmentInfo attachment) async {
+    if (_savingIndex != null) return;
+    setState(() {
+      _savingIndex = attachment.index;
+      _notice = null;
+    });
+    try {
+      // Beside the message itself, which is where someone looking at a saved
+      // `.eml` expects its attachments to land.
+      final destination = p.dirname(widget.file.path);
+      final written = await NativeCore.instance.saveEmailAttachment(
+        path: widget.file.path,
+        index: attachment.index,
+        destDir: destination,
+      );
+      if (!mounted) return;
+      setState(() => _notice = 'Saved ${p.basename(written)}');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _notice = '$e');
+    } finally {
+      if (mounted) setState(() => _savingIndex = null);
+    }
+  }
+
+  /// Writes an attachment to a temp folder and hands it to the OS.
+  Future<void> _openAttachment(EmailAttachmentInfo attachment) async {
+    if (_savingIndex != null) return;
+    setState(() {
+      _savingIndex = attachment.index;
+      _notice = null;
+    });
+    try {
+      final dir = await Directory.systemTemp.createTemp('notilus-mail-');
+      final written = await NativeCore.instance.saveEmailAttachment(
+        path: widget.file.path,
+        index: attachment.index,
+        destDir: dir.path,
+      );
+      await openPathExternally(written);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _notice = '$e');
+    } finally {
+      if (mounted) setState(() => _savingIndex = null);
+    }
+  }
+
+  /// Writes the HTML body to a temp file and opens it in the default browser.
+  Future<void> _openHtmlExternally(EmailMessageInfo message) async {
+    try {
+      final dir = await Directory.systemTemp.createTemp('notilus-mail-');
+      final file = File(p.join(dir.path, 'message.html'));
+      await file.writeAsString(message.bodyHtml);
+      await openPathExternally(file.path);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _notice = '$e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<EmailMessageInfo>(
+      future: _future,
+      builder: (_, snap) {
+        if (snap.connectionState != ConnectionState.done) {
+          return PreviewLoading(caption: 'Reading ${widget.file.name}…');
+        }
+        if (snap.hasError) {
+          return PreviewMessage(
+            icon: LucideIcons.mailWarning,
+            title: 'Couldn\'t read this message',
+            body: '${snap.error}',
+            destructive: true,
+            actionLabel: kIsWeb ? null : 'Open in external app',
+            onAction:
+                kIsWeb ? null : () => openPathExternally(widget.file.path),
+          );
+        }
+        return _build(context, snap.data!);
+      },
+    );
+  }
+
+  Widget _build(BuildContext context, EmailMessageInfo message) {
+    final colors = ShadTheme.of(context).colorScheme;
+    final hasHtml = message.bodyHtml.trim().isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _EmailHeaderBlock(message: message),
+        const ShadSeparator.horizontal(margin: EdgeInsets.zero, thickness: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+          child: Row(
+            children: [
+              _EmailTabButton(
+                label: 'Message',
+                selected: _tab == _EmailTab.message,
+                onTap: () => setState(() => _tab = _EmailTab.message),
+              ),
+              if (hasHtml) ...[
+                const SizedBox(width: 6),
+                _EmailTabButton(
+                  label: 'HTML source',
+                  selected: _tab == _EmailTab.source,
+                  onTap: () => setState(() => _tab = _EmailTab.source),
+                ),
+              ],
+              const SizedBox(width: 6),
+              _EmailTabButton(
+                label: 'Headers',
+                selected: _tab == _EmailTab.headers,
+                onTap: () => setState(() => _tab = _EmailTab.headers),
+              ),
+              const Spacer(),
+              if (hasHtml && !kIsWeb)
+                ShadButton.ghost(
+                  height: 28,
+                  onPressed: () => _openHtmlExternally(message),
+                  leading: const Icon(LucideIcons.externalLink, size: 14),
+                  child: const Text(
+                    'Open in browser',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const ShadSeparator.horizontal(margin: EdgeInsets.zero, thickness: 1),
+        Expanded(child: _body(context, message)),
+        if (_notice != null)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+            color: colors.muted,
+            child: Text(
+              _notice!,
+              style: TextStyle(fontSize: 11.5, color: colors.mutedForeground),
+            ),
+          ),
+        if (message.attachments.isNotEmpty)
+          _EmailAttachments(
+            attachments: message.attachments,
+            busyIndex: _savingIndex,
+            onSave: _saveAttachment,
+            onOpen: kIsWeb ? null : _openAttachment,
+          ),
+      ],
+    );
+  }
+
+  Widget _body(BuildContext context, EmailMessageInfo message) {
+    final colors = ShadTheme.of(context).colorScheme;
+    final bottom = PreviewInsets.of(context);
+
+    switch (_tab) {
+      case _EmailTab.message:
+        final text = message.bodyText.trim();
+        if (text.isEmpty) {
+          return const PreviewMessage(
+            icon: LucideIcons.mail,
+            title: 'This message has no text',
+            body: 'It may be an invitation or a container for its '
+                'attachments alone.',
+          );
+        }
+        return SelectionArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(24, 18, 24, 18 + bottom),
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                height: 1.55,
+                color: colors.foreground,
+              ),
+            ),
+          ),
+        );
+      case _EmailTab.source:
+        return SelectionArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(24, 18, 24, 18 + bottom),
+            child: Text(
+              message.bodyHtml,
+              style: TextStyle(
+                fontFamily: 'Menlo',
+                fontSize: 11.5,
+                height: 1.5,
+                color: colors.foreground,
+              ),
+            ),
+          ),
+        );
+      case _EmailTab.headers:
+        if (message.headers.isEmpty) {
+          return const PreviewMessage(
+            icon: LucideIcons.list,
+            title: 'No headers recorded',
+            body: 'A message composed locally and never sent carries none.',
+          );
+        }
+        return SelectionArea(
+          child: ListView.separated(
+            padding: EdgeInsets.only(bottom: bottom),
+            itemCount: message.headers.length,
+            separatorBuilder: (_, __) => const ShadSeparator.horizontal(
+              margin: EdgeInsets.zero,
+              thickness: 1,
+            ),
+            itemBuilder: (_, i) {
+              final header = message.headers[i];
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(24, 7, 24, 7),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(
+                      width: 160,
+                      child: Text(
+                        header.name,
+                        style: TextStyle(
+                          fontFamily: 'Menlo',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: colors.mutedForeground,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        header.value,
+                        style: TextStyle(
+                          fontFamily: 'Menlo',
+                          fontSize: 11,
+                          height: 1.45,
+                          color: colors.foreground,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+    }
+  }
+}
+
+/// Subject, correspondents and date — the block every mail client puts at the
+/// top, in the order a reader scans it.
+class _EmailHeaderBlock extends StatelessWidget {
+  const _EmailHeaderBlock({required this.message});
+
+  final EmailMessageInfo message;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    final subject =
+        message.subject.trim().isEmpty ? '(no subject)' : message.subject;
+
+    return Container(
+      color: colors.muted.withValues(alpha: 0.55),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 14),
+      child: SelectionArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              subject,
+              style: TextStyle(
+                fontSize: 15.5,
+                fontWeight: FontWeight.w600,
+                height: 1.3,
+                color: colors.foreground,
+              ),
+            ),
+            const SizedBox(height: 10),
+            _AddressRow(label: 'From', addresses: message.from),
+            _AddressRow(label: 'To', addresses: message.to),
+            _AddressRow(label: 'Cc', addresses: message.cc),
+            _AddressRow(label: 'Bcc', addresses: message.bcc),
+            if (_date(message).isNotEmpty)
+              _LabelledRow(label: 'Date', value: _date(message)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The `Date` header as the sender wrote it, which keeps their timezone.
+  /// Falls back to the parsed timestamp for a message that carried no header.
+  static String _date(EmailMessageInfo message) {
+    if (message.date.trim().isNotEmpty) return message.date.trim();
+    if (message.dateEpochMs <= 0) return '';
+    return formatPreviewDate(
+      DateTime.fromMillisecondsSinceEpoch(message.dateEpochMs),
+    );
+  }
+}
+
+class _AddressRow extends StatelessWidget {
+  const _AddressRow({required this.label, required this.addresses});
+
+  final String label;
+  final List<EmailAddressInfo> addresses;
+
+  @override
+  Widget build(BuildContext context) {
+    if (addresses.isEmpty) return const SizedBox.shrink();
+    final text = addresses.map(_display).join(', ');
+    return _LabelledRow(label: label, value: text);
+  }
+
+  static String _display(EmailAddressInfo address) {
+    if (address.name.isEmpty) return address.email;
+    if (address.email.isEmpty) return address.name;
+    return '${address.name} <${address.email}>';
+  }
+}
+
+class _LabelledRow extends StatelessWidget {
+  const _LabelledRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 44,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: colors.mutedForeground,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 12.5,
+                height: 1.4,
+                color: colors.foreground,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmailTabButton extends StatelessWidget {
+  const _EmailTabButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(fontSize: 12);
+    return selected
+        ? ShadButton.secondary(height: 28, onPressed: onTap, child: Text(label, style: style))
+        : ShadButton.ghost(height: 28, onPressed: onTap, child: Text(label, style: style));
+  }
+}
+
+/// The attachment strip along the bottom.
+class _EmailAttachments extends StatelessWidget {
+  const _EmailAttachments({
+    required this.attachments,
+    required this.busyIndex,
+    required this.onSave,
+    required this.onOpen,
+  });
+
+  final List<EmailAttachmentInfo> attachments;
+  final int? busyIndex;
+  final ValueChanged<EmailAttachmentInfo> onSave;
+  final ValueChanged<EmailAttachmentInfo>? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    // Inline images are part of the body rather than things to download; they
+    // are still listed, but after the real attachments.
+    final ordered = [
+      ...attachments.where((a) => !a.isInline),
+      ...attachments.where((a) => a.isInline),
+    ];
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.muted.withValues(alpha: 0.4),
+        border: Border(top: BorderSide(color: colors.border)),
+      ),
+      padding: EdgeInsets.fromLTRB(20, 10, 20, 10 + PreviewInsets.of(context)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                LucideIcons.paperclip,
+                size: 14,
+                color: colors.mutedForeground,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                attachments.length == 1
+                    ? '1 attachment'
+                    : '${attachments.length} attachments',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: colors.mutedForeground,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // A message with a dozen attachments shouldn't push the body off
+          // the screen, so the strip scrolls sideways instead of growing.
+          SizedBox(
+            height: 46,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: ordered.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, i) => _AttachmentChip(
+                attachment: ordered[i],
+                busy: busyIndex == ordered[i].index,
+                enabled: busyIndex == null,
+                onSave: () => onSave(ordered[i]),
+                onOpen: onOpen == null ? null : () => onOpen!(ordered[i]),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttachmentChip extends StatelessWidget {
+  const _AttachmentChip({
+    required this.attachment,
+    required this.busy,
+    required this.enabled,
+    required this.onSave,
+    required this.onOpen,
+  });
+
+  final EmailAttachmentInfo attachment;
+  final bool busy;
+  final bool enabled;
+  final VoidCallback onSave;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    final size = attachment.size.toInt();
+
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 300),
+      decoration: BoxDecoration(
+        color: colors.background,
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (busy)
+            const ShadSpinner(size: 14)
+          else
+            Icon(
+              attachment.isInline ? LucideIcons.image : LucideIcons.file,
+              size: 15,
+              color: colors.mutedForeground,
+            ),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  attachment.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: colors.foreground),
+                ),
+                Text(
+                  // An embedded message reports no size; showing "0 B" would
+                  // read as a broken attachment.
+                  size > 0 ? formatPreviewBytes(size) : attachment.mime,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: colors.mutedForeground,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          if (onOpen != null)
+            PreviewToolbarButton(
+              icon: LucideIcons.externalLink,
+              tooltip: 'Open',
+              onPressed: enabled ? onOpen : null,
+            ),
+          PreviewToolbarButton(
+            icon: LucideIcons.download,
+            tooltip: 'Save beside the message',
+            onPressed: enabled ? onSave : null,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────

@@ -28,6 +28,7 @@ import '../widgets/workflow_tab.dart';
 import 'duplicate_finder_screen.dart';
 import 'media_screen.dart';
 import 'settings_screen.dart';
+import 'sharing/file_sharing_screen.dart';
 import 'system_overview_screen.dart';
 import 'transfer/transfer_screen.dart';
 
@@ -84,6 +85,8 @@ Widget _centerBody(
       return const DuplicateFinderView();
     case CenterView.transfers:
       return const TransferScreen();
+    case CenterView.sharing:
+      return const FileSharingView();
     case CenterView.mediaImages:
     case CenterView.mediaVideos:
     case CenterView.mediaDocuments:
@@ -107,6 +110,8 @@ String _centerTitle(CenterView view) {
       return 'Duplicate Finder';
     case CenterView.transfers:
       return 'File Transfer';
+    case CenterView.sharing:
+      return 'File Sharing';
     case CenterView.mediaImages:
     case CenterView.mediaVideos:
     case CenterView.mediaDocuments:

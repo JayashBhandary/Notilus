@@ -12,6 +12,7 @@ import 'remote_file_system.dart';
 import 'remote_path.dart';
 import 's3_file_system.dart';
 import 'sftp_file_system.dart';
+import 'smb_file_system.dart';
 import 'webdav_file_system.dart';
 
 /// The one place that knows which remote sources exist and how to talk to
@@ -303,6 +304,8 @@ class RemoteHub extends ChangeNotifier {
           onHostKeyLearned: (fingerprint) =>
               rememberHostKey(connection.id, fingerprint),
         );
+      case RemoteKind.smb:
+        return SmbFileSystem.fromConnection(connection, secrets);
       case RemoteKind.webdav:
         return WebDavFileSystem.fromConnection(connection, secrets);
     }

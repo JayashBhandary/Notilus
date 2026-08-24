@@ -223,7 +223,7 @@ where
                 modified_ms: meta.modified().map(to_unix_millis).unwrap_or(0),
             };
 
-            let mut emit = |hit: SearchHit| {
+            let emit = |hit: SearchHit| {
                 found.fetch_add(1, Ordering::Relaxed);
                 on_hit(hit.clone());
                 let _ = tx.send(hit);

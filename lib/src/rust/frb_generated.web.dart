@@ -9,10 +9,12 @@
 import 'api/archive.dart';
 import 'api/bridge.dart';
 import 'api/dedupe.dart';
+import 'api/email.dart';
 import 'api/fileops.dart';
 import 'api/listing.dart';
 import 'api/quick.dart';
 import 'api/search.dart';
+import 'api/sharing.dart';
 import 'api/thumbnail.dart';
 import 'api/trash.dart';
 import 'dart:async';
@@ -42,6 +44,10 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   RustStreamSink<SearchEvent> dco_decode_StreamSink_search_event_Sse(
+      dynamic raw);
+
+  @protected
+  RustStreamSink<SmbServerEvent> dco_decode_StreamSink_smb_server_event_Sse(
       dynamic raw);
 
   @protected
@@ -87,6 +93,21 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   SearchSummary dco_decode_box_autoadd_search_summary(dynamic raw);
 
   @protected
+  SmbClientSettings dco_decode_box_autoadd_smb_client_settings(dynamic raw);
+
+  @protected
+  SmbConnectionEvent dco_decode_box_autoadd_smb_connection_event(dynamic raw);
+
+  @protected
+  SmbEntry dco_decode_box_autoadd_smb_entry(dynamic raw);
+
+  @protected
+  SmbServerSettings dco_decode_box_autoadd_smb_server_settings(dynamic raw);
+
+  @protected
+  SmbTransferEvent dco_decode_box_autoadd_smb_transfer_event(dynamic raw);
+
+  @protected
   SortSpec dco_decode_box_autoadd_sort_spec(dynamic raw);
 
   @protected
@@ -103,6 +124,21 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   DuplicateGroup dco_decode_duplicate_group(dynamic raw);
+
+  @protected
+  EmailAddressInfo dco_decode_email_address_info(dynamic raw);
+
+  @protected
+  EmailAttachmentData dco_decode_email_attachment_data(dynamic raw);
+
+  @protected
+  EmailAttachmentInfo dco_decode_email_attachment_info(dynamic raw);
+
+  @protected
+  EmailHeaderInfo dco_decode_email_header_info(dynamic raw);
+
+  @protected
+  EmailMessageInfo dco_decode_email_message_info(dynamic raw);
 
   @protected
   FailedItem dco_decode_failed_item(dynamic raw);
@@ -138,16 +174,37 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   List<DuplicateGroup> dco_decode_list_duplicate_group(dynamic raw);
 
   @protected
+  List<EmailAddressInfo> dco_decode_list_email_address_info(dynamic raw);
+
+  @protected
+  List<EmailAttachmentInfo> dco_decode_list_email_attachment_info(dynamic raw);
+
+  @protected
+  List<EmailHeaderInfo> dco_decode_list_email_header_info(dynamic raw);
+
+  @protected
   List<FailedItem> dco_decode_list_failed_item(dynamic raw);
 
   @protected
   Uint64List dco_decode_list_prim_u_64_strict(dynamic raw);
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
   List<SearchHit> dco_decode_list_search_hit(dynamic raw);
+
+  @protected
+  List<SmbEntry> dco_decode_list_smb_entry(dynamic raw);
+
+  @protected
+  List<SmbShareConfig> dco_decode_list_smb_share_config(dynamic raw);
+
+  @protected
+  List<SmbUserConfig> dco_decode_list_smb_user_config(dynamic raw);
 
   @protected
   OpEvent dco_decode_op_event(dynamic raw);
@@ -160,6 +217,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  SmbEntry? dco_decode_opt_box_autoadd_smb_entry(dynamic raw);
 
   @protected
   int? dco_decode_opt_box_autoadd_u_32(dynamic raw);
@@ -204,6 +264,39 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   SearchSummary dco_decode_search_summary(dynamic raw);
 
   @protected
+  SmbClientSettings dco_decode_smb_client_settings(dynamic raw);
+
+  @protected
+  SmbConnectionEvent dco_decode_smb_connection_event(dynamic raw);
+
+  @protected
+  SmbEntry dco_decode_smb_entry(dynamic raw);
+
+  @protected
+  SmbOpenFile dco_decode_smb_open_file(dynamic raw);
+
+  @protected
+  SmbServerEvent dco_decode_smb_server_event(dynamic raw);
+
+  @protected
+  SmbServerSettings dco_decode_smb_server_settings(dynamic raw);
+
+  @protected
+  SmbServerStatus dco_decode_smb_server_status(dynamic raw);
+
+  @protected
+  SmbSession dco_decode_smb_session(dynamic raw);
+
+  @protected
+  SmbShareConfig dco_decode_smb_share_config(dynamic raw);
+
+  @protected
+  SmbTransferEvent dco_decode_smb_transfer_event(dynamic raw);
+
+  @protected
+  SmbUserConfig dco_decode_smb_user_config(dynamic raw);
+
+  @protected
   SortField dco_decode_sort_field(dynamic raw);
 
   @protected
@@ -217,6 +310,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   TrashOutcome dco_decode_trash_outcome(dynamic raw);
+
+  @protected
+  int dco_decode_u_16(dynamic raw);
 
   @protected
   int dco_decode_u_32(dynamic raw);
@@ -247,6 +343,10 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   RustStreamSink<SearchEvent> sse_decode_StreamSink_search_event_Sse(
+      SseDeserializer deserializer);
+
+  @protected
+  RustStreamSink<SmbServerEvent> sse_decode_StreamSink_smb_server_event_Sse(
       SseDeserializer deserializer);
 
   @protected
@@ -298,6 +398,25 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
       SseDeserializer deserializer);
 
   @protected
+  SmbClientSettings sse_decode_box_autoadd_smb_client_settings(
+      SseDeserializer deserializer);
+
+  @protected
+  SmbConnectionEvent sse_decode_box_autoadd_smb_connection_event(
+      SseDeserializer deserializer);
+
+  @protected
+  SmbEntry sse_decode_box_autoadd_smb_entry(SseDeserializer deserializer);
+
+  @protected
+  SmbServerSettings sse_decode_box_autoadd_smb_server_settings(
+      SseDeserializer deserializer);
+
+  @protected
+  SmbTransferEvent sse_decode_box_autoadd_smb_transfer_event(
+      SseDeserializer deserializer);
+
+  @protected
   SortSpec sse_decode_box_autoadd_sort_spec(SseDeserializer deserializer);
 
   @protected
@@ -314,6 +433,23 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   DuplicateGroup sse_decode_duplicate_group(SseDeserializer deserializer);
+
+  @protected
+  EmailAddressInfo sse_decode_email_address_info(SseDeserializer deserializer);
+
+  @protected
+  EmailAttachmentData sse_decode_email_attachment_data(
+      SseDeserializer deserializer);
+
+  @protected
+  EmailAttachmentInfo sse_decode_email_attachment_info(
+      SseDeserializer deserializer);
+
+  @protected
+  EmailHeaderInfo sse_decode_email_header_info(SseDeserializer deserializer);
+
+  @protected
+  EmailMessageInfo sse_decode_email_message_info(SseDeserializer deserializer);
 
   @protected
   FailedItem sse_decode_failed_item(SseDeserializer deserializer);
@@ -352,16 +488,42 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
       SseDeserializer deserializer);
 
   @protected
+  List<EmailAddressInfo> sse_decode_list_email_address_info(
+      SseDeserializer deserializer);
+
+  @protected
+  List<EmailAttachmentInfo> sse_decode_list_email_attachment_info(
+      SseDeserializer deserializer);
+
+  @protected
+  List<EmailHeaderInfo> sse_decode_list_email_header_info(
+      SseDeserializer deserializer);
+
+  @protected
   List<FailedItem> sse_decode_list_failed_item(SseDeserializer deserializer);
 
   @protected
   Uint64List sse_decode_list_prim_u_64_strict(SseDeserializer deserializer);
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
   List<SearchHit> sse_decode_list_search_hit(SseDeserializer deserializer);
+
+  @protected
+  List<SmbEntry> sse_decode_list_smb_entry(SseDeserializer deserializer);
+
+  @protected
+  List<SmbShareConfig> sse_decode_list_smb_share_config(
+      SseDeserializer deserializer);
+
+  @protected
+  List<SmbUserConfig> sse_decode_list_smb_user_config(
+      SseDeserializer deserializer);
 
   @protected
   OpEvent sse_decode_op_event(SseDeserializer deserializer);
@@ -374,6 +536,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  SmbEntry? sse_decode_opt_box_autoadd_smb_entry(SseDeserializer deserializer);
 
   @protected
   int? sse_decode_opt_box_autoadd_u_32(SseDeserializer deserializer);
@@ -418,6 +583,42 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   SearchSummary sse_decode_search_summary(SseDeserializer deserializer);
 
   @protected
+  SmbClientSettings sse_decode_smb_client_settings(
+      SseDeserializer deserializer);
+
+  @protected
+  SmbConnectionEvent sse_decode_smb_connection_event(
+      SseDeserializer deserializer);
+
+  @protected
+  SmbEntry sse_decode_smb_entry(SseDeserializer deserializer);
+
+  @protected
+  SmbOpenFile sse_decode_smb_open_file(SseDeserializer deserializer);
+
+  @protected
+  SmbServerEvent sse_decode_smb_server_event(SseDeserializer deserializer);
+
+  @protected
+  SmbServerSettings sse_decode_smb_server_settings(
+      SseDeserializer deserializer);
+
+  @protected
+  SmbServerStatus sse_decode_smb_server_status(SseDeserializer deserializer);
+
+  @protected
+  SmbSession sse_decode_smb_session(SseDeserializer deserializer);
+
+  @protected
+  SmbShareConfig sse_decode_smb_share_config(SseDeserializer deserializer);
+
+  @protected
+  SmbTransferEvent sse_decode_smb_transfer_event(SseDeserializer deserializer);
+
+  @protected
+  SmbUserConfig sse_decode_smb_user_config(SseDeserializer deserializer);
+
+  @protected
   SortField sse_decode_sort_field(SseDeserializer deserializer);
 
   @protected
@@ -431,6 +632,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   TrashOutcome sse_decode_trash_outcome(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_32(SseDeserializer deserializer);
@@ -463,6 +667,10 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   @protected
   void sse_encode_StreamSink_search_event_Sse(
       RustStreamSink<SearchEvent> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_StreamSink_smb_server_event_Sse(
+      RustStreamSink<SmbServerEvent> self, SseSerializer serializer);
 
   @protected
   void sse_encode_StreamSink_stats_event_Sse(
@@ -518,6 +726,26 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
       SearchSummary self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_smb_client_settings(
+      SmbClientSettings self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_smb_connection_event(
+      SmbConnectionEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_smb_entry(
+      SmbEntry self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_smb_server_settings(
+      SmbServerSettings self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_smb_transfer_event(
+      SmbTransferEvent self, SseSerializer serializer);
+
+  @protected
   void sse_encode_box_autoadd_sort_spec(
       SortSpec self, SseSerializer serializer);
 
@@ -536,6 +764,26 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   @protected
   void sse_encode_duplicate_group(
       DuplicateGroup self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_email_address_info(
+      EmailAddressInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_email_attachment_data(
+      EmailAttachmentData self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_email_attachment_info(
+      EmailAttachmentInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_email_header_info(
+      EmailHeaderInfo self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_email_message_info(
+      EmailMessageInfo self, SseSerializer serializer);
 
   @protected
   void sse_encode_failed_item(FailedItem self, SseSerializer serializer);
@@ -575,6 +823,18 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
       List<DuplicateGroup> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_email_address_info(
+      List<EmailAddressInfo> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_email_attachment_info(
+      List<EmailAttachmentInfo> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_email_header_info(
+      List<EmailHeaderInfo> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_failed_item(
       List<FailedItem> self, SseSerializer serializer);
 
@@ -583,12 +843,26 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
       Uint64List self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
       Uint8List self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_search_hit(
       List<SearchHit> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_smb_entry(List<SmbEntry> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_smb_share_config(
+      List<SmbShareConfig> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_smb_user_config(
+      List<SmbUserConfig> self, SseSerializer serializer);
 
   @protected
   void sse_encode_op_event(OpEvent self, SseSerializer serializer);
@@ -601,6 +875,10 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_smb_entry(
+      SmbEntry? self, SseSerializer serializer);
 
   @protected
   void sse_encode_opt_box_autoadd_u_32(int? self, SseSerializer serializer);
@@ -645,6 +923,46 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   void sse_encode_search_summary(SearchSummary self, SseSerializer serializer);
 
   @protected
+  void sse_encode_smb_client_settings(
+      SmbClientSettings self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_connection_event(
+      SmbConnectionEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_entry(SmbEntry self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_open_file(SmbOpenFile self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_server_event(
+      SmbServerEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_server_settings(
+      SmbServerSettings self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_server_status(
+      SmbServerStatus self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_session(SmbSession self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_share_config(
+      SmbShareConfig self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_transfer_event(
+      SmbTransferEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_smb_user_config(SmbUserConfig self, SseSerializer serializer);
+
+  @protected
   void sse_encode_sort_field(SortField self, SseSerializer serializer);
 
   @protected
@@ -658,6 +976,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   void sse_encode_trash_outcome(TrashOutcome self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_u_32(int self, SseSerializer serializer);

@@ -6,12 +6,14 @@
 import '../frb_generated.dart';
 import 'archive.dart';
 import 'dedupe.dart';
+import 'email.dart';
 import 'fileops.dart';
 import 'listing.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:freezed_annotation/freezed_annotation.dart' hide protected;
 import 'quick.dart';
 import 'search.dart';
+import 'sharing.dart';
 import 'thumbnail.dart';
 import 'trash.dart';
 part 'bridge.freezed.dart';
@@ -170,6 +172,126 @@ Future<String> thumbnailCacheKey(
         required int dim}) =>
     NotilusCore.instance.api.crateApiBridgeThumbnailCacheKey(
         path: path, modifiedMs: modifiedMs, size: size, dim: dim);
+
+/// Parses a `.eml` or `.msg` into headers, bodies and an attachment list.
+///
+/// The attachments come back as descriptions only. Their bytes are fetched one
+/// at a time through [`read_email_attachment_bytes`], so opening a message with
+/// a 40 MB deck in it doesn't move 40 MB into Dart before anything is shown.
+Future<EmailMessageInfo> readEmailMessage({required String path}) =>
+    NotilusCore.instance.api.crateApiBridgeReadEmailMessage(path: path);
+
+/// The bytes of one attachment, addressed by its index in the parsed message.
+Future<EmailAttachmentData> readEmailAttachmentBytes(
+        {required String path, required int index}) =>
+    NotilusCore.instance.api
+        .crateApiBridgeReadEmailAttachmentBytes(path: path, index: index);
+
+/// Writes one attachment into `dest_dir`, returning the path it was given.
+Future<String> saveEmailAttachmentTo(
+        {required String path, required int index, required String destDir}) =>
+    NotilusCore.instance.api.crateApiBridgeSaveEmailAttachmentTo(
+        path: path, index: index, destDir: destDir);
+
+/// Starts the SMB server and streams what it does.
+///
+/// The sink is held for the server's lifetime, so the Dart stream stays open
+/// until [`smb_server_stop`] — closing it early would leave the UI blind to
+/// clients connecting.
+Stream<SmbServerEvent> smbServerStart({required SmbServerSettings settings}) =>
+    NotilusCore.instance.api.crateApiBridgeSmbServerStart(settings: settings);
+
+/// Stops the server. False when nothing was running.
+Future<bool> smbServerStop() =>
+    NotilusCore.instance.api.crateApiBridgeSmbServerStop();
+
+Future<SmbServerStatus> smbServerStatus() =>
+    NotilusCore.instance.api.crateApiBridgeSmbServerStatus();
+
+/// Opens a session against a share and keeps it for later calls.
+Future<SmbSession> smbClientConnect({required SmbClientSettings settings}) =>
+    NotilusCore.instance.api.crateApiBridgeSmbClientConnect(settings: settings);
+
+/// Checks credentials without keeping a session, returning the dialect that
+/// was negotiated.
+Future<String> smbClientProbe({required SmbClientSettings settings}) =>
+    NotilusCore.instance.api.crateApiBridgeSmbClientProbe(settings: settings);
+
+Future<bool> smbClientDisconnect({required String sessionId}) =>
+    NotilusCore.instance.api
+        .crateApiBridgeSmbClientDisconnect(sessionId: sessionId);
+
+Future<List<SmbEntry>> smbClientList(
+        {required String sessionId, required String path}) =>
+    NotilusCore.instance.api
+        .crateApiBridgeSmbClientList(sessionId: sessionId, path: path);
+
+Future<SmbEntry?> smbClientStat(
+        {required String sessionId, required String path}) =>
+    NotilusCore.instance.api
+        .crateApiBridgeSmbClientStat(sessionId: sessionId, path: path);
+
+/// Opens a file for reading or writing, returning a handle scoped to the
+/// session.
+Future<SmbOpenFile> smbClientOpen(
+        {required String sessionId,
+        required String path,
+        required bool write,
+        required bool truncate}) =>
+    NotilusCore.instance.api.crateApiBridgeSmbClientOpen(
+        sessionId: sessionId, path: path, write: write, truncate: truncate);
+
+/// Reads at most `length` bytes. An empty result means end of file.
+Future<Uint8List> smbClientRead(
+        {required String sessionId,
+        required BigInt handle,
+        required BigInt offset,
+        required int length}) =>
+    NotilusCore.instance.api.crateApiBridgeSmbClientRead(
+        sessionId: sessionId, handle: handle, offset: offset, length: length);
+
+/// Writes at `offset`, returning how many bytes the server accepted — which
+/// may be fewer than were offered.
+Future<int> smbClientWrite(
+        {required String sessionId,
+        required BigInt handle,
+        required BigInt offset,
+        required List<int> data}) =>
+    NotilusCore.instance.api.crateApiBridgeSmbClientWrite(
+        sessionId: sessionId, handle: handle, offset: offset, data: data);
+
+Future<void> smbClientClose(
+        {required String sessionId, required BigInt handle}) =>
+    NotilusCore.instance.api
+        .crateApiBridgeSmbClientClose(sessionId: sessionId, handle: handle);
+
+Future<void> smbClientCreateDirectory(
+        {required String sessionId, required String path}) =>
+    NotilusCore.instance.api.crateApiBridgeSmbClientCreateDirectory(
+        sessionId: sessionId, path: path);
+
+Future<void> smbClientDelete(
+        {required String sessionId,
+        required String path,
+        required bool isDir}) =>
+    NotilusCore.instance.api.crateApiBridgeSmbClientDelete(
+        sessionId: sessionId, path: path, isDir: isDir);
+
+Future<void> smbClientRename(
+        {required String sessionId,
+        required String from,
+        required String to,
+        required bool replace}) =>
+    NotilusCore.instance.api.crateApiBridgeSmbClientRename(
+        sessionId: sessionId, from: from, to: to, replace: replace);
+
+/// Copies a file inside one share, server-side where the server supports it.
+Future<BigInt> smbClientCopy(
+        {required String sessionId,
+        required String from,
+        required String to}) =>
+    NotilusCore.instance.api
+        .crateApiBridgeSmbClientCopy(sessionId: sessionId, from: from, to: to);
 
 @freezed
 sealed class OpEvent with _$OpEvent {

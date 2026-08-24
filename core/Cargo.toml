@@ -11,11 +11,20 @@ name = "notilus_core"
 crate-type = ["cdylib", "staticlib", "lib"]
 
 [dependencies]
+aes = "0.8.4"
+base64 = "0.22.1"
 bzip2 = "0.6.1"
+cfb = "0.14.0"
+cmac = "0.7.2"
+encoding_rs = "0.8.35"
 flate2 = "1.1.9"
 flutter_rust_bridge = "=2.12.0"
+getrandom = "0.2.15"
+hmac = "0.12.1"
 ignore = "0.4.31"
 image = "0.25.10"
+md-5 = "0.10.6"
+md4 = "0.10.2"
 memchr = "2.8.3"
 rayon = "1.12.0"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -24,6 +33,11 @@ tar = "0.4.46"
 trash = "5.2.6"
 walkdir = "2.5.0"
 zip = "8.6.0"
+
+# statvfs, for reporting a share's free space to SMB clients. Only the Unix
+# desktop builds host a share.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.180"
 
 [profile.release]
 opt-level = 3

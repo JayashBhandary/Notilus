@@ -22,6 +22,7 @@ enum CenterView {
   systemOverview,
   duplicates,
   transfers,
+  sharing,
   mediaImages,
   mediaVideos,
   mediaDocuments,
@@ -41,6 +42,7 @@ extension CenterViewMedia on CenterView {
       case CenterView.systemOverview:
       case CenterView.duplicates:
       case CenterView.transfers:
+      case CenterView.sharing:
         return null;
     }
   }

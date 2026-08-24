@@ -62,6 +62,9 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
   final _keyPath = TextEditingController();
   final _passphrase = TextEditingController();
   final _basePath = TextEditingController();
+  // SMB
+  final _shareName = TextEditingController();
+  final _workgroup = TextEditingController();
 
   bool _busy = false;
   String? _error;
@@ -86,6 +89,11 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
     _port.text = existing.get(RemoteKeys.port, '22');
     _keyPath.text = existing.get(RemoteKeys.privateKeyPath);
     _basePath.text = existing.get(RemoteKeys.basePath);
+    _shareName.text = existing.get(RemoteKeys.shareName);
+    _workgroup.text = existing.get(RemoteKeys.workgroup);
+    if (existing.kind == RemoteKind.smb) {
+      _port.text = existing.get(RemoteKeys.port, '445');
+    }
     // Saved credentials are never read back into the form: the fields stay
     // empty and only overwrite what's in the keychain when the user types
     // something. Round-tripping a secret through a text field just to show
@@ -115,6 +123,8 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
       _keyPath,
       _passphrase,
       _basePath,
+      _shareName,
+      _workgroup,
     ]) {
       controller.dispose();
     }
@@ -131,10 +141,28 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
       case RemoteKind.sftp:
         final host = _host.text.trim();
         return host.isEmpty ? 'Server' : host;
+      case RemoteKind.smb:
+        final share = _shareName.text.trim();
+        if (share.isNotEmpty) return share;
+        final host = _host.text.trim();
+        return host.isEmpty ? 'Share' : host;
       case RemoteKind.webdav:
         final host = Uri.tryParse(_baseUrl.text.trim())?.host ?? '';
         return host.isEmpty ? 'WebDAV' : host;
     }
+  }
+
+  /// Switches the form to another kind, moving the port to that protocol's
+  /// default when the user hasn't typed one of their own.
+  void _pickKind(RemoteKind kind) {
+    setState(() {
+      const defaults = {RemoteKind.sftp: '22', RemoteKind.smb: '445'};
+      final current = _port.text.trim();
+      if (current.isEmpty || defaults.containsValue(current)) {
+        _port.text = defaults[kind] ?? current;
+      }
+      _kind = kind;
+    });
   }
 
   ({RemoteConnection connection, Map<String, String> secrets}) _collect() {
@@ -200,6 +228,26 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
             RemoteKeys.password: _password.text,
             RemoteKeys.passphrase: _passphrase.text,
           },
+        );
+      case RemoteKind.smb:
+        return (
+          connection: RemoteConnection(
+            id: id,
+            kind: RemoteKind.smb,
+            label: label,
+            config: {
+              RemoteKeys.host: _host.text.trim(),
+              RemoteKeys.port: _port.text.trim().isEmpty
+                  ? '445'
+                  : _port.text.trim(),
+              RemoteKeys.shareName:
+                  _shareName.text.trim().replaceAll(RegExp(r'^[\\/]+|[\\/]+$'), ''),
+              RemoteKeys.username: _username.text.trim(),
+              RemoteKeys.workgroup: _workgroup.text.trim(),
+              RemoteKeys.basePath: _basePath.text.trim(),
+            },
+          ),
+          secrets: {RemoteKeys.password: _password.text},
         );
       case RemoteKind.webdav:
         return (
@@ -350,7 +398,7 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
           if (!_isEdit) ...[
             _KindPicker(
               selected: _kind,
-              onChanged: (kind) => setState(() => _kind = kind),
+              onChanged: _pickKind,
             ),
             const SizedBox(height: 14),
           ],
@@ -556,6 +604,82 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
             ),
           ],
         ];
+      case RemoteKind.smb:
+        return [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: _Field(
+                  label: 'Server',
+                  hint: 'A name or an IP address — no \\\\ needed.',
+                  child: ShadInput(
+                    controller: _host,
+                    placeholder: const Text('nas.local'),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _Field(
+                  label: 'Port',
+                  child: ShadInput(
+                    controller: _port,
+                    placeholder: const Text('445'),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _Field(
+            label: 'Share',
+            hint: 'The folder the server publishes — the "Files" in '
+                '\\\\nas.local\\Files.',
+            child: ShadInput(
+              controller: _shareName,
+              placeholder: const Text('Files'),
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _Field(
+            label: 'Username',
+            child: ShadInput(
+              controller: _username,
+              placeholder: const Text('you'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _Field(
+            label: 'Password',
+            child: ShadInput(
+              controller: _password,
+              obscureText: true,
+              placeholder: Text(_isEdit ? 'Unchanged' : ''),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _Field(
+            label: 'Workgroup or domain',
+            hint: 'Leave empty unless the server asked for one.',
+            child: ShadInput(
+              controller: _workgroup,
+              placeholder: const Text('WORKGROUP'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _Field(
+            label: 'Start folder',
+            hint: 'Empty opens the top of the share.',
+            child: ShadInput(
+              controller: _basePath,
+              placeholder: const Text('Projects'),
+            ),
+          ),
+        ];
       case RemoteKind.webdav:
         return [
           _Field(
@@ -666,6 +790,8 @@ class _KindPicker extends StatelessWidget {
         return 'Drive';
       case RemoteKind.sftp:
         return 'SSH';
+      case RemoteKind.smb:
+        return 'SMB';
       case RemoteKind.webdav:
         return 'WebDAV';
     }

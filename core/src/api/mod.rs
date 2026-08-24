@@ -7,10 +7,12 @@
 pub mod archive;
 pub mod bridge;
 pub mod dedupe;
+pub mod email;
 pub mod fileops;
 pub mod hashing;
 pub mod listing;
 pub mod quick;
 pub mod search;
+pub mod sharing;
 pub mod thumbnail;
 pub mod trash;

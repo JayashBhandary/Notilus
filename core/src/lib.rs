@@ -27,9 +27,15 @@
 //! ```
 
 pub mod api;
+pub mod email;
 mod frb_generated;
+pub mod smb;
 
 pub use api::archive::{extract_archive_entry, list_archive, ArchiveEntry};
+pub use api::email::{
+    read_email, read_email_attachment, save_email_attachment, EmailAddressInfo,
+    EmailAttachmentData, EmailAttachmentInfo, EmailHeaderInfo, EmailMessageInfo,
+};
 pub use api::dedupe::{
     scan_duplicates, CancelToken, DuplicateGroup, ScanProgress, ScanRequest,
 };

@@ -6,10 +6,12 @@
 import 'api/archive.dart';
 import 'api/bridge.dart';
 import 'api/dedupe.dart';
+import 'api/email.dart';
 import 'api/fileops.dart';
 import 'api/listing.dart';
 import 'api/quick.dart';
 import 'api/search.dart';
+import 'api/sharing.dart';
 import 'api/thumbnail.dart';
 import 'api/trash.dart';
 import 'dart:async';
@@ -79,7 +81,7 @@ class NotilusCore extends BaseEntrypoint<NotilusCoreApi, NotilusCoreApiImpl,
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -545290107;
+  int get rustContentHash => 258490305;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -155,14 +157,80 @@ abstract class NotilusCoreApi extends BaseApi {
 
   Future<TrashOutcome> crateApiBridgeMoveToTrash({required List<String> paths});
 
+  Future<EmailAttachmentData> crateApiBridgeReadEmailAttachmentBytes(
+      {required String path, required int index});
+
+  Future<EmailMessageInfo> crateApiBridgeReadEmailMessage(
+      {required String path});
+
   Future<String> crateApiBridgeRenamePath(
       {required String path, required String newName});
+
+  Future<String> crateApiBridgeSaveEmailAttachmentTo(
+      {required String path, required int index, required String destDir});
 
   Stream<ScanEvent> crateApiBridgeScanDuplicatesStream(
       {required ScanRequest req, required String opId});
 
   Stream<SearchEvent> crateApiBridgeSearchFilesStream(
       {required SearchRequest req, required String opId});
+
+  Future<void> crateApiBridgeSmbClientClose(
+      {required String sessionId, required BigInt handle});
+
+  Future<SmbSession> crateApiBridgeSmbClientConnect(
+      {required SmbClientSettings settings});
+
+  Future<BigInt> crateApiBridgeSmbClientCopy(
+      {required String sessionId, required String from, required String to});
+
+  Future<void> crateApiBridgeSmbClientCreateDirectory(
+      {required String sessionId, required String path});
+
+  Future<void> crateApiBridgeSmbClientDelete(
+      {required String sessionId, required String path, required bool isDir});
+
+  Future<bool> crateApiBridgeSmbClientDisconnect({required String sessionId});
+
+  Future<List<SmbEntry>> crateApiBridgeSmbClientList(
+      {required String sessionId, required String path});
+
+  Future<SmbOpenFile> crateApiBridgeSmbClientOpen(
+      {required String sessionId,
+      required String path,
+      required bool write,
+      required bool truncate});
+
+  Future<String> crateApiBridgeSmbClientProbe(
+      {required SmbClientSettings settings});
+
+  Future<Uint8List> crateApiBridgeSmbClientRead(
+      {required String sessionId,
+      required BigInt handle,
+      required BigInt offset,
+      required int length});
+
+  Future<void> crateApiBridgeSmbClientRename(
+      {required String sessionId,
+      required String from,
+      required String to,
+      required bool replace});
+
+  Future<SmbEntry?> crateApiBridgeSmbClientStat(
+      {required String sessionId, required String path});
+
+  Future<int> crateApiBridgeSmbClientWrite(
+      {required String sessionId,
+      required BigInt handle,
+      required BigInt offset,
+      required List<int> data});
+
+  Stream<SmbServerEvent> crateApiBridgeSmbServerStart(
+      {required SmbServerSettings settings});
+
+  Future<SmbServerStatus> crateApiBridgeSmbServerStatus();
+
+  Future<bool> crateApiBridgeSmbServerStop();
 
   Future<String> crateApiBridgeThumbnailCacheKey(
       {required String path,
@@ -694,6 +762,59 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       );
 
   @override
+  Future<EmailAttachmentData> crateApiBridgeReadEmailAttachmentBytes(
+      {required String path, required int index}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(path, serializer);
+        sse_encode_u_32(index, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 19, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_email_attachment_data,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeReadEmailAttachmentBytesConstMeta,
+      argValues: [path, index],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeReadEmailAttachmentBytesConstMeta =>
+      const TaskConstMeta(
+        debugName: "read_email_attachment_bytes",
+        argNames: ["path", "index"],
+      );
+
+  @override
+  Future<EmailMessageInfo> crateApiBridgeReadEmailMessage(
+      {required String path}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(path, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 20, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_email_message_info,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeReadEmailMessageConstMeta,
+      argValues: [path],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeReadEmailMessageConstMeta =>
+      const TaskConstMeta(
+        debugName: "read_email_message",
+        argNames: ["path"],
+      );
+
+  @override
   Future<String> crateApiBridgeRenamePath(
       {required String path, required String newName}) {
     return handler.executeNormal(NormalTask(
@@ -702,7 +823,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(path, serializer);
         sse_encode_String(newName, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 19, port: port_);
+            funcId: 21, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -720,6 +841,34 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       );
 
   @override
+  Future<String> crateApiBridgeSaveEmailAttachmentTo(
+      {required String path, required int index, required String destDir}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(path, serializer);
+        sse_encode_u_32(index, serializer);
+        sse_encode_String(destDir, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 22, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSaveEmailAttachmentToConstMeta,
+      argValues: [path, index, destDir],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSaveEmailAttachmentToConstMeta =>
+      const TaskConstMeta(
+        debugName: "save_email_attachment_to",
+        argNames: ["path", "index", "destDir"],
+      );
+
+  @override
   Stream<ScanEvent> crateApiBridgeScanDuplicatesStream(
       {required ScanRequest req, required String opId}) {
     final sink = RustStreamSink<ScanEvent>();
@@ -730,7 +879,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(opId, serializer);
         sse_encode_StreamSink_scan_event_Sse(sink, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 20, port: port_);
+            funcId: 23, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -760,7 +909,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(opId, serializer);
         sse_encode_StreamSink_search_event_Sse(sink, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 21, port: port_);
+            funcId: 24, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_unit,
@@ -780,6 +929,452 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       );
 
   @override
+  Future<void> crateApiBridgeSmbClientClose(
+      {required String sessionId, required BigInt handle}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_u_64(handle, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 25, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientCloseConstMeta,
+      argValues: [sessionId, handle],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientCloseConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_close",
+        argNames: ["sessionId", "handle"],
+      );
+
+  @override
+  Future<SmbSession> crateApiBridgeSmbClientConnect(
+      {required SmbClientSettings settings}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_box_autoadd_smb_client_settings(settings, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 26, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_smb_session,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientConnectConstMeta,
+      argValues: [settings],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientConnectConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_connect",
+        argNames: ["settings"],
+      );
+
+  @override
+  Future<BigInt> crateApiBridgeSmbClientCopy(
+      {required String sessionId, required String from, required String to}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_String(from, serializer);
+        sse_encode_String(to, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 27, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_u_64,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientCopyConstMeta,
+      argValues: [sessionId, from, to],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientCopyConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_copy",
+        argNames: ["sessionId", "from", "to"],
+      );
+
+  @override
+  Future<void> crateApiBridgeSmbClientCreateDirectory(
+      {required String sessionId, required String path}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_String(path, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 28, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientCreateDirectoryConstMeta,
+      argValues: [sessionId, path],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientCreateDirectoryConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_create_directory",
+        argNames: ["sessionId", "path"],
+      );
+
+  @override
+  Future<void> crateApiBridgeSmbClientDelete(
+      {required String sessionId, required String path, required bool isDir}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_String(path, serializer);
+        sse_encode_bool(isDir, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 29, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientDeleteConstMeta,
+      argValues: [sessionId, path, isDir],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientDeleteConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_delete",
+        argNames: ["sessionId", "path", "isDir"],
+      );
+
+  @override
+  Future<bool> crateApiBridgeSmbClientDisconnect({required String sessionId}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 30, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_bool,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiBridgeSmbClientDisconnectConstMeta,
+      argValues: [sessionId],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientDisconnectConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_disconnect",
+        argNames: ["sessionId"],
+      );
+
+  @override
+  Future<List<SmbEntry>> crateApiBridgeSmbClientList(
+      {required String sessionId, required String path}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_String(path, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 31, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_smb_entry,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientListConstMeta,
+      argValues: [sessionId, path],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientListConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_list",
+        argNames: ["sessionId", "path"],
+      );
+
+  @override
+  Future<SmbOpenFile> crateApiBridgeSmbClientOpen(
+      {required String sessionId,
+      required String path,
+      required bool write,
+      required bool truncate}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_String(path, serializer);
+        sse_encode_bool(write, serializer);
+        sse_encode_bool(truncate, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 32, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_smb_open_file,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientOpenConstMeta,
+      argValues: [sessionId, path, write, truncate],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientOpenConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_open",
+        argNames: ["sessionId", "path", "write", "truncate"],
+      );
+
+  @override
+  Future<String> crateApiBridgeSmbClientProbe(
+      {required SmbClientSettings settings}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_box_autoadd_smb_client_settings(settings, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 33, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientProbeConstMeta,
+      argValues: [settings],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientProbeConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_probe",
+        argNames: ["settings"],
+      );
+
+  @override
+  Future<Uint8List> crateApiBridgeSmbClientRead(
+      {required String sessionId,
+      required BigInt handle,
+      required BigInt offset,
+      required int length}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_u_64(handle, serializer);
+        sse_encode_u_64(offset, serializer);
+        sse_encode_u_32(length, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 34, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_list_prim_u_8_strict,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientReadConstMeta,
+      argValues: [sessionId, handle, offset, length],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientReadConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_read",
+        argNames: ["sessionId", "handle", "offset", "length"],
+      );
+
+  @override
+  Future<void> crateApiBridgeSmbClientRename(
+      {required String sessionId,
+      required String from,
+      required String to,
+      required bool replace}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_String(from, serializer);
+        sse_encode_String(to, serializer);
+        sse_encode_bool(replace, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 35, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_unit,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientRenameConstMeta,
+      argValues: [sessionId, from, to, replace],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientRenameConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_rename",
+        argNames: ["sessionId", "from", "to", "replace"],
+      );
+
+  @override
+  Future<SmbEntry?> crateApiBridgeSmbClientStat(
+      {required String sessionId, required String path}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_String(path, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 36, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_opt_box_autoadd_smb_entry,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientStatConstMeta,
+      argValues: [sessionId, path],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientStatConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_stat",
+        argNames: ["sessionId", "path"],
+      );
+
+  @override
+  Future<int> crateApiBridgeSmbClientWrite(
+      {required String sessionId,
+      required BigInt handle,
+      required BigInt offset,
+      required List<int> data}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(sessionId, serializer);
+        sse_encode_u_64(handle, serializer);
+        sse_encode_u_64(offset, serializer);
+        sse_encode_list_prim_u_8_loose(data, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 37, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_u_32,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbClientWriteConstMeta,
+      argValues: [sessionId, handle, offset, data],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbClientWriteConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_client_write",
+        argNames: ["sessionId", "handle", "offset", "data"],
+      );
+
+  @override
+  Stream<SmbServerEvent> crateApiBridgeSmbServerStart(
+      {required SmbServerSettings settings}) {
+    final sink = RustStreamSink<SmbServerEvent>();
+    unawaited(handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_box_autoadd_smb_server_settings(settings, serializer);
+        sse_encode_StreamSink_smb_server_event_Sse(sink, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 38, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_u_16,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeSmbServerStartConstMeta,
+      argValues: [settings, sink],
+      apiImpl: this,
+    )));
+    return sink.stream;
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbServerStartConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_server_start",
+        argNames: ["settings", "sink"],
+      );
+
+  @override
+  Future<SmbServerStatus> crateApiBridgeSmbServerStatus() {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 39, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_smb_server_status,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiBridgeSmbServerStatusConstMeta,
+      argValues: [],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbServerStatusConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_server_status",
+        argNames: [],
+      );
+
+  @override
+  Future<bool> crateApiBridgeSmbServerStop() {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 40, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_bool,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiBridgeSmbServerStopConstMeta,
+      argValues: [],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeSmbServerStopConstMeta =>
+      const TaskConstMeta(
+        debugName: "smb_server_stop",
+        argNames: [],
+      );
+
+  @override
   Future<String> crateApiBridgeThumbnailCacheKey(
       {required String path,
       required PlatformInt64 modifiedMs,
@@ -793,7 +1388,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_u_64(size, serializer);
         sse_encode_u_32(dim, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 22, port: port_);
+            funcId: 41, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -821,7 +1416,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(dst, serializer);
         sse_encode_u_32(maxDim, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 23, port: port_);
+            funcId: 42, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_thumbnail_info,
@@ -851,7 +1446,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_image_transform(transform, serializer);
         sse_encode_bool(inPlace, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 24, port: port_);
+            funcId: 43, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -896,6 +1491,13 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
 
   @protected
   RustStreamSink<SearchEvent> dco_decode_StreamSink_search_event_Sse(
+      dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    throw UnimplementedError();
+  }
+
+  @protected
+  RustStreamSink<SmbServerEvent> dco_decode_StreamSink_smb_server_event_Sse(
       dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     throw UnimplementedError();
@@ -994,6 +1596,36 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  SmbClientSettings dco_decode_box_autoadd_smb_client_settings(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_smb_client_settings(raw);
+  }
+
+  @protected
+  SmbConnectionEvent dco_decode_box_autoadd_smb_connection_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_smb_connection_event(raw);
+  }
+
+  @protected
+  SmbEntry dco_decode_box_autoadd_smb_entry(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_smb_entry(raw);
+  }
+
+  @protected
+  SmbServerSettings dco_decode_box_autoadd_smb_server_settings(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_smb_server_settings(raw);
+  }
+
+  @protected
+  SmbTransferEvent dco_decode_box_autoadd_smb_transfer_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return dco_decode_smb_transfer_event(raw);
+  }
+
+  @protected
   SortSpec dco_decode_box_autoadd_sort_spec(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_sort_spec(raw);
@@ -1042,6 +1674,83 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       hash: dco_decode_String(arr[0]),
       size: dco_decode_u_64(arr[1]),
       files: dco_decode_list_dir_entry_info(arr[2]),
+    );
+  }
+
+  @protected
+  EmailAddressInfo dco_decode_email_address_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return EmailAddressInfo(
+      name: dco_decode_String(arr[0]),
+      email: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  EmailAttachmentData dco_decode_email_attachment_data(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return EmailAttachmentData(
+      name: dco_decode_String(arr[0]),
+      mime: dco_decode_String(arr[1]),
+      bytes: dco_decode_list_prim_u_8_strict(arr[2]),
+    );
+  }
+
+  @protected
+  EmailAttachmentInfo dco_decode_email_attachment_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return EmailAttachmentInfo(
+      index: dco_decode_u_32(arr[0]),
+      name: dco_decode_String(arr[1]),
+      mime: dco_decode_String(arr[2]),
+      size: dco_decode_u_64(arr[3]),
+      contentId: dco_decode_String(arr[4]),
+      isInline: dco_decode_bool(arr[5]),
+    );
+  }
+
+  @protected
+  EmailHeaderInfo dco_decode_email_header_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return EmailHeaderInfo(
+      name: dco_decode_String(arr[0]),
+      value: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  EmailMessageInfo dco_decode_email_message_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 14)
+      throw Exception('unexpected arr length: expect 14 but see ${arr.length}');
+    return EmailMessageInfo(
+      subject: dco_decode_String(arr[0]),
+      from: dco_decode_list_email_address_info(arr[1]),
+      to: dco_decode_list_email_address_info(arr[2]),
+      cc: dco_decode_list_email_address_info(arr[3]),
+      bcc: dco_decode_list_email_address_info(arr[4]),
+      replyTo: dco_decode_list_email_address_info(arr[5]),
+      date: dco_decode_String(arr[6]),
+      dateEpochMs: dco_decode_i_64(arr[7]),
+      messageId: dco_decode_String(arr[8]),
+      bodyText: dco_decode_String(arr[9]),
+      bodyHtml: dco_decode_String(arr[10]),
+      headers: dco_decode_list_email_header_info(arr[11]),
+      attachments: dco_decode_list_email_attachment_info(arr[12]),
+      format: dco_decode_String(arr[13]),
     );
   }
 
@@ -1131,6 +1840,26 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  List<EmailAddressInfo> dco_decode_list_email_address_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_email_address_info).toList();
+  }
+
+  @protected
+  List<EmailAttachmentInfo> dco_decode_list_email_attachment_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>)
+        .map(dco_decode_email_attachment_info)
+        .toList();
+  }
+
+  @protected
+  List<EmailHeaderInfo> dco_decode_list_email_header_info(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_email_header_info).toList();
+  }
+
+  @protected
   List<FailedItem> dco_decode_list_failed_item(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_failed_item).toList();
@@ -1143,6 +1872,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as List<int>;
+  }
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as Uint8List;
@@ -1152,6 +1887,24 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   List<SearchHit> dco_decode_list_search_hit(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_search_hit).toList();
+  }
+
+  @protected
+  List<SmbEntry> dco_decode_list_smb_entry(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_smb_entry).toList();
+  }
+
+  @protected
+  List<SmbShareConfig> dco_decode_list_smb_share_config(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_smb_share_config).toList();
+  }
+
+  @protected
+  List<SmbUserConfig> dco_decode_list_smb_user_config(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_smb_user_config).toList();
   }
 
   @protected
@@ -1204,6 +1957,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
+  }
+
+  @protected
+  SmbEntry? dco_decode_opt_box_autoadd_smb_entry(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw == null ? null : dco_decode_box_autoadd_smb_entry(raw);
   }
 
   @protected
@@ -1388,6 +2147,186 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  SmbClientSettings dco_decode_smb_client_settings(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return SmbClientSettings(
+      host: dco_decode_String(arr[0]),
+      port: dco_decode_u_16(arr[1]),
+      share: dco_decode_String(arr[2]),
+      username: dco_decode_String(arr[3]),
+      domain: dco_decode_String(arr[4]),
+      password: dco_decode_String(arr[5]),
+    );
+  }
+
+  @protected
+  SmbConnectionEvent dco_decode_smb_connection_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return SmbConnectionEvent(
+      connection: dco_decode_u_64(arr[0]),
+      peer: dco_decode_String(arr[1]),
+      user: dco_decode_String(arr[2]),
+      detail: dco_decode_String(arr[3]),
+    );
+  }
+
+  @protected
+  SmbEntry dco_decode_smb_entry(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return SmbEntry(
+      name: dco_decode_String(arr[0]),
+      isDir: dco_decode_bool(arr[1]),
+      size: dco_decode_u_64(arr[2]),
+      modifiedMs: dco_decode_i_64(arr[3]),
+      createdMs: dco_decode_i_64(arr[4]),
+      isHidden: dco_decode_bool(arr[5]),
+      isReadOnly: dco_decode_bool(arr[6]),
+    );
+  }
+
+  @protected
+  SmbOpenFile dco_decode_smb_open_file(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SmbOpenFile(
+      handle: dco_decode_u_64(arr[0]),
+      size: dco_decode_u_64(arr[1]),
+    );
+  }
+
+  @protected
+  SmbServerEvent dco_decode_smb_server_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    switch (raw[0]) {
+      case 0:
+        return SmbServerEvent_Started(
+          dco_decode_u_16(raw[1]),
+        );
+      case 1:
+        return const SmbServerEvent_Stopped();
+      case 2:
+        return SmbServerEvent_Connected(
+          dco_decode_box_autoadd_smb_connection_event(raw[1]),
+        );
+      case 3:
+        return SmbServerEvent_Authenticated(
+          dco_decode_box_autoadd_smb_connection_event(raw[1]),
+        );
+      case 4:
+        return SmbServerEvent_Rejected(
+          dco_decode_box_autoadd_smb_connection_event(raw[1]),
+        );
+      case 5:
+        return SmbServerEvent_Disconnected(
+          dco_decode_box_autoadd_smb_connection_event(raw[1]),
+        );
+      case 6:
+        return SmbServerEvent_Transfer(
+          dco_decode_box_autoadd_smb_transfer_event(raw[1]),
+        );
+      default:
+        throw Exception("unreachable");
+    }
+  }
+
+  @protected
+  SmbServerSettings dco_decode_smb_server_settings(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return SmbServerSettings(
+      bind: dco_decode_String(arr[0]),
+      port: dco_decode_u_16(arr[1]),
+      serverName: dco_decode_String(arr[2]),
+      workgroup: dco_decode_String(arr[3]),
+      shares: dco_decode_list_smb_share_config(arr[4]),
+      users: dco_decode_list_smb_user_config(arr[5]),
+      requireSigning: dco_decode_bool(arr[6]),
+      maxConnections: dco_decode_u_32(arr[7]),
+    );
+  }
+
+  @protected
+  SmbServerStatus dco_decode_smb_server_status(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return SmbServerStatus(
+      running: dco_decode_bool(arr[0]),
+      port: dco_decode_u_16(arr[1]),
+      connections: dco_decode_u_32(arr[2]),
+    );
+  }
+
+  @protected
+  SmbSession dco_decode_smb_session(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SmbSession(
+      id: dco_decode_String(arr[0]),
+      dialect: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
+  SmbShareConfig dco_decode_smb_share_config(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
+    return SmbShareConfig(
+      name: dco_decode_String(arr[0]),
+      path: dco_decode_String(arr[1]),
+      readOnly: dco_decode_bool(arr[2]),
+      comment: dco_decode_String(arr[3]),
+      allowedUsers: dco_decode_list_String(arr[4]),
+      guestOk: dco_decode_bool(arr[5]),
+    );
+  }
+
+  @protected
+  SmbTransferEvent dco_decode_smb_transfer_event(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return SmbTransferEvent(
+      connection: dco_decode_u_64(arr[0]),
+      share: dco_decode_String(arr[1]),
+      path: dco_decode_String(arr[2]),
+      outbound: dco_decode_bool(arr[3]),
+      bytes: dco_decode_u_64(arr[4]),
+    );
+  }
+
+  @protected
+  SmbUserConfig dco_decode_smb_user_config(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 2)
+      throw Exception('unexpected arr length: expect 2 but see ${arr.length}');
+    return SmbUserConfig(
+      username: dco_decode_String(arr[0]),
+      password: dco_decode_String(arr[1]),
+    );
+  }
+
+  @protected
   SortField dco_decode_sort_field(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return SortField.values[raw as int];
@@ -1451,6 +2390,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  int dco_decode_u_16(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return raw as int;
+  }
+
+  @protected
   int dco_decode_u_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -1504,6 +2449,13 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
 
   @protected
   RustStreamSink<SearchEvent> sse_decode_StreamSink_search_event_Sse(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    throw UnimplementedError('Unreachable ()');
+  }
+
+  @protected
+  RustStreamSink<SmbServerEvent> sse_decode_StreamSink_smb_server_event_Sse(
       SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     throw UnimplementedError('Unreachable ()');
@@ -1606,6 +2558,40 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  SmbClientSettings sse_decode_box_autoadd_smb_client_settings(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_smb_client_settings(deserializer));
+  }
+
+  @protected
+  SmbConnectionEvent sse_decode_box_autoadd_smb_connection_event(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_smb_connection_event(deserializer));
+  }
+
+  @protected
+  SmbEntry sse_decode_box_autoadd_smb_entry(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_smb_entry(deserializer));
+  }
+
+  @protected
+  SmbServerSettings sse_decode_box_autoadd_smb_server_settings(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_smb_server_settings(deserializer));
+  }
+
+  @protected
+  SmbTransferEvent sse_decode_box_autoadd_smb_transfer_event(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return (sse_decode_smb_transfer_event(deserializer));
+  }
+
+  @protected
   SortSpec sse_decode_box_autoadd_sort_spec(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return (sse_decode_sort_spec(deserializer));
@@ -1653,6 +2639,86 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     var var_size = sse_decode_u_64(deserializer);
     var var_files = sse_decode_list_dir_entry_info(deserializer);
     return DuplicateGroup(hash: var_hash, size: var_size, files: var_files);
+  }
+
+  @protected
+  EmailAddressInfo sse_decode_email_address_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_email = sse_decode_String(deserializer);
+    return EmailAddressInfo(name: var_name, email: var_email);
+  }
+
+  @protected
+  EmailAttachmentData sse_decode_email_attachment_data(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_mime = sse_decode_String(deserializer);
+    var var_bytes = sse_decode_list_prim_u_8_strict(deserializer);
+    return EmailAttachmentData(
+        name: var_name, mime: var_mime, bytes: var_bytes);
+  }
+
+  @protected
+  EmailAttachmentInfo sse_decode_email_attachment_info(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_index = sse_decode_u_32(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    var var_mime = sse_decode_String(deserializer);
+    var var_size = sse_decode_u_64(deserializer);
+    var var_contentId = sse_decode_String(deserializer);
+    var var_isInline = sse_decode_bool(deserializer);
+    return EmailAttachmentInfo(
+        index: var_index,
+        name: var_name,
+        mime: var_mime,
+        size: var_size,
+        contentId: var_contentId,
+        isInline: var_isInline);
+  }
+
+  @protected
+  EmailHeaderInfo sse_decode_email_header_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_value = sse_decode_String(deserializer);
+    return EmailHeaderInfo(name: var_name, value: var_value);
+  }
+
+  @protected
+  EmailMessageInfo sse_decode_email_message_info(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_subject = sse_decode_String(deserializer);
+    var var_from = sse_decode_list_email_address_info(deserializer);
+    var var_to = sse_decode_list_email_address_info(deserializer);
+    var var_cc = sse_decode_list_email_address_info(deserializer);
+    var var_bcc = sse_decode_list_email_address_info(deserializer);
+    var var_replyTo = sse_decode_list_email_address_info(deserializer);
+    var var_date = sse_decode_String(deserializer);
+    var var_dateEpochMs = sse_decode_i_64(deserializer);
+    var var_messageId = sse_decode_String(deserializer);
+    var var_bodyText = sse_decode_String(deserializer);
+    var var_bodyHtml = sse_decode_String(deserializer);
+    var var_headers = sse_decode_list_email_header_info(deserializer);
+    var var_attachments = sse_decode_list_email_attachment_info(deserializer);
+    var var_format = sse_decode_String(deserializer);
+    return EmailMessageInfo(
+        subject: var_subject,
+        from: var_from,
+        to: var_to,
+        cc: var_cc,
+        bcc: var_bcc,
+        replyTo: var_replyTo,
+        date: var_date,
+        dateEpochMs: var_dateEpochMs,
+        messageId: var_messageId,
+        bodyText: var_bodyText,
+        bodyHtml: var_bodyHtml,
+        headers: var_headers,
+        attachments: var_attachments,
+        format: var_format);
   }
 
   @protected
@@ -1772,6 +2838,45 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  List<EmailAddressInfo> sse_decode_list_email_address_info(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <EmailAddressInfo>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_email_address_info(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<EmailAttachmentInfo> sse_decode_list_email_attachment_info(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <EmailAttachmentInfo>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_email_attachment_info(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<EmailHeaderInfo> sse_decode_list_email_header_info(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <EmailHeaderInfo>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_email_header_info(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<FailedItem> sse_decode_list_failed_item(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1791,6 +2896,13 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var len_ = sse_decode_i_32(deserializer);
+    return deserializer.buffer.getUint8List(len_);
+  }
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var len_ = sse_decode_i_32(deserializer);
@@ -1805,6 +2917,44 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     var ans_ = <SearchHit>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_search_hit(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<SmbEntry> sse_decode_list_smb_entry(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SmbEntry>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_smb_entry(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<SmbShareConfig> sse_decode_list_smb_share_config(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SmbShareConfig>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_smb_share_config(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<SmbUserConfig> sse_decode_list_smb_user_config(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <SmbUserConfig>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_smb_user_config(deserializer));
     }
     return ans_;
   }
@@ -1862,6 +3012,17 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
 
     if (sse_decode_bool(deserializer)) {
       return (sse_decode_String(deserializer));
+    } else {
+      return null;
+    }
+  }
+
+  @protected
+  SmbEntry? sse_decode_opt_box_autoadd_smb_entry(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    if (sse_decode_bool(deserializer)) {
+      return (sse_decode_box_autoadd_smb_entry(deserializer));
     } else {
       return null;
     }
@@ -2068,6 +3229,187 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  SmbClientSettings sse_decode_smb_client_settings(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_host = sse_decode_String(deserializer);
+    var var_port = sse_decode_u_16(deserializer);
+    var var_share = sse_decode_String(deserializer);
+    var var_username = sse_decode_String(deserializer);
+    var var_domain = sse_decode_String(deserializer);
+    var var_password = sse_decode_String(deserializer);
+    return SmbClientSettings(
+        host: var_host,
+        port: var_port,
+        share: var_share,
+        username: var_username,
+        domain: var_domain,
+        password: var_password);
+  }
+
+  @protected
+  SmbConnectionEvent sse_decode_smb_connection_event(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_connection = sse_decode_u_64(deserializer);
+    var var_peer = sse_decode_String(deserializer);
+    var var_user = sse_decode_String(deserializer);
+    var var_detail = sse_decode_String(deserializer);
+    return SmbConnectionEvent(
+        connection: var_connection,
+        peer: var_peer,
+        user: var_user,
+        detail: var_detail);
+  }
+
+  @protected
+  SmbEntry sse_decode_smb_entry(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_isDir = sse_decode_bool(deserializer);
+    var var_size = sse_decode_u_64(deserializer);
+    var var_modifiedMs = sse_decode_i_64(deserializer);
+    var var_createdMs = sse_decode_i_64(deserializer);
+    var var_isHidden = sse_decode_bool(deserializer);
+    var var_isReadOnly = sse_decode_bool(deserializer);
+    return SmbEntry(
+        name: var_name,
+        isDir: var_isDir,
+        size: var_size,
+        modifiedMs: var_modifiedMs,
+        createdMs: var_createdMs,
+        isHidden: var_isHidden,
+        isReadOnly: var_isReadOnly);
+  }
+
+  @protected
+  SmbOpenFile sse_decode_smb_open_file(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_handle = sse_decode_u_64(deserializer);
+    var var_size = sse_decode_u_64(deserializer);
+    return SmbOpenFile(handle: var_handle, size: var_size);
+  }
+
+  @protected
+  SmbServerEvent sse_decode_smb_server_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var tag_ = sse_decode_i_32(deserializer);
+    switch (tag_) {
+      case 0:
+        var var_field0 = sse_decode_u_16(deserializer);
+        return SmbServerEvent_Started(var_field0);
+      case 1:
+        return const SmbServerEvent_Stopped();
+      case 2:
+        var var_field0 =
+            sse_decode_box_autoadd_smb_connection_event(deserializer);
+        return SmbServerEvent_Connected(var_field0);
+      case 3:
+        var var_field0 =
+            sse_decode_box_autoadd_smb_connection_event(deserializer);
+        return SmbServerEvent_Authenticated(var_field0);
+      case 4:
+        var var_field0 =
+            sse_decode_box_autoadd_smb_connection_event(deserializer);
+        return SmbServerEvent_Rejected(var_field0);
+      case 5:
+        var var_field0 =
+            sse_decode_box_autoadd_smb_connection_event(deserializer);
+        return SmbServerEvent_Disconnected(var_field0);
+      case 6:
+        var var_field0 =
+            sse_decode_box_autoadd_smb_transfer_event(deserializer);
+        return SmbServerEvent_Transfer(var_field0);
+      default:
+        throw UnimplementedError('');
+    }
+  }
+
+  @protected
+  SmbServerSettings sse_decode_smb_server_settings(
+      SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_bind = sse_decode_String(deserializer);
+    var var_port = sse_decode_u_16(deserializer);
+    var var_serverName = sse_decode_String(deserializer);
+    var var_workgroup = sse_decode_String(deserializer);
+    var var_shares = sse_decode_list_smb_share_config(deserializer);
+    var var_users = sse_decode_list_smb_user_config(deserializer);
+    var var_requireSigning = sse_decode_bool(deserializer);
+    var var_maxConnections = sse_decode_u_32(deserializer);
+    return SmbServerSettings(
+        bind: var_bind,
+        port: var_port,
+        serverName: var_serverName,
+        workgroup: var_workgroup,
+        shares: var_shares,
+        users: var_users,
+        requireSigning: var_requireSigning,
+        maxConnections: var_maxConnections);
+  }
+
+  @protected
+  SmbServerStatus sse_decode_smb_server_status(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_running = sse_decode_bool(deserializer);
+    var var_port = sse_decode_u_16(deserializer);
+    var var_connections = sse_decode_u_32(deserializer);
+    return SmbServerStatus(
+        running: var_running, port: var_port, connections: var_connections);
+  }
+
+  @protected
+  SmbSession sse_decode_smb_session(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_id = sse_decode_String(deserializer);
+    var var_dialect = sse_decode_String(deserializer);
+    return SmbSession(id: var_id, dialect: var_dialect);
+  }
+
+  @protected
+  SmbShareConfig sse_decode_smb_share_config(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_path = sse_decode_String(deserializer);
+    var var_readOnly = sse_decode_bool(deserializer);
+    var var_comment = sse_decode_String(deserializer);
+    var var_allowedUsers = sse_decode_list_String(deserializer);
+    var var_guestOk = sse_decode_bool(deserializer);
+    return SmbShareConfig(
+        name: var_name,
+        path: var_path,
+        readOnly: var_readOnly,
+        comment: var_comment,
+        allowedUsers: var_allowedUsers,
+        guestOk: var_guestOk);
+  }
+
+  @protected
+  SmbTransferEvent sse_decode_smb_transfer_event(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_connection = sse_decode_u_64(deserializer);
+    var var_share = sse_decode_String(deserializer);
+    var var_path = sse_decode_String(deserializer);
+    var var_outbound = sse_decode_bool(deserializer);
+    var var_bytes = sse_decode_u_64(deserializer);
+    return SmbTransferEvent(
+        connection: var_connection,
+        share: var_share,
+        path: var_path,
+        outbound: var_outbound,
+        bytes: var_bytes);
+  }
+
+  @protected
+  SmbUserConfig sse_decode_smb_user_config(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_username = sse_decode_String(deserializer);
+    var var_password = sse_decode_String(deserializer);
+    return SmbUserConfig(username: var_username, password: var_password);
+  }
+
+  @protected
   SortField sse_decode_sort_field(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_i_32(deserializer);
@@ -2125,6 +3467,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     var var_trashed = sse_decode_list_String(deserializer);
     var var_failed = sse_decode_list_failed_item(deserializer);
     return TrashOutcome(trashed: var_trashed, failed: var_failed);
+  }
+
+  @protected
+  int sse_decode_u_16(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    return deserializer.buffer.getUint16();
   }
 
   @protected
@@ -2204,6 +3552,19 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         self.setupAndSerialize(
             codec: SseCodec(
           decodeSuccessData: sse_decode_search_event,
+          decodeErrorData: sse_decode_AnyhowException,
+        )),
+        serializer);
+  }
+
+  @protected
+  void sse_encode_StreamSink_smb_server_event_Sse(
+      RustStreamSink<SmbServerEvent> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(
+        self.setupAndSerialize(
+            codec: SseCodec(
+          decodeSuccessData: sse_decode_smb_server_event,
           decodeErrorData: sse_decode_AnyhowException,
         )),
         serializer);
@@ -2313,6 +3674,41 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_box_autoadd_smb_client_settings(
+      SmbClientSettings self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_smb_client_settings(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_smb_connection_event(
+      SmbConnectionEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_smb_connection_event(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_smb_entry(
+      SmbEntry self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_smb_entry(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_smb_server_settings(
+      SmbServerSettings self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_smb_server_settings(self, serializer);
+  }
+
+  @protected
+  void sse_encode_box_autoadd_smb_transfer_event(
+      SmbTransferEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_smb_transfer_event(self, serializer);
+  }
+
+  @protected
   void sse_encode_box_autoadd_sort_spec(
       SortSpec self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2354,6 +3750,63 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     sse_encode_String(self.hash, serializer);
     sse_encode_u_64(self.size, serializer);
     sse_encode_list_dir_entry_info(self.files, serializer);
+  }
+
+  @protected
+  void sse_encode_email_address_info(
+      EmailAddressInfo self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.email, serializer);
+  }
+
+  @protected
+  void sse_encode_email_attachment_data(
+      EmailAttachmentData self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.mime, serializer);
+    sse_encode_list_prim_u_8_strict(self.bytes, serializer);
+  }
+
+  @protected
+  void sse_encode_email_attachment_info(
+      EmailAttachmentInfo self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_32(self.index, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.mime, serializer);
+    sse_encode_u_64(self.size, serializer);
+    sse_encode_String(self.contentId, serializer);
+    sse_encode_bool(self.isInline, serializer);
+  }
+
+  @protected
+  void sse_encode_email_header_info(
+      EmailHeaderInfo self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.value, serializer);
+  }
+
+  @protected
+  void sse_encode_email_message_info(
+      EmailMessageInfo self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.subject, serializer);
+    sse_encode_list_email_address_info(self.from, serializer);
+    sse_encode_list_email_address_info(self.to, serializer);
+    sse_encode_list_email_address_info(self.cc, serializer);
+    sse_encode_list_email_address_info(self.bcc, serializer);
+    sse_encode_list_email_address_info(self.replyTo, serializer);
+    sse_encode_String(self.date, serializer);
+    sse_encode_i_64(self.dateEpochMs, serializer);
+    sse_encode_String(self.messageId, serializer);
+    sse_encode_String(self.bodyText, serializer);
+    sse_encode_String(self.bodyHtml, serializer);
+    sse_encode_list_email_header_info(self.headers, serializer);
+    sse_encode_list_email_attachment_info(self.attachments, serializer);
+    sse_encode_String(self.format, serializer);
   }
 
   @protected
@@ -2448,6 +3901,36 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_email_address_info(
+      List<EmailAddressInfo> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_email_address_info(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_email_attachment_info(
+      List<EmailAttachmentInfo> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_email_attachment_info(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_email_header_info(
+      List<EmailHeaderInfo> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_email_header_info(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_failed_item(
       List<FailedItem> self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2466,6 +3949,15 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_list_prim_u_8_loose(
+      List<int> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    serializer.buffer
+        .putUint8List(self is Uint8List ? self : Uint8List.fromList(self));
+  }
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
       Uint8List self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
@@ -2480,6 +3972,36 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_search_hit(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_smb_entry(
+      List<SmbEntry> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_smb_entry(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_smb_share_config(
+      List<SmbShareConfig> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_smb_share_config(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_smb_user_config(
+      List<SmbUserConfig> self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_smb_user_config(item, serializer);
     }
   }
 
@@ -2522,6 +4044,17 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     sse_encode_bool(self != null, serializer);
     if (self != null) {
       sse_encode_String(self, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_opt_box_autoadd_smb_entry(
+      SmbEntry? self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    sse_encode_bool(self != null, serializer);
+    if (self != null) {
+      sse_encode_box_autoadd_smb_entry(self, serializer);
     }
   }
 
@@ -2673,6 +4206,136 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  void sse_encode_smb_client_settings(
+      SmbClientSettings self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.host, serializer);
+    sse_encode_u_16(self.port, serializer);
+    sse_encode_String(self.share, serializer);
+    sse_encode_String(self.username, serializer);
+    sse_encode_String(self.domain, serializer);
+    sse_encode_String(self.password, serializer);
+  }
+
+  @protected
+  void sse_encode_smb_connection_event(
+      SmbConnectionEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.connection, serializer);
+    sse_encode_String(self.peer, serializer);
+    sse_encode_String(self.user, serializer);
+    sse_encode_String(self.detail, serializer);
+  }
+
+  @protected
+  void sse_encode_smb_entry(SmbEntry self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_bool(self.isDir, serializer);
+    sse_encode_u_64(self.size, serializer);
+    sse_encode_i_64(self.modifiedMs, serializer);
+    sse_encode_i_64(self.createdMs, serializer);
+    sse_encode_bool(self.isHidden, serializer);
+    sse_encode_bool(self.isReadOnly, serializer);
+  }
+
+  @protected
+  void sse_encode_smb_open_file(SmbOpenFile self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.handle, serializer);
+    sse_encode_u_64(self.size, serializer);
+  }
+
+  @protected
+  void sse_encode_smb_server_event(
+      SmbServerEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    switch (self) {
+      case SmbServerEvent_Started(field0: final field0):
+        sse_encode_i_32(0, serializer);
+        sse_encode_u_16(field0, serializer);
+      case SmbServerEvent_Stopped():
+        sse_encode_i_32(1, serializer);
+      case SmbServerEvent_Connected(field0: final field0):
+        sse_encode_i_32(2, serializer);
+        sse_encode_box_autoadd_smb_connection_event(field0, serializer);
+      case SmbServerEvent_Authenticated(field0: final field0):
+        sse_encode_i_32(3, serializer);
+        sse_encode_box_autoadd_smb_connection_event(field0, serializer);
+      case SmbServerEvent_Rejected(field0: final field0):
+        sse_encode_i_32(4, serializer);
+        sse_encode_box_autoadd_smb_connection_event(field0, serializer);
+      case SmbServerEvent_Disconnected(field0: final field0):
+        sse_encode_i_32(5, serializer);
+        sse_encode_box_autoadd_smb_connection_event(field0, serializer);
+      case SmbServerEvent_Transfer(field0: final field0):
+        sse_encode_i_32(6, serializer);
+        sse_encode_box_autoadd_smb_transfer_event(field0, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_smb_server_settings(
+      SmbServerSettings self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.bind, serializer);
+    sse_encode_u_16(self.port, serializer);
+    sse_encode_String(self.serverName, serializer);
+    sse_encode_String(self.workgroup, serializer);
+    sse_encode_list_smb_share_config(self.shares, serializer);
+    sse_encode_list_smb_user_config(self.users, serializer);
+    sse_encode_bool(self.requireSigning, serializer);
+    sse_encode_u_32(self.maxConnections, serializer);
+  }
+
+  @protected
+  void sse_encode_smb_server_status(
+      SmbServerStatus self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.running, serializer);
+    sse_encode_u_16(self.port, serializer);
+    sse_encode_u_32(self.connections, serializer);
+  }
+
+  @protected
+  void sse_encode_smb_session(SmbSession self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.id, serializer);
+    sse_encode_String(self.dialect, serializer);
+  }
+
+  @protected
+  void sse_encode_smb_share_config(
+      SmbShareConfig self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_String(self.path, serializer);
+    sse_encode_bool(self.readOnly, serializer);
+    sse_encode_String(self.comment, serializer);
+    sse_encode_list_String(self.allowedUsers, serializer);
+    sse_encode_bool(self.guestOk, serializer);
+  }
+
+  @protected
+  void sse_encode_smb_transfer_event(
+      SmbTransferEvent self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.connection, serializer);
+    sse_encode_String(self.share, serializer);
+    sse_encode_String(self.path, serializer);
+    sse_encode_bool(self.outbound, serializer);
+    sse_encode_u_64(self.bytes, serializer);
+  }
+
+  @protected
+  void sse_encode_smb_user_config(
+      SmbUserConfig self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.username, serializer);
+    sse_encode_String(self.password, serializer);
+  }
+
+  @protected
   void sse_encode_sort_field(SortField self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_i_32(self.index, serializer);
@@ -2714,6 +4377,12 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_String(self.trashed, serializer);
     sse_encode_list_failed_item(self.failed, serializer);
+  }
+
+  @protected
+  void sse_encode_u_16(int self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    serializer.buffer.putUint16(self);
   }
 
   @protected

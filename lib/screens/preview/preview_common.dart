@@ -81,6 +81,8 @@ const Map<String, String> _kindNames = {
   '.mov': 'QuickTime video',
   '.mkv': 'Matroska video',
   '.webm': 'WebM video',
+  '.eml': 'Email message',
+  '.msg': 'Outlook message',
   '.mp3': 'MP3 audio',
   '.wav': 'WAV audio',
   '.m4a': 'M4A audio',
@@ -111,6 +113,7 @@ enum PreviewKind {
   pdf,
   office,
   archive,
+  email,
   video,
   audio,
   unsupported,
@@ -141,6 +144,9 @@ const _archiveExts = {
   '.zip', '.jar', '.tar', '.tgz', '.gz', '.bz2', '.tbz2', '.tar.gz',
   '.tar.bz2',
 };
+/// `.msg` is Outlook's own container; `.eml` is what every other mail client
+/// exports. Both are read by the Rust core, which is why they share one kind.
+const _emailExts = {'.eml', '.msg'};
 const _videoExts = {'.mp4', '.mov', '.m4v', '.mkv', '.webm', '.avi'};
 const _audioExts = {
   '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg', '.opus', '.wma',
@@ -163,6 +169,7 @@ PreviewKind previewKindFor(FileEntry file) {
   if (ext == '.pdf') return PreviewKind.pdf;
   if (_officeExts.contains(ext)) return PreviewKind.office;
   if (_archiveExts.contains(ext)) return PreviewKind.archive;
+  if (_emailExts.contains(ext)) return PreviewKind.email;
   if (_videoExts.contains(ext)) return PreviewKind.video;
   if (_audioExts.contains(ext)) return PreviewKind.audio;
   return PreviewKind.unsupported;
@@ -178,6 +185,7 @@ IconData previewGlyphFor(PreviewKind kind) => switch (kind) {
       PreviewKind.pdf => LucideIcons.fileText,
       PreviewKind.office => LucideIcons.fileText,
       PreviewKind.archive => LucideIcons.fileArchive,
+      PreviewKind.email => LucideIcons.mail,
       PreviewKind.video => LucideIcons.film,
       PreviewKind.audio => LucideIcons.music,
       PreviewKind.unsupported => LucideIcons.file,

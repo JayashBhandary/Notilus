@@ -42,6 +42,13 @@ class NativeTestSupport {
     return _available!;
   }
 
+  /// Whether the library is on disk, decided synchronously.
+  ///
+  /// `skip:` is evaluated while a suite is being *registered*, before any
+  /// `setUpAll` has run — so a flag set by [ensureLoaded] is still false at
+  /// that point and every test would skip. This is the check to use there.
+  static bool get isBuilt => _locate() != null;
+
   /// Finds the built dynamic library for this platform, preferring release.
   static String? _locate() {
     final name = Platform.isWindows
