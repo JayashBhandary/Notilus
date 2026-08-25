@@ -9,6 +9,7 @@ import '../../models/file_entry.dart';
 import '../native_core.dart';
 import '../remote/remote_hub.dart';
 import '../remote/remote_path.dart';
+import '../thumbnail_service.dart';
 import 'sidecar_naming.dart';
 import 'sidecar_policy.dart';
 import 'sidecar_store.dart';
@@ -132,12 +133,47 @@ class SidecarThumbnails {
   /// temporary copy for a remote one.
   Future<SidecarHit?> generateFromFile(FileEntry entry, String sourcePath) =>
       _generate(entry, () async {
-        final out = await NativeCore.instance.thumbnailBytes(
-          src: sourcePath,
-          maxDim: kSidecarMasterDim,
-        );
-        return out.bytes;
+        try {
+          final out = await NativeCore.instance.thumbnailBytes(
+            src: sourcePath,
+            maxDim: kSidecarMasterDim,
+          );
+          return out.bytes;
+        } catch (_) {
+          // HEIC, raw, and the rest of what the in-process decoder can't open.
+          // Left to fail, a folder of iPhone photos produced no `.thumbs` at
+          // all — the one case where the OS knows the format and this process
+          // doesn't. See [ThumbnailService.imageThumbnail].
+          final bytes = await _viaSystemDecoder(entry, sourcePath);
+          if (bytes == null) rethrow;
+          return bytes;
+        }
       });
+
+  /// Re-encodes what the operating system's own decoder makes of [sourcePath],
+  /// or null when this machine has no renderer for the format.
+  Future<Uint8List?> _viaSystemDecoder(
+    FileEntry entry,
+    String sourcePath,
+  ) async {
+    final local = FileEntry(
+      path: sourcePath,
+      name: entry.name,
+      isDirectory: false,
+      size: entry.size,
+      modified: entry.modified,
+    );
+    final service = ThumbnailService.instance;
+    if (!service.needsExternalDecoder(local)) return null;
+    final rendered =
+        await service.imageThumbnail(local, dim: kSidecarMasterDim);
+    if (rendered == null) return null;
+    final out = await NativeCore.instance.thumbnailFromBytes(
+      source: await rendered.readAsBytes(),
+      maxDim: kSidecarMasterDim,
+    );
+    return out.bytes;
+  }
 
   /// Makes a thumbnail from bytes already in hand and stores it.
   ///

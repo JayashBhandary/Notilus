@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../services/sharing/share_server_controller.dart';
+import '../../services/thumbnails/sidecar_warmer.dart';
 
 /// The File Sharing page: what is published, who may connect, and what the
 /// server is doing right now.
@@ -339,6 +340,40 @@ class _StatusBar extends StatelessWidget {
                     color: colors.mutedForeground,
                   ),
                 ),
+                // What the machine is doing for the clients that can't do it
+                // themselves. A phone browsing the share draws from `.thumbs`
+                // and cannot fill it, so this is the one place the work shows.
+                if (running)
+                  ValueListenableBuilder<String?>(
+                    valueListenable: SidecarWarmer.instance.status,
+                    builder: (context, status, _) {
+                      if (status == null) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Row(
+                          children: [
+                            Icon(
+                              LucideIcons.images,
+                              size: 11,
+                              color: colors.mutedForeground,
+                            ),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                status,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: colors.mutedForeground,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 if (running && addresses.isNotEmpty) ...[
                   const SizedBox(height: 10),
                   Text(

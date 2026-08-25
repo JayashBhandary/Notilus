@@ -105,6 +105,24 @@ class ThumbnailService {
     '.json', '.yaml', '.yml', '.xml', '.rtf',
   };
 
+  /// Image formats that are images to the user and opaque bytes to every
+  /// decoder in this process.
+  ///
+  /// HEIC is the one that matters: it is what an iPhone has written since 2017,
+  /// so a folder copied off a phone is almost entirely made of it. Neither
+  /// Skia — so no `Image.file` — nor the `image` crate on the Rust side can
+  /// open one, which used to mean no tile in the grid *and* no entry in
+  /// `.thumbs`, so every other machine on the share found nothing either. The
+  /// OS can decode all of these, hence [imageThumbnail].
+  static const Set<String> _externalImageExts = {
+    '.heic', '.heif', '.avif',
+    '.tif', '.tiff',
+    '.psd',
+    // Camera raw. Only worth attempting where the OS has a codec, which is the
+    // same condition every other entry here is under.
+    '.dng', '.cr2', '.cr3', '.nef', '.arw', '.raf', '.rw2', '.orf', '.sr2',
+  };
+
   /// Whether [entry] has any preview better than an icon. Callers use this to
   /// decide between an async thumbnail widget and a plain glyph.
   bool canPreview(FileEntry entry) =>
@@ -113,7 +131,11 @@ class ThumbnailService {
       hasTextPreview(entry);
 
   bool hasRenderedPreview(FileEntry entry) =>
-      entry.extension == '.pdf' || isVideo(entry);
+      entry.extension == '.pdf' || isVideo(entry) || needsExternalDecoder(entry);
+
+  /// Whether [entry] is an image only the operating system can open.
+  bool needsExternalDecoder(FileEntry entry) =>
+      _externalImageExts.contains(entry.extension);
 
   bool hasEmbeddedPreview(FileEntry entry) =>
       _zipDocExts.contains(entry.extension);
@@ -246,8 +268,69 @@ class ThumbnailService {
   Future<File?> renderedThumbnail(FileEntry entry, {int dim = 320}) {
     if (entry.extension == '.pdf') return pdfThumbnail(entry, dim: dim);
     if (isVideo(entry)) return videoThumbnail(entry, dim: dim);
+    if (needsExternalDecoder(entry)) return imageThumbnail(entry, dim: dim);
     if (hasEmbeddedPreview(entry)) return embeddedThumbnail(entry, dim: dim);
     return Future.value(null);
+  }
+
+  // ── images no in-process decoder can open ────────────────────────────────
+
+  /// A PNG of [f], rendered by whatever the operating system uses to show it.
+  ///
+  /// Only for [needsExternalDecoder] formats: everything else is cheaper to
+  /// decode in process than to hand to another one.
+  Future<File?> imageThumbnail(FileEntry f, {int dim = 320}) {
+    if (!needsExternalDecoder(f)) return Future.value(null);
+    return _cached(
+      _key(f, dim, 'image'),
+      (out) => _gated(() => _renderImage(f, dim, out)),
+    );
+  }
+
+  Future<bool> _renderImage(FileEntry f, int dim, File out) async {
+    if (kIsWeb) return false;
+    if (Platform.isMacOS) {
+      // sips is the system image pipeline — the same codecs Preview and Finder
+      // use, so HEIC, raw and everything else Apple reads works — and it
+      // applies the stored orientation, which a sideways thumbnail of every
+      // phone photo would otherwise announce loudly. Measured ~0.9s on a
+      // 12-megapixel HEIC against ~1.7s for QuickLook, which stays as the
+      // fallback for formats sips itself refuses.
+      if (await _runProcess('sips', [
+            '-s', 'format', 'png',
+            '-Z', '$dim',
+            f.path,
+            '--out', out.path,
+          ]) &&
+          await _isUsable(out)) {
+        return true;
+      }
+      return _viaQuickLook(f, dim, out);
+    }
+    // libheif ships the converter on every distro that can show a HEIC at all,
+    // and ImageMagick covers the raw formats behind the same interface. Both
+    // are optional, and a machine with neither simply has no thumbnail for
+    // these — the same outcome as before, reached without a spawn.
+    if (f.extension == '.heic' || f.extension == '.heif') {
+      if (await _runProcess('heif-convert', ['-q', '80', f.path, out.path]) &&
+          await _isUsable(out)) {
+        return true;
+      }
+    }
+    for (final exe in ['magick', 'convert']) {
+      // `[0]` is the first frame or page: a multi-page TIFF or a raw file with
+      // an embedded preview would otherwise write one output file per frame.
+      if (await _runProcess(exe, [
+            '${f.path}[0]',
+            '-auto-orient',
+            '-resize', '${dim}x$dim>',
+            'png:${out.path}',
+          ]) &&
+          await _isUsable(out)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ── PDF ──────────────────────────────────────────────────────────────────

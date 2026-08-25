@@ -9,6 +9,7 @@ import '../services/file_service.dart';
 import '../services/remote/remote_hub.dart';
 import '../services/remote/remote_path.dart';
 import '../services/thumbnails/sidecar_thumbnails.dart';
+import '../services/thumbnails/sidecar_warmer.dart';
 
 enum SortField { name, kind, modified, size }
 
@@ -256,11 +257,21 @@ class BrowserProvider extends ChangeNotifier {
   /// conservative about what it will delete — see [SidecarThumbnails.sweep] —
   /// so running it on every navigation is safe rather than merely cheap. It
   /// also warms the `.thumbs` listing the grid is about to ask for.
+  ///
+  /// The folder is then filled in the background — every file in it, not the
+  /// screenful on display. What the grid draws is unchanged; what it means is
+  /// that a folder opened once here is a folder a phone on the share opens
+  /// with thumbnails already in it.
   void _tidySidecar(String path, DirectoryListing result) {
     if (result.error != null || path.isEmpty) return;
     final entries = result.entries;
     unawaited(
-      SidecarThumbnails.instance.sweep(path, entries).catchError((_) => 0),
+      SidecarThumbnails.instance
+          .sweep(path, entries)
+          .catchError((_) => 0)
+          .whenComplete(
+            () => unawaited(SidecarWarmer.instance.warmFolder(path, entries)),
+          ),
     );
   }
 

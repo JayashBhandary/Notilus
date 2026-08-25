@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../utils/platform.dart';
 import '../native_core.dart';
+import '../thumbnails/sidecar_warmer.dart';
 
 /// One folder published to the network.
 @immutable
@@ -273,6 +274,9 @@ class ShareServerController extends ChangeNotifier {
       SharedFolder(name: chosen, path: path, readOnly: readOnly),
     ];
     await _persist();
+    // A folder added to a share that is already up gets its thumbnails now
+    // rather than at the next restart — the clients are already connected.
+    if (_running) unawaited(SidecarWarmer.instance.warmShare(path));
     notifyListeners();
     return null;
   }
@@ -579,6 +583,7 @@ class ShareServerController extends ChangeNotifier {
       }
       _running = true;
       _error = null;
+      _warmThumbnails();
       notifyListeners();
       return null;
     } catch (e) {
@@ -590,6 +595,7 @@ class ShareServerController extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    SidecarWarmer.instance.stopShares();
     await NativeCore.instance.stopSharing().catchError((_) => false);
     await _events?.cancel();
     _events = null;
@@ -598,6 +604,24 @@ class ShareServerController extends ChangeNotifier {
     _peers.clear();
     _note('info', 'Sharing stopped');
     notifyListeners();
+  }
+
+  /// Fills every published folder's `.thumbs`, in the background.
+  ///
+  /// A client reading this share cannot make a thumbnail of its own without
+  /// downloading the whole photo, so whatever is not in `.thumbs` shows up on
+  /// the other machine as a grey rectangle. This machine has the files; making
+  /// the pictures is its half of the bargain, and it only has to happen once
+  /// per file ever.
+  ///
+  /// Read-only shares are included: the flag governs what *clients* may write,
+  /// and a thumbnail is written here, locally, by the machine that owns the
+  /// data. A folder that genuinely won't take a write — a drive mounted
+  /// read-only — is noticed on the first attempt and skipped from then on.
+  void _warmThumbnails() {
+    for (final folder in _folders) {
+      unawaited(SidecarWarmer.instance.warmShare(folder.path));
+    }
   }
 
   Future<String?> restart() async {

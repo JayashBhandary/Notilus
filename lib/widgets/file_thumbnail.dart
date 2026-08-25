@@ -187,6 +187,9 @@ class _FilePreviewBuilderState extends State<FilePreviewBuilder> {
       // decoding a 12 MB raw JPEG, and it is the copy every other machine on
       // that drive will reuse.
       if (SidecarThumbnails.instance.writesBesideData(entry)) return null;
+      // HEIC and the other formats Skia can't open have to be rendered by the
+      // OS first, so there is nothing immediate about them either.
+      if (ThumbnailService.instance.needsExternalDecoder(entry)) return null;
       return FilePreviewImage(File(entry.path));
     }
     if (!hasFilePreview(entry)) return const FilePreviewNone();
@@ -230,7 +233,15 @@ class _FilePreviewBuilderState extends State<FilePreviewBuilder> {
       final made = _fromHit(
         await SidecarThumbnails.instance.generateFromFile(entry, entry.path),
       );
-      return made ?? FilePreviewImage(File(entry.path));
+      if (made != null) return made;
+      // Nowhere to leave one — a read-only drive. For a format the OS has to
+      // decode, a render into this machine's own cache is the next best thing;
+      // where there is no such renderer, on iOS above all, the file itself
+      // still goes to the image widget exactly as it always did.
+      final rendered = service.needsExternalDecoder(entry)
+          ? await service.imageThumbnail(entry, dim: widget.dim)
+          : null;
+      return FilePreviewImage(rendered ?? File(entry.path));
     }
     if (isPaper) {
       final f = await service.pdfThumbnail(entry, dim: widget.dim);

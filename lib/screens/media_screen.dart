@@ -1426,8 +1426,12 @@ class _Thumbnail extends StatelessWidget {
     // A photo on a source that keeps thumbnails beside the data goes the async
     // route: a 30 KB WebP off the drive beats decoding a 40-megapixel JPEG,
     // and it is the copy the next machine will find already there.
-    final viaSidecar =
-        isImage && SidecarThumbnails.instance.writesBesideData(entry);
+    final viaSidecar = isImage &&
+        (SidecarThumbnails.instance.writesBesideData(entry) ||
+            // Nothing in this process can decode a HEIC, so `Image.file` would
+            // draw a broken-image glyph over what is usually the whole camera
+            // roll. The async path renders it through the OS instead.
+            ThumbnailService.instance.needsExternalDecoder(entry));
     final content = isImage && !viaSidecar
         ? Image.file(
             File(entry.path),
@@ -1527,7 +1531,15 @@ class _AsyncThumbnailState extends State<_AsyncThumbnail> {
       // for this photo. Make one and leave it there; fall back to the original
       // if the drive or bucket won't take a write.
       final made = _fromHit(await sidecars.generateFromFile(entry, entry.path));
-      return made ?? _PreviewData(image: File(entry.path));
+      if (made != null) return made;
+      // Nowhere to leave one. For a format the OS has to decode, a render into
+      // this machine's own cache is the next best thing — and where there is
+      // no such renderer, on iOS above all, the file itself still goes to the
+      // image widget exactly as it always did.
+      final rendered = service.needsExternalDecoder(entry)
+          ? await service.imageThumbnail(entry, dim: dim)
+          : null;
+      return _PreviewData(image: rendered ?? File(entry.path));
     }
 
     if (service.isVideo(entry)) {

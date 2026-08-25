@@ -196,6 +196,67 @@ fn a_thumbnail_sidecar_crosses_the_wire() {
     client.disconnect();
 }
 
+/// The client must arrive at the *same* sidecar name the host wrote, from what
+/// the wire told it and nothing else.
+///
+/// This is the join in the whole scheme, and the one place it can silently
+/// come apart. The name is derived from the file's own name, size and
+/// modification second — never its path — so the host computes it from a local
+/// `stat` and the client computes it from an SMB directory listing. Those two
+/// numbers travel by different routes: the host reads nanoseconds from the
+/// filesystem, the server converts to a Windows FILETIME of 100-nanosecond
+/// ticks since 1601, and the client converts back. A rounding disagreement
+/// anywhere along that path costs one second, which costs a different
+/// filename, which means every client re-derives nothing and shows a grey
+/// rectangle over a share that is full of thumbnails.
+#[test]
+fn a_client_names_a_thumbnail_the_way_the_host_did() {
+    use crate::api::thumbnail;
+
+    let fixture = start("sidecar-name", false);
+
+    // The host's half: the name Notilus writes, keyed on what a local stat says.
+    let file = fixture.root.join("Docs").join("notes.txt");
+    let meta = fs::metadata(&file).unwrap();
+    let host_name = thumbnail::sidecar_name(
+        "notes.txt".into(),
+        meta.len(),
+        crate::api::listing::to_unix_millis(meta.modified().unwrap()),
+        thumbnail::MASTER_DIM,
+    );
+    let sidecar = fixture.root.join("Docs").join(thumbnail::SIDECAR_DIR);
+    fs::create_dir_all(&sidecar).unwrap();
+    fs::write(sidecar.join(&host_name), b"RIFF....WEBPfake").unwrap();
+
+    let mut client = connect(&fixture, "correct horse").expect("sign-in should succeed");
+
+    // The client's half: the same name, from the listing alone.
+    let listed = client.list("Docs").unwrap();
+    let entry = listed.iter().find(|e| e.name == "notes.txt").unwrap();
+    let client_name = thumbnail::sidecar_name(
+        entry.name.clone(),
+        entry.size,
+        entry.modified_ms,
+        thumbnail::MASTER_DIM,
+    );
+    assert_eq!(
+        client_name, host_name,
+        "a thumbnail the host wrote must be the one the client looks for"
+    );
+
+    // And looking for it that way finds it.
+    let inside = client
+        .list(&format!("Docs\\{}", thumbnail::SIDECAR_DIR))
+        .unwrap();
+    assert!(
+        inside.iter().any(|e| e.name == client_name),
+        "the client should find its own computed name in .thumbs: {:?}",
+        inside.iter().map(|e| &e.name).collect::<Vec<_>>()
+    );
+
+    client.disconnect();
+}
+
 #[test]
 fn the_wrong_password_is_refused() {
     let fixture = start("auth", false);
