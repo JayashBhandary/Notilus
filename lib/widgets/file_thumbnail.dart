@@ -7,6 +7,7 @@ import '../models/file_entry.dart';
 import '../services/remote/remote_path.dart';
 import '../models/media_kind.dart';
 import '../services/thumbnail_service.dart';
+import '../services/thumbnails/sidecar_thumbnails.dart';
 
 // ──────────────────────────────────────────────────────────────────────────
 // One answer to "what can this file be shown as?"
@@ -52,6 +53,21 @@ class FilePreviewImage extends FilePreview {
 
   /// A rendered document page. Its margins are transparent, so it needs white
   /// behind it or a dark theme shows through the paper.
+  final bool isPaper;
+}
+
+/// A thumbnail that has no local file — one read out of a `.thumbs` folder on a
+/// share or a bucket.
+///
+/// Kept separate from [FilePreviewImage] rather than folded into it so the
+/// common local case still hands the widget a path and never holds the pixels
+/// twice.
+class FilePreviewBytes extends FilePreview {
+  const FilePreviewBytes(this.bytes, {this.isPaper = false});
+
+  final Uint8List bytes;
+
+  /// See [FilePreviewImage.isPaper].
   final bool isPaper;
 }
 
@@ -156,13 +172,21 @@ class _FilePreviewBuilderState extends State<FilePreviewBuilder> {
   /// for a file the image codec can open directly.
   FilePreview? _immediate(FileEntry entry) {
     if (entry.isDirectory) return const FilePreviewNone();
-    // Cloud items get their type icon rather than a thumbnail. Rendering one
-    // means downloading the file, and a folder of photos on S3 would quietly
-    // pull every megabyte of it just by being scrolled past; the preview
-    // window downloads on demand instead, when the user asks for that file.
-    if (VPath.isRemote(entry.path)) return const FilePreviewNone();
+    // A remote item is still never *rendered* here — that would mean
+    // downloading it, and a folder of photos on S3 would pull every megabyte
+    // of itself just by being scrolled past. But a `.thumbs` folder beside the
+    // data may already hold the answer for a few tens of kilobytes, so this
+    // goes async to look rather than settling for a glyph.
+    if (VPath.isRemote(entry.path)) {
+      return hasFilePreview(entry) ? null : const FilePreviewNone();
+    }
     final ext = entry.extension;
     if (kImageExtensions.contains(ext) && !kSvgExtensions.contains(ext)) {
+      // On a source that keeps thumbnails beside the data, the sidecar is
+      // worth waiting a frame for: a 30 KB WebP off an external drive beats
+      // decoding a 12 MB raw JPEG, and it is the copy every other machine on
+      // that drive will reuse.
+      if (SidecarThumbnails.instance.writesBesideData(entry)) return null;
       return FilePreviewImage(File(entry.path));
     }
     if (!hasFilePreview(entry)) return const FilePreviewNone();
@@ -173,24 +197,58 @@ class _FilePreviewBuilderState extends State<FilePreviewBuilder> {
     final entry = widget.entry;
     final service = ThumbnailService.instance;
     final ext = entry.extension;
+    final isPaper = ext == '.pdf';
+
+    // A thumbnail sitting beside the data is the cheapest answer there is, and
+    // it is checked before anything else regardless of source: an external
+    // drive another machine already walked, a share, a bucket, or a folder that
+    // was copied off one of those onto this disk.
+    if (kSvgExtensions.contains(ext) || kTextPreviewExtensions.contains(ext)) {
+      // These two are drawn from the file itself and never stored, so there is
+      // nothing beside the data to look for.
+    } else {
+      final hit = await SidecarThumbnails.instance.lookup(entry);
+      final found = _fromHit(hit, isPaper: isPaper);
+      if (found != null) return found;
+    }
 
     if (kSvgExtensions.contains(ext)) {
       final bytes = await _svgBytes(entry);
       return bytes == null ? const FilePreviewNone() : FilePreviewSvg(bytes);
     }
-    if (ext == '.pdf') {
+    // Past this point everything needs the file's own bytes. A remote item has
+    // none to hand, so it stops here and waits for the user to open or download
+    // it — at which point `leaveThumbnailBeside` puts one in the source's
+    // `.thumbs`, and the branch above finds it from then on, here and on every
+    // other machine.
+    if (VPath.isRemote(entry.path)) return const FilePreviewNone();
+
+    if (kImageExtensions.contains(ext)) {
+      // Only reached when the folder keeps thumbnails beside it and had none
+      // for this file. Make one, leave it there for the next machine, and fall
+      // back to the original if the source won't take a write.
+      final made = _fromHit(
+        await SidecarThumbnails.instance.generateFromFile(entry, entry.path),
+      );
+      return made ?? FilePreviewImage(File(entry.path));
+    }
+    if (isPaper) {
       final f = await service.pdfThumbnail(entry, dim: widget.dim);
       return f == null
           ? const FilePreviewNone()
-          : FilePreviewImage(f, isPaper: true);
+          : await _alsoStoreBesideData(entry, f, isPaper: true);
     }
     if (service.isVideo(entry)) {
       final f = await service.videoThumbnail(entry, dim: widget.dim);
-      return f == null ? const FilePreviewNone() : FilePreviewImage(f);
+      return f == null
+          ? const FilePreviewNone()
+          : await _alsoStoreBesideData(entry, f);
     }
     if (service.hasEmbeddedPreview(entry)) {
       final f = await service.embeddedThumbnail(entry, dim: widget.dim);
-      return f == null ? const FilePreviewNone() : FilePreviewImage(f);
+      return f == null
+          ? const FilePreviewNone()
+          : await _alsoStoreBesideData(entry, f);
     }
     if (kTextPreviewExtensions.contains(ext)) {
       final text = await service.textSnippet(entry);
@@ -199,6 +257,42 @@ class _FilePreviewBuilderState extends State<FilePreviewBuilder> {
           : FilePreviewText(text);
     }
     return const FilePreviewNone();
+  }
+
+  /// Turns a sidecar hit into a preview, or null when there wasn't one.
+  FilePreview? _fromHit(SidecarHit? hit, {bool isPaper = false}) {
+    if (hit == null) return null;
+    final file = hit.file;
+    if (file != null) return FilePreviewImage(file, isPaper: isPaper);
+    final bytes = hit.bytes;
+    if (bytes != null) return FilePreviewBytes(bytes, isPaper: isPaper);
+    return null;
+  }
+
+  /// Copies a freshly rendered PDF page, video frame or embedded cover into the
+  /// folder's `.thumbs`, so the next machine to look doesn't run ffmpeg again.
+  ///
+  /// The render already happened and is already usable, so a failure to store
+  /// it costs nothing — the local file is returned either way.
+  Future<FilePreview> _alsoStoreBesideData(
+    FileEntry entry,
+    File rendered, {
+    bool isPaper = false,
+  }) async {
+    if (!SidecarThumbnails.instance.writesBesideData(entry)) {
+      return FilePreviewImage(rendered, isPaper: isPaper);
+    }
+    try {
+      final source = await rendered.readAsBytes();
+      final stored = _fromHit(
+        await SidecarThumbnails.instance.generateFromBytes(entry, source),
+        isPaper: isPaper,
+      );
+      if (stored != null) return stored;
+    } catch (_) {
+      // The render is still on disk and still fine to show.
+    }
+    return FilePreviewImage(rendered, isPaper: isPaper);
   }
 
   Future<Uint8List?> _svgBytes(FileEntry entry) async {

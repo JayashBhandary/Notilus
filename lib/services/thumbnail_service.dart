@@ -8,8 +8,10 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/file_entry.dart';
+import 'thumbnails/sidecar_naming.dart';
 
 /// Generates small raster previews for files and caches them on disk.
 ///
@@ -28,7 +30,13 @@ class ThumbnailService {
   ThumbnailService._();
   static final ThumbnailService instance = ThumbnailService._();
 
+  static const String _legacySweptKey = 'thumbnail_cache_swept_v2';
+
   Directory? _cacheDir;
+
+  /// Whether [_dropUnreachableCache] has already run this session.
+  bool _sweptLegacy = false;
+
   final Map<String, Future<File?>> _inFlight = {};
 
   /// Keys whose generation already failed. Without this, a video the machine
@@ -124,23 +132,47 @@ class ThumbnailService {
     final dir = Directory(p.join(base.path, 'thumbnails'));
     if (!await dir.exists()) await dir.create(recursive: true);
     _cacheDir = dir;
+    await _dropUnreachableCache(dir);
     return dir;
+  }
+
+  /// Deletes cache files no key can name any more, once.
+  ///
+  /// Two things changed underneath this folder: the hash was fixed (see
+  /// [_hash]), and thumbnails for shared sources now live beside the data
+  /// instead. Between them, most of what is in here can never be looked up
+  /// again — on the machine this was written on, 153 MB of it. A cache nothing
+  /// can reach is just disk use, so it goes; what is still wanted is
+  /// regenerated the next time it is asked for.
+  Future<void> _dropUnreachableCache(Directory dir) async {
+    if (_sweptLegacy) return;
+    _sweptLegacy = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_legacySweptKey) == true) return;
+      await for (final entry in dir.list(followLinks: false)) {
+        if (entry is File) await entry.delete().catchError((_) => entry);
+      }
+      await prefs.setBool(_legacySweptKey, true);
+    } catch (_) {
+      // A cache that couldn't be tidied still works; it is only larger than it
+      // needs to be.
+    }
   }
 
   String _key(FileEntry f, int dim, String tag) {
     return '${f.path}|${f.modified.millisecondsSinceEpoch}|${f.size}|$dim|$tag';
   }
 
-  String _hash(String key) {
-    // Simple FNV-1a 64-bit — enough for cache filenames, no security needs.
-    var h = 0xcbf29ce484222325;
-    const prime = 0x100000001b3;
-    for (final code in key.codeUnits) {
-      h ^= code;
-      h = (h * prime) & 0xFFFFFFFFFFFFFFFF;
-    }
-    return h.toRadixString(16).padLeft(16, '0');
-  }
+  /// Cache filename for a key.
+  ///
+  /// Was its own FNV-1a here, and a broken one: `& 0xFFFFFFFFFFFFFFFF` is `&
+  /// -1` on Dart's signed integers, so half of all hashes were written with a
+  /// leading minus sign — the old cache is full of files called
+  /// `-be805be934a29fb.png`. It also disagreed with the Rust implementation it
+  /// claimed to mirror. Both now go through one function, pinned to the
+  /// published test vector on both sides.
+  String _hash(String key) => fnv1aHex(key);
 
   /// The one path every disk-cached preview goes through: dedupes concurrent
   /// requests, reuses an existing file, and remembers failures.
@@ -204,6 +236,18 @@ class ThumbnailService {
       _rendering--;
       if (_renderQueue.isNotEmpty) _renderQueue.removeFirst().complete();
     }
+  }
+
+  /// Renders whichever kind of preview [entry] has, or null when it has none.
+  ///
+  /// One entry point for "make a picture of this file", so a caller that only
+  /// knows it has a local copy of something doesn't have to re-derive which
+  /// renderer applies.
+  Future<File?> renderedThumbnail(FileEntry entry, {int dim = 320}) {
+    if (entry.extension == '.pdf') return pdfThumbnail(entry, dim: dim);
+    if (isVideo(entry)) return videoThumbnail(entry, dim: dim);
+    if (hasEmbeddedPreview(entry)) return embeddedThumbnail(entry, dim: dim);
+    return Future.value(null);
   }
 
   // ── PDF ──────────────────────────────────────────────────────────────────

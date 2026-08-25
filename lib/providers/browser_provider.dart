@@ -8,6 +8,7 @@ import '../models/media_kind.dart';
 import '../services/file_service.dart';
 import '../services/remote/remote_hub.dart';
 import '../services/remote/remote_path.dart';
+import '../services/thumbnails/sidecar_thumbnails.dart';
 
 enum SortField { name, kind, modified, size }
 
@@ -244,6 +245,23 @@ class BrowserProvider extends ChangeNotifier {
     _loading = false;
     notifyListeners();
     _startWatching(path);
+    _tidySidecar(path, result);
+  }
+
+  /// Clears out thumbnails in this folder's `.thumbs` that describe versions of
+  /// its files that have since been edited.
+  ///
+  /// Fire-and-forget, and only on a listing that came back clean: a folder that
+  /// half-listed is not evidence about what is in it. The sweep is deliberately
+  /// conservative about what it will delete — see [SidecarThumbnails.sweep] —
+  /// so running it on every navigation is safe rather than merely cheap. It
+  /// also warms the `.thumbs` listing the grid is about to ask for.
+  void _tidySidecar(String path, DirectoryListing result) {
+    if (result.error != null || path.isEmpty) return;
+    final entries = result.entries;
+    unawaited(
+      SidecarThumbnails.instance.sweep(path, entries).catchError((_) => 0),
+    );
   }
 
   void _startWatching(String path) {

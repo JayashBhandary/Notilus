@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/cupertino.dart' show CupertinoSearchTextField;
@@ -13,6 +14,7 @@ import '../providers/media_provider.dart';
 import '../services/media_archive_service.dart';
 import '../services/system_info_service.dart' show formatBytes;
 import '../services/thumbnail_service.dart';
+import '../services/thumbnails/sidecar_thumbnails.dart';
 import '../theme.dart';
 import '../widgets/shad_spinner.dart';
 import 'preview/file_preview_screen.dart';
@@ -1421,7 +1423,12 @@ class _Thumbnail extends StatelessWidget {
         entry.extension != '.svg';
     final isVideo = ThumbnailService.instance.isVideo(entry);
 
-    final content = isImage
+    // A photo on a source that keeps thumbnails beside the data goes the async
+    // route: a 30 KB WebP off the drive beats decoding a 40-megapixel JPEG,
+    // and it is the copy the next machine will find already there.
+    final viaSidecar =
+        isImage && SidecarThumbnails.instance.writesBesideData(entry);
+    final content = isImage && !viaSidecar
         ? Image.file(
             File(entry.path),
             fit: BoxFit.cover,
@@ -1507,6 +1514,21 @@ class _AsyncThumbnailState extends State<_AsyncThumbnail> {
     final service = ThumbnailService.instance;
     final entry = widget.entry;
     final dim = _Thumbnail.dimFor(widget.compact);
+    final sidecars = SidecarThumbnails.instance;
+
+    // Cheapest answer first, wherever the folder lives.
+    final found = _fromHit(await sidecars.lookup(entry));
+    if (found != null) return found;
+
+    final isImage = kImageExtensions.contains(entry.extension) &&
+        entry.extension != '.svg';
+    if (isImage) {
+      // Only reached for a folder that keeps thumbnails beside it and had none
+      // for this photo. Make one and leave it there; fall back to the original
+      // if the drive or bucket won't take a write.
+      final made = _fromHit(await sidecars.generateFromFile(entry, entry.path));
+      return made ?? _PreviewData(image: File(entry.path));
+    }
 
     if (service.isVideo(entry)) {
       return _PreviewData(image: await service.videoThumbnail(entry, dim: dim));
@@ -1527,6 +1549,13 @@ class _AsyncThumbnailState extends State<_AsyncThumbnail> {
     return const _PreviewData();
   }
 
+  _PreviewData? _fromHit(SidecarHit? hit) {
+    if (hit == null) return null;
+    if (hit.file != null) return _PreviewData(image: hit.file);
+    if (hit.bytes != null) return _PreviewData(bytes: hit.bytes);
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = ShadTheme.of(context).colorScheme;
@@ -1536,10 +1565,21 @@ class _AsyncThumbnailState extends State<_AsyncThumbnail> {
       builder: (context, snap) {
         final data = snap.data;
         final image = data?.image;
+        final bytes = data?.bytes;
         final text = data?.text;
 
         Widget child;
-        if (image != null) {
+        if (bytes != null) {
+          child = Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            width: double.infinity,
+            height: double.infinity,
+            cacheWidth: _Thumbnail.dimFor(widget.compact),
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => _fallback(),
+          );
+        } else if (image != null) {
           child = Image.file(
             image,
             key: ValueKey(image.path),
@@ -1582,8 +1622,15 @@ class _AsyncThumbnailState extends State<_AsyncThumbnail> {
 
 /// Result of one preview attempt: a cached image, a text snippet, or neither.
 class _PreviewData {
-  const _PreviewData({this.image, this.text});
+  const _PreviewData({this.image, this.bytes, this.text});
+
+  /// A thumbnail on this machine: a local sidecar, or a render in the cache.
   final File? image;
+
+  /// A thumbnail with no local file — read out of a `.thumbs` on a share or a
+  /// bucket.
+  final Uint8List? bytes;
+
   final String? text;
 }
 

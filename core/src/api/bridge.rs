@@ -26,7 +26,7 @@ use crate::api::quick::{
     self, FolderStats, ImageTarget, ImageTransform, QuickOutcome, QuickProgress,
 };
 use crate::api::search::{self, SearchHit, SearchRequest, SearchSummary};
-use crate::api::thumbnail::ThumbnailInfo;
+use crate::api::thumbnail::{ThumbnailBytes, ThumbnailInfo};
 use crate::api::trash::TrashOutcome;
 use crate::api::{archive, hashing, listing, thumbnail, trash};
 use crate::frb_generated::StreamSink;
@@ -352,8 +352,38 @@ pub fn thumbnail_image(
     thumbnail::thumbnail_image(src, dst, max_dim)
 }
 
-/// Stable cache filename for a thumbnail, matching the Dart FNV-1a scheme so
-/// the existing on-disk cache stays valid.
+/// Encodes a thumbnail without writing it, for a sidecar that is an upload
+/// rather than a file — an S3 bucket, an SMB share, a Drive folder.
+pub fn thumbnail_bytes(src: String, max_dim: u32) -> Result<ThumbnailBytes, String> {
+    thumbnail::thumbnail_bytes(src, max_dim)
+}
+
+/// Re-encodes an image already in memory: a rendered PDF page, a video frame
+/// pulled out by ffmpeg, or bytes just downloaded from a cloud source.
+pub fn thumbnail_from_bytes(
+    source: Vec<u8>,
+    max_dim: u32,
+) -> Result<ThumbnailBytes, String> {
+    thumbnail::thumbnail_from_bytes(source, max_dim)
+}
+
+/// The `.thumbs` filename for one directory entry. Holds no path, so the same
+/// folder reached from another machine or another protocol finds the same file.
+pub fn thumbnail_sidecar_name(
+    name: String,
+    size: u64,
+    modified_ms: i64,
+    dim: u32,
+) -> String {
+    thumbnail::sidecar_name(name, size, modified_ms, dim)
+}
+
+/// The name-only prefix shared by every thumbnail of `name`, current or stale.
+pub fn thumbnail_sidecar_prefix(name: String) -> String {
+    thumbnail::sidecar_prefix(name)
+}
+
+/// Stable central-cache filename, for sources that cannot be written to.
 pub fn thumbnail_cache_key(
     path: String,
     modified_ms: i64,

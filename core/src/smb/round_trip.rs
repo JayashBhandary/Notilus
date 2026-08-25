@@ -150,6 +150,52 @@ fn signs_in_and_lists_a_share() {
     client.disconnect();
 }
 
+/// A thumbnail written into a share's `.thumbs` must reach a client over the
+/// wire, or the sharing this whole scheme exists for stops at the host.
+///
+/// This is the case the design is for: someone browses a folder in Notilus on
+/// the machine hosting the share, which leaves thumbnails in `.thumbs`; every
+/// client that then visits the same folder finds them already made.
+#[test]
+fn a_thumbnail_sidecar_crosses_the_wire() {
+    let fixture = start("sidecar", false);
+    let sidecar = fixture.root.join("Docs").join(crate::api::thumbnail::SIDECAR_DIR);
+    fs::create_dir_all(&sidecar).unwrap();
+    let name = crate::api::thumbnail::sidecar_name("notes.txt".into(), 20, 1_700_000_000_000, 512);
+    fs::write(sidecar.join(&name), b"RIFF....WEBPfake").unwrap();
+
+    let mut client = connect(&fixture, "correct horse").expect("sign-in should succeed");
+
+    // The folder listing carries it, marked hidden — a client must be able to
+    // find it without it cluttering an ordinary view.
+    let docs = client.list("Docs").unwrap();
+    let entry = docs
+        .iter()
+        .find(|e| e.name == crate::api::thumbnail::SIDECAR_DIR)
+        .expect("the share must expose .thumbs");
+    assert!(entry.is_dir);
+    assert!(
+        entry.attributes & super::proto::attr::HIDDEN != 0,
+        "a client should render .thumbs as hidden, got {:#x}",
+        entry.attributes
+    );
+
+    // And what is inside it lists and reads back byte for byte.
+    let listed = client
+        .list(&format!("Docs\\{}", crate::api::thumbnail::SIDECAR_DIR))
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].name, name);
+
+    let path = format!("Docs\\{}\\{name}", crate::api::thumbnail::SIDECAR_DIR);
+    let (handle, info) = client.open_read(&path).unwrap();
+    let read = client.read_at(handle, 0, info.size as u32).unwrap();
+    client.close(handle).unwrap();
+    assert_eq!(read, b"RIFF....WEBPfake");
+
+    client.disconnect();
+}
+
 #[test]
 fn the_wrong_password_is_refused() {
     let fixture = start("auth", false);

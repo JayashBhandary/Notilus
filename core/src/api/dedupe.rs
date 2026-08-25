@@ -64,6 +64,11 @@ const ALWAYS_SKIP_DIR_NAMES: &[&str] = &[
     ".trash",
     ".trashes",
     "trash",
+    // Notilus's own thumbnails, which live beside the data on shared sources.
+    // Two folders holding the same photo legitimately hold the same thumbnail,
+    // and reporting those as duplicates the user could delete would be both
+    // useless and destructive.
+    ".thumbs",
 ];
 
 /// macOS package directories: folders the OS presents as one opaque item.

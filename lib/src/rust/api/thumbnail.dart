@@ -6,6 +6,35 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+/// An encoded thumbnail that hasn't been written anywhere yet.
+///
+/// What a remote sidecar needs: the bytes go out as an upload, not to a local
+/// path. Also what a rendered PDF page or video frame becomes on its way into
+/// `.thumbs`.
+class ThumbnailBytes {
+  final Uint8List bytes;
+  final int width;
+  final int height;
+
+  const ThumbnailBytes({
+    required this.bytes,
+    required this.width,
+    required this.height,
+  });
+
+  @override
+  int get hashCode => bytes.hashCode ^ width.hashCode ^ height.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ThumbnailBytes &&
+          runtimeType == other.runtimeType &&
+          bytes == other.bytes &&
+          width == other.width &&
+          height == other.height;
+}
+
 class ThumbnailInfo {
   /// Where the thumbnail was written.
   final String path;

@@ -306,6 +306,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
   StatsEvent dco_decode_stats_event(dynamic raw);
 
   @protected
+  ThumbnailBytes dco_decode_thumbnail_bytes(dynamic raw);
+
+  @protected
   ThumbnailInfo dco_decode_thumbnail_info(dynamic raw);
 
   @protected
@@ -626,6 +629,9 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   StatsEvent sse_decode_stats_event(SseDeserializer deserializer);
+
+  @protected
+  ThumbnailBytes sse_decode_thumbnail_bytes(SseDeserializer deserializer);
 
   @protected
   ThumbnailInfo sse_decode_thumbnail_info(SseDeserializer deserializer);
@@ -970,6 +976,10 @@ abstract class NotilusCoreApiImplPlatform extends BaseApiImpl<NotilusCoreWire> {
 
   @protected
   void sse_encode_stats_event(StatsEvent self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_thumbnail_bytes(
+      ThumbnailBytes self, SseSerializer serializer);
 
   @protected
   void sse_encode_thumbnail_info(ThumbnailInfo self, SseSerializer serializer);

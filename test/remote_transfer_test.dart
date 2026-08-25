@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notilus/models/remote/remote_connection.dart';
@@ -8,8 +9,13 @@ import 'package:notilus/providers/copy_jobs_provider.dart';
 import 'package:notilus/services/remote/remote_file_system.dart';
 import 'package:notilus/services/remote/remote_hub.dart';
 import 'package:notilus/services/remote/remote_path.dart';
+import 'package:notilus/services/native_core.dart';
 import 'package:notilus/services/remote/transfer_engine.dart';
+import 'package:notilus/services/thumbnails/sidecar_naming.dart';
+import 'package:notilus/services/thumbnails/sidecar_thumbnails.dart';
 import 'package:path/path.dart' as p;
+
+import 'native_test_support.dart';
 
 /// An in-memory stand-in for a cloud provider.
 ///
@@ -82,6 +88,10 @@ class FakeRemote extends RemoteFileSystem {
   /// Set to make the next download throw, for the error-path tests.
   RemoteException? failNextDownloadWith;
 
+  /// Set to make every upload fail, standing in for a bucket without
+  /// `PutObject` or a share mounted read-only.
+  bool refuseUploads = false;
+
   @override
   Future<RemoteDownload> download(String vpath) async {
     final failure = failNextDownloadWith;
@@ -103,6 +113,7 @@ class FakeRemote extends RemoteFileSystem {
     required Stream<List<int>> data,
     required int length,
   }) async {
+    if (refuseUploads) throw RemoteException('read-only: $vpath');
     uploads++;
     final bytes = <int>[];
     await for (final chunk in data) {
@@ -142,6 +153,42 @@ class FakeRemote extends RemoteFileSystem {
     serverSideCopies++;
     files[toVPath] = List.of(files[fromVPath]!);
   }
+}
+
+/// A real WebP, encoded by the core the app ships.
+///
+/// The sidecar path decodes what it is given, so a fake three-byte "image"
+/// would only prove that failures are swallowed.
+Future<List<int>> _webpBytes(Directory scratch) async {
+  const width = 800;
+  const height = 600;
+  final ppm = File(p.join(scratch.path, 'source.ppm'));
+  final pixels = Uint8List(width * height * 3);
+  var seed = 11;
+  for (var i = 0; i < pixels.length; i += 3) {
+    seed = (seed * 1664525 + 1013904223) & 0x7FFFFFFF;
+    pixels[i] = (i ~/ 3) % 256;
+    pixels[i + 1] = ((i ~/ 3) ~/ width) % 256;
+    pixels[i + 2] = (seed >> 16) & 0xFF;
+  }
+  ppm.writeAsBytesSync([...'P6\n$width $height\n255\n'.codeUnits, ...pixels]);
+  final out =
+      await NativeCore.instance.thumbnailBytes(src: ppm.path, maxDim: 1024);
+  ppm.deleteSync();
+  return out.bytes;
+}
+
+/// Waits for something a fire-and-forget write is responsible for.
+///
+/// The thumbnail is deliberately not awaited by the transfer — the user asked
+/// for a download, not for bookkeeping — so a test has to wait where the app
+/// does not.
+Future<void> _eventually(bool Function() condition) async {
+  for (var i = 0; i < 200; i++) {
+    if (condition()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+  }
+  fail('the thumbnail never turned up in the source');
 }
 
 void main() {
@@ -224,6 +271,79 @@ void main() {
       'bb',
     );
     expect(jobs.jobs.single.filesTotal, 2);
+  });
+
+  test('downloading a remote file leaves a thumbnail in the source', () async {
+    // The case the whole sidecar scheme exists for. Nobody can thumbnail a
+    // bucket by scrolling past it — that would mean fetching every byte of
+    // every file. But a download has already paid for the bytes, so the
+    // thumbnail is one decode, and it goes back into the source's `.thumbs`
+    // where the next device to open that folder will find it.
+    if (!await NativeTestSupport.ensureLoaded()) return;
+    SidecarThumbnails.instance.debugReset();
+
+    final photo = await _webpBytes(temp);
+    final source = VPath.build(connectionId, '/trip/beach.webp');
+    remote.dirs.add(VPath.build(connectionId, '/trip'));
+    remote.files[source] = photo;
+
+    final report = await engine.transfer(
+      sources: [source],
+      destDir: temp.path,
+      move: false,
+    );
+    expect(report.isSuccess, isTrue);
+    expect(File(p.join(temp.path, 'beach.webp')).existsSync(), isTrue);
+
+    // Written after the download reports done, so it is waited for here rather
+    // than in front of the user.
+    final expected = VPath.build(
+      connectionId,
+      '/trip/$kSidecarDir/${sidecarName(
+        name: 'beach.webp',
+        size: photo.length,
+        modifiedMs: DateTime.utc(2024).millisecondsSinceEpoch,
+      )}',
+    );
+    await _eventually(() => remote.files.containsKey(expected));
+
+    final stored = remote.files[expected]!;
+    expect(stored.sublist(0, 4), 'RIFF'.codeUnits);
+    expect(
+      stored.length,
+      lessThan(photo.length),
+      reason: 'a thumbnail smaller than the photo it describes',
+    );
+    expect(
+      remote.dirs,
+      contains(VPath.build(connectionId, '/trip/$kSidecarDir')),
+    );
+  });
+
+  test('downloading a file the source will not take a write for is fine',
+      () async {
+    // A bucket without PutObject, a share mounted read-only. The download is
+    // what the user asked for and it must not be affected.
+    if (!await NativeTestSupport.ensureLoaded()) return;
+    SidecarThumbnails.instance.debugReset();
+
+    final photo = await _webpBytes(temp);
+    final source = VPath.build(connectionId, '/locked/beach.webp');
+    remote.dirs.add(VPath.build(connectionId, '/locked'));
+    remote.files[source] = photo;
+    remote.refuseUploads = true;
+
+    final report = await engine.transfer(
+      sources: [source],
+      destDir: temp.path,
+      move: false,
+    );
+
+    expect(report.isSuccess, isTrue);
+    expect(
+      File(p.join(temp.path, 'beach.webp')).readAsBytesSync(),
+      photo,
+    );
   });
 
   test('downloads a remote folder to disk and leaves no .part files', () async {

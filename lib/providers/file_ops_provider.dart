@@ -11,6 +11,8 @@ import '../services/remote/remote_file_system.dart';
 import '../services/remote/remote_hub.dart';
 import '../services/remote/remote_path.dart';
 import '../services/remote/transfer_engine.dart';
+import '../services/thumbnails/leave_behind.dart';
+import '../services/thumbnails/sidecar_thumbnails.dart';
 
 /// What a pending clipboard payload will do when pasted.
 enum ClipboardMode { copy, cut }
@@ -202,6 +204,18 @@ class FileOpsProvider extends ChangeNotifier {
     return result;
   }
 
+  /// Drops the thumbnails of files a move took out of their folder.
+  ///
+  /// A move is a delete as far as the folder left behind is concerned: the
+  /// thumbnail there is keyed on a file that is no longer in it, so nothing
+  /// will ever ask for it again. The destination folder makes its own the first
+  /// time it is opened — and if the move was onto a share, that one is the copy
+  /// every other machine gets for free.
+  void _forgetMoved(List<String> moved) {
+    if (moved.isEmpty) return;
+    unawaited(SidecarThumbnails.instance.forget(moved).catchError((_) {}));
+  }
+
   Future<OpResult> copyTo(List<String> sources, String destDir) =>
       _run(sources, destDir, isMove: false);
 
@@ -227,6 +241,7 @@ class FileOpsProvider extends ChangeNotifier {
         destDir: destDir,
         move: isMove,
       );
+      if (isMove) _forgetMoved(report.completed);
       return OpResult(
         completed: report.completed,
         skipped: const [],
@@ -279,6 +294,7 @@ class FileOpsProvider extends ChangeNotifier {
       }
 
       if (outcome == null) return const OpResult.empty();
+      if (isMove) _forgetMoved(outcome.completed);
       return OpResult(
         completed: outcome.completed,
         skipped: outcome.skipped,
@@ -496,6 +512,15 @@ class FileOpsProvider extends ChangeNotifier {
     }
 
     if (remote.isNotEmpty) notifyListeners();
+    // A thumbnail is a readable picture of the file, so one left behind is a
+    // copy of something the user just deleted — and on a share, a copy the
+    // rest of the network can still open. Only the files that actually went
+    // are named here.
+    if (trashed.isNotEmpty) {
+      unawaited(
+        SidecarThumbnails.instance.forget(trashed).catchError((_) {}),
+      );
+    }
     return TrashOutcome(trashed: trashed, failed: failed);
   }
 
@@ -522,6 +547,11 @@ class FileOpsProvider extends ChangeNotifier {
     if (!VPath.isRemote(entry.path)) return entry;
     final path = await localCopyOf(entry.path);
     final stat = await File(path).stat();
+    // The bytes are here now, which is the only moment a cloud file can be
+    // thumbnailed without downloading it on purpose. Leaving one in the
+    // source's own `.thumbs` is what means nobody — on this machine or any
+    // other — has to open this file again to see what it is.
+    unawaited(leaveThumbnailBeside(entry, path));
     return FileEntry(
       path: path,
       name: p.basename(path),
@@ -560,8 +590,14 @@ class FileOpsProvider extends ChangeNotifier {
 
   /// Renames a single item, wherever it lives. Returns the new path.
   Future<String> renameEntry(String path, String newName) async {
-    if (!VPath.isRemote(path)) return _core.rename(path, newName);
-    final fs = await RemoteHub.instance.fsFor(VPath.connectionOf(path)!);
-    return fs.rename(path, newName);
+    final renamed = !VPath.isRemote(path)
+        ? await _core.rename(path, newName)
+        : await (await RemoteHub.instance.fsFor(VPath.connectionOf(path)!))
+            .rename(path, newName);
+    // The thumbnail is keyed on the old name, so it is now unreachable — an
+    // orphan on a shared source that nothing will ever look for again. The new
+    // name gets its own the next time the folder is opened.
+    unawaited(SidecarThumbnails.instance.forget([path]).catchError((_) {}));
+    return renamed;
   }
 }

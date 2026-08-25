@@ -86,6 +86,24 @@ class _FileSharingViewState extends State<FileSharingView> {
     _report(error);
   }
 
+  /// Puts a seeded account's password on the clipboard.
+  ///
+  /// Only ever reached for a password Notilus invented: the person connecting
+  /// has to type it on the other machine and has never been shown it.
+  Future<void> _copyPassword(String name) async {
+    final password = await _controller.passwordFor(name);
+    if (!mounted) return;
+    if (password == null) {
+      _report('The password for "$name" isn\'t in the keychain any more. '
+          'Set a new one.');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: password));
+    if (mounted) {
+      _report(null, success: 'Password for "$name" copied.');
+    }
+  }
+
   Future<void> _addUser() async {
     final result = await _showUserDialog(context);
     if (result == null || !mounted) return;
@@ -193,8 +211,10 @@ class _FileSharingViewState extends State<FileSharingView> {
                   const SizedBox(height: 16),
                   _Panel(
                     title: 'Who can connect',
-                    subtitle: 'Passwords are kept in this computer\'s '
-                        'keychain, never in a settings file.',
+                    subtitle: 'Only these accounts, and only to the folders '
+                        'above — never the rest of this computer. Passwords '
+                        'are kept in this computer\'s keychain, never in a '
+                        'settings file.',
                     action: ShadButton.outline(
                       height: 30,
                       onPressed: _addUser,
@@ -216,6 +236,8 @@ class _FileSharingViewState extends State<FileSharingView> {
                               for (final user in _controller.users)
                                 _UserRow(
                                   name: user.name,
+                                  generated: user.generated,
+                                  onCopyPassword: () => _copyPassword(user.name),
                                   onChangePassword: () async {
                                     final result = await _showUserDialog(
                                       context,
@@ -644,9 +666,16 @@ class _UserRow extends StatelessWidget {
     required this.name,
     required this.onChangePassword,
     required this.onRemove,
+    this.generated = false,
+    this.onCopyPassword,
   });
 
   final String name;
+
+  /// Whether the password is still the one Notilus invented — the only case
+  /// where showing it is Notilus telling the user something they don't know.
+  final bool generated;
+  final VoidCallback? onCopyPassword;
   final VoidCallback onChangePassword;
   final VoidCallback onRemove;
 
@@ -660,11 +689,33 @@ class _UserRow extends StatelessWidget {
           Icon(LucideIcons.userRound, size: 16, color: colors.mutedForeground),
           const SizedBox(width: 12),
           Expanded(
-            child: Text(
-              name,
-              style: TextStyle(fontSize: 13, color: colors.foreground),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: TextStyle(fontSize: 13, color: colors.foreground),
+                ),
+                if (generated)
+                  Text(
+                    'This computer\'s account, with a password Notilus made.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: colors.mutedForeground,
+                    ),
+                  ),
+              ],
             ),
           ),
+          if (generated && onCopyPassword != null)
+            ShadButton.ghost(
+              height: 28,
+              onPressed: onCopyPassword,
+              child: const Text(
+                'Copy password',
+                style: TextStyle(fontSize: 11.5),
+              ),
+            ),
           ShadButton.ghost(
             height: 28,
             onPressed: onChangePassword,

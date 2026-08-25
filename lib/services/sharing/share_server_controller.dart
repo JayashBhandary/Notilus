@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../utils/platform.dart';
 import '../native_core.dart';
 
 /// One folder published to the network.
@@ -90,14 +92,22 @@ class SharedFolder {
 /// name, and is read once when the server starts.
 @immutable
 class ShareUser {
-  const ShareUser({required this.name});
+  const ShareUser({required this.name, this.generated = false});
 
   final String name;
 
-  Map<String, dynamic> toJson() => {'name': name};
+  /// True while the password is the one Notilus invented for the machine's own
+  /// login account. Nobody has seen it yet, so the panel may still show it —
+  /// once someone sets their own, it goes back to being theirs alone.
+  final bool generated;
 
-  factory ShareUser.fromJson(Map<String, dynamic> json) =>
-      ShareUser(name: '${json['name'] ?? ''}');
+  Map<String, dynamic> toJson() =>
+      {'name': name, if (generated) 'generated': true};
+
+  factory ShareUser.fromJson(Map<String, dynamic> json) => ShareUser(
+        name: '${json['name'] ?? ''}',
+        generated: json['generated'] == true,
+      );
 }
 
 /// Something the server did, kept for the activity list.
@@ -154,6 +164,11 @@ class ShareServerController extends ChangeNotifier {
   bool _requireSigning = true;
   bool _loaded = false;
 
+  /// Whether the machine's own login account has already been offered once.
+  /// Kept so deleting it is a decision that sticks rather than something the
+  /// next launch quietly undoes.
+  bool _machineUserSeeded = false;
+
   bool _running = false;
   int _activePort = 0;
   int _connections = 0;
@@ -207,6 +222,7 @@ class ShareServerController extends ChangeNotifier {
         _workgroup = '${json['workgroup'] ?? 'WORKGROUP'}';
         _localOnly = json['localOnly'] == true;
         _requireSigning = json['requireSigning'] != false;
+        _machineUserSeeded = json['machineUserSeeded'] == true;
       }
     } catch (_) {
       // A corrupt entry shouldn't cost the user their file manager. Sharing
@@ -214,6 +230,7 @@ class ShareServerController extends ChangeNotifier {
       _folders = const [];
       _users = const [];
     }
+    await _seedMachineUser();
     _loaded = true;
     notifyListeners();
   }
@@ -230,6 +247,7 @@ class ShareServerController extends ChangeNotifier {
         'workgroup': _workgroup,
         'localOnly': _localOnly,
         'requireSigning': _requireSigning,
+        'machineUserSeeded': _machineUserSeeded,
       }),
     );
   }
@@ -303,6 +321,88 @@ class ShareServerController extends ChangeNotifier {
       }
     }
     return base;
+  }
+
+  // ── the machine's own account ────────────────────────────────────────────
+
+  /// The name of the account someone signed in to this computer uses.
+  ///
+  /// This is the name a person on the other machine will try first — it is
+  /// what the folder they are reaching for is called on this one — so it is
+  /// the name the seeded account carries.
+  static String get machineUserName {
+    const keys = ['USER', 'LOGNAME', 'USERNAME'];
+    for (final key in keys) {
+      final value = Platform.environment[key]?.trim() ?? '';
+      if (value.isNotEmpty) return value;
+    }
+    return 'notilus';
+  }
+
+  /// Creates the machine's own account the first time sharing is opened.
+  ///
+  /// A share with no account is unreachable, and the alternative — letting the
+  /// first connection in unauthenticated — would publish the folder to anyone
+  /// who can reach the port. So an account exists from the start, named after
+  /// whoever is signed in here, with a password nobody has to invent. It is
+  /// seeded once: removing it is a decision, not something to undo on the next
+  /// launch.
+  ///
+  /// The account is only a *login*. It carries no privileges from the OS user
+  /// it is named after — what it can reach is the shared folders and nothing
+  /// else on the machine.
+  Future<void> _seedMachineUser() async {
+    if (_machineUserSeeded || !canHostShares) return;
+    if (_users.isNotEmpty) {
+      // An older configuration that already names its accounts. Nothing to
+      // add, but the offer counts as made — deleting them later shouldn't
+      // bring a machine account back in their place.
+      _machineUserSeeded = true;
+      await _persist();
+      return;
+    }
+    final name = machineUserName;
+    final password = _inventPassword();
+    try {
+      await _secure.write(key: _secretKey(name), value: password);
+    } catch (_) {
+      // No keychain, no account — [start] says so plainly if it comes to that.
+      return;
+    }
+    _users = [ShareUser(name: name, generated: true)];
+    _machineUserSeeded = true;
+    await _persist();
+  }
+
+  /// A password worth typing on another machine: no look-alike characters, and
+  /// grouped so it can be read off a screen without losing your place.
+  static String _inventPassword() {
+    const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
+    final random = Random.secure();
+    final groups = [
+      for (var g = 0; g < 4; g++)
+        [
+          for (var i = 0; i < 4; i++)
+            alphabet[random.nextInt(alphabet.length)],
+        ].join(),
+    ];
+    return groups.join('-');
+  }
+
+  @visibleForTesting
+  static String debugInventPassword() => _inventPassword();
+
+  /// The password held for [name], or null when the keychain has none.
+  ///
+  /// Only worth showing for an account whose password Notilus invented — see
+  /// [ShareUser.generated]. A password the user chose is theirs to remember.
+  Future<String?> passwordFor(String name) async {
+    try {
+      final value = await _secure.read(key: _secretKey(name));
+      return (value == null || value.isEmpty) ? null : value;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Adds or replaces a user. The password goes straight to the keychain.

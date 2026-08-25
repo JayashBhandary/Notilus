@@ -161,6 +161,11 @@ where
                 return true;
             };
             let lower = name.to_string_lossy().to_lowercase();
+            // Notilus's own thumbnails. Searching them would match nothing a
+            // user asked about and cost a walk of every folder twice.
+            if lower == crate::api::thumbnail::SIDECAR_DIR {
+                return false;
+            }
             if skip_hidden && lower.starts_with('.') {
                 return false;
             }

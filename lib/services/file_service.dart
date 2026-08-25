@@ -11,6 +11,7 @@ import 'native_core.dart';
 import 'remote/remote_file_system.dart';
 import 'remote/remote_hub.dart';
 import 'remote/remote_path.dart';
+import 'thumbnails/sidecar_naming.dart';
 
 class DirectoryListing {
   DirectoryListing({required this.entries, this.error});
@@ -77,7 +78,12 @@ class FileService {
       return DirectoryListing(
         entries: [
           for (final e in entries)
-            if (showHidden || !e.name.startsWith('.')) e.toFileEntry(),
+            // `.thumbs` holds the thumbnails Notilus left beside the data. It
+            // is skipped even when hidden files are shown: "show hidden" is
+            // for the user's own dotfiles, and one of these in every folder
+            // would bury them.
+            if (e.name != kSidecarDir && (showHidden || !e.name.startsWith('.')))
+              e.toFileEntry(),
         ],
       );
     } on RemoteException catch (e) {

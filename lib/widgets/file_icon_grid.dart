@@ -381,6 +381,25 @@ class _Thumbnail extends StatelessWidget {
             ),
           ),
         );
+      case FilePreviewBytes(:final bytes, :final isPaper):
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(color: palette.divider),
+              color: isPaper ? const Color(0xFFFFFFFF) : null,
+            ),
+            child: Image.memory(
+              bytes,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              cacheWidth: (size * 2).toInt(),
+              gaplessPlayback: true,
+              errorBuilder: (_, __, ___) => _docPlaceholder(),
+            ),
+          ),
+        );
       case FilePreviewSvg(:final bytes):
         return _ThumbBox(
           palette: palette,

@@ -163,8 +163,35 @@ Future<ThumbnailInfo> thumbnailImage(
     NotilusCore.instance.api
         .crateApiBridgeThumbnailImage(src: src, dst: dst, maxDim: maxDim);
 
-/// Stable cache filename for a thumbnail, matching the Dart FNV-1a scheme so
-/// the existing on-disk cache stays valid.
+/// Encodes a thumbnail without writing it, for a sidecar that is an upload
+/// rather than a file — an S3 bucket, an SMB share, a Drive folder.
+Future<ThumbnailBytes> thumbnailBytes(
+        {required String src, required int maxDim}) =>
+    NotilusCore.instance.api
+        .crateApiBridgeThumbnailBytes(src: src, maxDim: maxDim);
+
+/// Re-encodes an image already in memory: a rendered PDF page, a video frame
+/// pulled out by ffmpeg, or bytes just downloaded from a cloud source.
+Future<ThumbnailBytes> thumbnailFromBytes(
+        {required List<int> source, required int maxDim}) =>
+    NotilusCore.instance.api
+        .crateApiBridgeThumbnailFromBytes(source: source, maxDim: maxDim);
+
+/// The `.thumbs` filename for one directory entry. Holds no path, so the same
+/// folder reached from another machine or another protocol finds the same file.
+Future<String> thumbnailSidecarName(
+        {required String name,
+        required BigInt size,
+        required PlatformInt64 modifiedMs,
+        required int dim}) =>
+    NotilusCore.instance.api.crateApiBridgeThumbnailSidecarName(
+        name: name, size: size, modifiedMs: modifiedMs, dim: dim);
+
+/// The name-only prefix shared by every thumbnail of `name`, current or stale.
+Future<String> thumbnailSidecarPrefix({required String name}) =>
+    NotilusCore.instance.api.crateApiBridgeThumbnailSidecarPrefix(name: name);
+
+/// Stable central-cache filename, for sources that cannot be written to.
 Future<String> thumbnailCacheKey(
         {required String path,
         required PlatformInt64 modifiedMs,

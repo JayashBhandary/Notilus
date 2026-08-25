@@ -81,7 +81,7 @@ class NotilusCore extends BaseEntrypoint<NotilusCoreApi, NotilusCoreApiImpl,
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 258490305;
+  int get rustContentHash => 1327388509;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -232,14 +232,28 @@ abstract class NotilusCoreApi extends BaseApi {
 
   Future<bool> crateApiBridgeSmbServerStop();
 
+  Future<ThumbnailBytes> crateApiBridgeThumbnailBytes(
+      {required String src, required int maxDim});
+
   Future<String> crateApiBridgeThumbnailCacheKey(
       {required String path,
       required PlatformInt64 modifiedMs,
       required BigInt size,
       required int dim});
 
+  Future<ThumbnailBytes> crateApiBridgeThumbnailFromBytes(
+      {required List<int> source, required int maxDim});
+
   Future<ThumbnailInfo> crateApiBridgeThumbnailImage(
       {required String src, required String dst, required int maxDim});
+
+  Future<String> crateApiBridgeThumbnailSidecarName(
+      {required String name,
+      required BigInt size,
+      required PlatformInt64 modifiedMs,
+      required int dim});
+
+  Future<String> crateApiBridgeThumbnailSidecarPrefix({required String name});
 
   Future<String> crateApiBridgeTransformImage(
       {required String src,
@@ -1375,6 +1389,33 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       );
 
   @override
+  Future<ThumbnailBytes> crateApiBridgeThumbnailBytes(
+      {required String src, required int maxDim}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(src, serializer);
+        sse_encode_u_32(maxDim, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 41, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_thumbnail_bytes,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeThumbnailBytesConstMeta,
+      argValues: [src, maxDim],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeThumbnailBytesConstMeta =>
+      const TaskConstMeta(
+        debugName: "thumbnail_bytes",
+        argNames: ["src", "maxDim"],
+      );
+
+  @override
   Future<String> crateApiBridgeThumbnailCacheKey(
       {required String path,
       required PlatformInt64 modifiedMs,
@@ -1388,7 +1429,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_u_64(size, serializer);
         sse_encode_u_32(dim, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 41, port: port_);
+            funcId: 42, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -1407,6 +1448,33 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       );
 
   @override
+  Future<ThumbnailBytes> crateApiBridgeThumbnailFromBytes(
+      {required List<int> source, required int maxDim}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_list_prim_u_8_loose(source, serializer);
+        sse_encode_u_32(maxDim, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 43, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_thumbnail_bytes,
+        decodeErrorData: sse_decode_String,
+      ),
+      constMeta: kCrateApiBridgeThumbnailFromBytesConstMeta,
+      argValues: [source, maxDim],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeThumbnailFromBytesConstMeta =>
+      const TaskConstMeta(
+        debugName: "thumbnail_from_bytes",
+        argNames: ["source", "maxDim"],
+      );
+
+  @override
   Future<ThumbnailInfo> crateApiBridgeThumbnailImage(
       {required String src, required String dst, required int maxDim}) {
     return handler.executeNormal(NormalTask(
@@ -1416,7 +1484,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_String(dst, serializer);
         sse_encode_u_32(maxDim, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 42, port: port_);
+            funcId: 44, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_thumbnail_info,
@@ -1435,6 +1503,63 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       );
 
   @override
+  Future<String> crateApiBridgeThumbnailSidecarName(
+      {required String name,
+      required BigInt size,
+      required PlatformInt64 modifiedMs,
+      required int dim}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(name, serializer);
+        sse_encode_u_64(size, serializer);
+        sse_encode_i_64(modifiedMs, serializer);
+        sse_encode_u_32(dim, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 45, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiBridgeThumbnailSidecarNameConstMeta,
+      argValues: [name, size, modifiedMs, dim],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeThumbnailSidecarNameConstMeta =>
+      const TaskConstMeta(
+        debugName: "thumbnail_sidecar_name",
+        argNames: ["name", "size", "modifiedMs", "dim"],
+      );
+
+  @override
+  Future<String> crateApiBridgeThumbnailSidecarPrefix({required String name}) {
+    return handler.executeNormal(NormalTask(
+      callFfi: (port_) {
+        final serializer = SseSerializer(generalizedFrbRustBinding);
+        sse_encode_String(name, serializer);
+        pdeCallFfi(generalizedFrbRustBinding, serializer,
+            funcId: 46, port: port_);
+      },
+      codec: SseCodec(
+        decodeSuccessData: sse_decode_String,
+        decodeErrorData: null,
+      ),
+      constMeta: kCrateApiBridgeThumbnailSidecarPrefixConstMeta,
+      argValues: [name],
+      apiImpl: this,
+    ));
+  }
+
+  TaskConstMeta get kCrateApiBridgeThumbnailSidecarPrefixConstMeta =>
+      const TaskConstMeta(
+        debugName: "thumbnail_sidecar_prefix",
+        argNames: ["name"],
+      );
+
+  @override
   Future<String> crateApiBridgeTransformImage(
       {required String src,
       required ImageTransform transform,
@@ -1446,7 +1571,7 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_image_transform(transform, serializer);
         sse_encode_bool(inPlace, serializer);
         pdeCallFfi(generalizedFrbRustBinding, serializer,
-            funcId: 43, port: port_);
+            funcId: 47, port: port_);
       },
       codec: SseCodec(
         decodeSuccessData: sse_decode_String,
@@ -2361,6 +2486,19 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
       default:
         throw Exception("unreachable");
     }
+  }
+
+  @protected
+  ThumbnailBytes dco_decode_thumbnail_bytes(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return ThumbnailBytes(
+      bytes: dco_decode_list_prim_u_8_strict(arr[0]),
+      width: dco_decode_u_32(arr[1]),
+      height: dco_decode_u_32(arr[2]),
+    );
   }
 
   @protected
@@ -3448,6 +3586,16 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
   }
 
   @protected
+  ThumbnailBytes sse_decode_thumbnail_bytes(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_bytes = sse_decode_list_prim_u_8_strict(deserializer);
+    var var_width = sse_decode_u_32(deserializer);
+    var var_height = sse_decode_u_32(deserializer);
+    return ThumbnailBytes(
+        bytes: var_bytes, width: var_width, height: var_height);
+  }
+
+  @protected
   ThumbnailInfo sse_decode_thumbnail_info(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_path = sse_decode_String(deserializer);
@@ -4361,6 +4509,15 @@ class NotilusCoreApiImpl extends NotilusCoreApiImplPlatform
         sse_encode_i_32(1, serializer);
         sse_encode_box_autoadd_folder_stats(field0, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_thumbnail_bytes(
+      ThumbnailBytes self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_list_prim_u_8_strict(self.bytes, serializer);
+    sse_encode_u_32(self.width, serializer);
+    sse_encode_u_32(self.height, serializer);
   }
 
   @protected

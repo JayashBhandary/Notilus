@@ -51,4 +51,4 @@ pub use api::quick::{
 pub use api::search::{search_files, HitKind, SearchHit, SearchRequest, SearchSummary};
 pub use api::trash::{delete_permanently, move_to_trash, TrashOutcome};
 pub use api::listing::{list_dir, DirEntryInfo, SortField, SortSpec};
-pub use api::thumbnail::{thumbnail_image, ThumbnailInfo};
+pub use api::thumbnail::{thumbnail_image, ThumbnailBytes, ThumbnailInfo};

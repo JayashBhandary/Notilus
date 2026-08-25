@@ -230,6 +230,19 @@ class _Preview extends StatelessWidget {
             errorBuilder: (_, __, ___) => _Placeholder(entry: entry),
           ),
         );
+      case FilePreviewBytes(:final bytes, :final isPaper):
+        return _Framed(
+          isPaper: isPaper,
+          child: Image.memory(
+            bytes,
+            fit: BoxFit.contain,
+            width: double.infinity,
+            height: double.infinity,
+            cacheWidth: _previewDim,
+            gaplessPlayback: true,
+            errorBuilder: (_, __, ___) => _Placeholder(entry: entry),
+          ),
+        );
       case FilePreviewSvg(:final bytes):
         return _Framed(
           child: Padding(

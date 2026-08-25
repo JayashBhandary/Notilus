@@ -76,7 +76,7 @@ export '../src/rust/api/sharing.dart'
         SmbShareConfig,
         SmbTransferEvent,
         SmbUserConfig;
-export '../src/rust/api/thumbnail.dart' show ThumbnailInfo;
+export '../src/rust/api/thumbnail.dart' show ThumbnailBytes, ThumbnailInfo;
 export '../src/rust/api/trash.dart' show TrashOutcome;
 
 /// Single entry point to the Rust core.
@@ -292,6 +292,41 @@ class NativeCore {
     required int maxDim,
   }) =>
       rust.thumbnailImage(src: src, dst: dst, maxDim: maxDim);
+
+  /// Encodes a thumbnail without writing it — for a sidecar that is an upload
+  /// rather than a file.
+  Future<rust_thumbnail.ThumbnailBytes> thumbnailBytes({
+    required String src,
+    required int maxDim,
+  }) =>
+      rust.thumbnailBytes(src: src, maxDim: maxDim);
+
+  /// Re-encodes an image already in memory: a rendered PDF page, a video frame,
+  /// or bytes just downloaded from a cloud source.
+  Future<rust_thumbnail.ThumbnailBytes> thumbnailFromBytes({
+    required Uint8List source,
+    required int maxDim,
+  }) =>
+      rust.thumbnailFromBytes(source: source, maxDim: maxDim);
+
+  /// The `.thumbs` filename for a directory entry, from the Rust side.
+  ///
+  /// Dart has its own copy in `thumbnails/sidecar_naming.dart` — it needs the
+  /// name synchronously while a listing is built — and a test pins the two
+  /// together through this. Both must agree or a thumbnail written by one side
+  /// is invisible to the other.
+  Future<String> thumbnailSidecarName({
+    required String name,
+    required int size,
+    required int modifiedMs,
+    required int dim,
+  }) =>
+      rust.thumbnailSidecarName(
+        name: name,
+        size: BigInt.from(size),
+        modifiedMs: modifiedMs,
+        dim: dim,
+      );
 
   Future<String> thumbnailCacheKey({
     required String path,

@@ -90,6 +90,13 @@ pub fn list_dir(path: String, sort: SortSpec) -> Result<Vec<DirEntryInfo>, Strin
 
     for entry in read.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
+        // Thumbnails Notilus wrote beside the data are its own bookkeeping,
+        // not the user's files. Hidden by name already, but skipped even when
+        // hidden files are shown — "show hidden" is for a user's dotfiles, and
+        // a `.thumbs` in every folder would bury them.
+        if name.eq_ignore_ascii_case(crate::api::thumbnail::SIDECAR_DIR) {
+            continue;
+        }
         if !sort.include_hidden && name.starts_with('.') {
             continue;
         }
@@ -180,6 +187,30 @@ mod tests {
         assert!(out[0].is_dir);
         assert_eq!(out[1].size, 1);
         assert_eq!(out[2].size, 2);
+    }
+
+    #[test]
+    fn the_thumbnail_sidecar_is_never_listed() {
+        // `.thumbs` holds thumbnails Notilus wrote beside the data. It is its
+        // own bookkeeping, not the user's files, so it stays out of the listing
+        // even when hidden files are being shown.
+        let dir = scratch("sidecar");
+        std::fs::create_dir_all(dir.join(crate::api::thumbnail::SIDECAR_DIR))
+            .unwrap();
+        write(&dir, "photo.jpg", b"x");
+
+        for include_hidden in [false, true] {
+            let out = list_dir(
+                dir.to_string_lossy().into_owned(),
+                SortSpec {
+                    include_hidden,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            let names: Vec<_> = out.iter().map(|e| e.name.as_str()).collect();
+            assert_eq!(names, vec!["photo.jpg"], "include_hidden={include_hidden}");
+        }
     }
 
     #[test]

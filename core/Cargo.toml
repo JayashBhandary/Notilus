@@ -31,6 +31,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 sha2 = "0.10"
 tar = "0.4.46"
 walkdir = "2.5.0"
+# Lossy WebP, which `image` cannot encode — its own WebP support is lossless
+# only, and a lossless 512px photo runs ~6x the size of the lossy one. These
+# thumbnails are written to the user's own drive or bucket, so that multiple
+# matters. Pulls in libwebp through `cc`, the same way `zstd-sys` already does.
+webp = "0.3.1"
 zip = "8.6.0"
 
 # The recycle bin is a desktop concept, and the crate has no mobile backend:

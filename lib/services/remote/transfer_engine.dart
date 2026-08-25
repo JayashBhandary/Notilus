@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../models/file_entry.dart';
 import '../../providers/copy_jobs_provider.dart';
+import '../thumbnails/leave_behind.dart';
 import 'remote_file_system.dart';
 import 'remote_hub.dart';
 import 'remote_path.dart';
@@ -49,12 +51,19 @@ class _PlanItem {
     required this.destination,
     required this.isDirectory,
     required this.size,
+    required this.modified,
   });
 
   final String source;
   final String destination;
   final bool isDirectory;
   final int size;
+
+  /// The source's modification time, carried because a thumbnail left beside a
+  /// downloaded file is keyed on the *remote* item's name, size and time — see
+  /// [leaveThumbnailBeside]. It is already known here; asking the provider for
+  /// it again afterwards would be a round trip per file.
+  final DateTime modified;
 }
 
 /// Moves bytes between the local disk and any mounted remote source.
@@ -297,6 +306,7 @@ class TransferEngine {
         destination: destination,
         isDirectory: info.isDirectory,
         size: info.size,
+        modified: info.modified,
       ));
       if (!info.isDirectory) continue;
 
@@ -309,6 +319,7 @@ class TransferEngine {
           destination: segments.fold(destination, VPath.join),
           isDirectory: child.isDirectory,
           size: child.size,
+          modified: child.modified,
         ));
       }
     }
@@ -325,22 +336,35 @@ class TransferEngine {
         .toList();
   }
 
-  Future<({bool isDirectory, int size})?> _statOf(String path) async {
+  Future<({bool isDirectory, int size, DateTime modified})?> _statOf(
+    String path,
+  ) async {
     if (VPath.isRemote(path)) {
       final fs = await _requireFs(path);
       final entry = await fs.stat(path);
       if (entry == null) return null;
-      return (isDirectory: entry.isDirectory, size: entry.size);
+      return (
+        isDirectory: entry.isDirectory,
+        size: entry.size,
+        modified: entry.modified,
+      );
     }
     final type = await FileSystemEntity.type(path);
     if (type == FileSystemEntityType.notFound) return null;
     if (type == FileSystemEntityType.directory) {
-      return (isDirectory: true, size: 0);
+      return (isDirectory: true, size: 0, modified: _epoch);
     }
-    return (isDirectory: false, size: await File(path).length());
+    final stat = await File(path).stat();
+    return (isDirectory: false, size: stat.size, modified: stat.modified);
   }
 
-  Stream<({String path, bool isDirectory, int size})> _walk(String root) async* {
+  /// Stand-in time for a directory, which has no thumbnail and so no use for
+  /// one. Never fed to [leaveThumbnailBeside].
+  static final DateTime _epoch = DateTime.fromMillisecondsSinceEpoch(0);
+
+  Stream<({String path, bool isDirectory, int size, DateTime modified})> _walk(
+    String root,
+  ) async* {
     if (VPath.isRemote(root)) {
       final fs = await _requireFs(root);
       await for (final entry in fs.walk(root)) {
@@ -348,6 +372,7 @@ class TransferEngine {
           path: entry.path,
           isDirectory: entry.isDirectory,
           size: entry.size,
+          modified: entry.modified,
         );
       }
       return;
@@ -355,15 +380,29 @@ class TransferEngine {
     await for (final entity
         in Directory(root).list(recursive: true, followLinks: false)) {
       if (entity is Directory) {
-        yield (path: entity.path, isDirectory: true, size: 0);
+        yield (
+          path: entity.path,
+          isDirectory: true,
+          size: 0,
+          modified: _epoch,
+        );
       } else if (entity is File) {
         int size;
+        DateTime modified;
         try {
-          size = await entity.length();
+          final stat = await entity.stat();
+          size = stat.size;
+          modified = stat.modified;
         } catch (_) {
           size = 0;
+          modified = _epoch;
         }
-        yield (path: entity.path, isDirectory: false, size: size);
+        yield (
+          path: entity.path,
+          isDirectory: false,
+          size: size,
+          modified: modified,
+        );
       }
     }
   }
@@ -434,6 +473,20 @@ class TransferEngine {
       final download = await fs.download(item.source);
       await _writeLocal(File(item.destination), download.stream, jobId);
       _hub.reportSuccess(VPath.connectionOf(item.source)!);
+      // Every byte of this file has just crossed the network. Thumbnailing it
+      // now costs one decode and leaves the result in the source's own
+      // `.thumbs`, so the next device to open that folder — or this one, after
+      // the download is deleted — sees the file without fetching it again.
+      unawaited(leaveThumbnailBeside(
+        FileEntry(
+          path: item.source,
+          name: VPath.basename(item.source),
+          isDirectory: false,
+          size: item.size,
+          modified: item.modified,
+        ),
+        item.destination,
+      ));
       return;
     }
 
