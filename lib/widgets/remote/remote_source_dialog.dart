@@ -8,6 +8,8 @@ import '../../services/remote/gdrive_file_system.dart';
 import '../../services/remote/remote_file_system.dart';
 import '../../services/remote/remote_hub.dart';
 import '../../services/remote/remote_path.dart';
+import '../../utils/platform.dart';
+import '../app_dialog.dart';
 
 /// Adds or edits a remote source.
 ///
@@ -18,12 +20,11 @@ Future<String?> showRemoteSourceDialog(
   BuildContext context, {
   RemoteConnection? existing,
 }) {
-  return showShadDialog<String>(
+  return showAppDialog<String>(
     context: context,
     barrierColor: const Color(0x66000000),
     barrierLabel: existing == null ? 'Add remote source' : 'Edit remote source',
-    animateIn: const [],
-    animateOut: const [],
+    animated: false,
     builder: (_) => _RemoteSourceDialog(existing: existing),
   );
 }
@@ -69,6 +70,11 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
   bool _busy = false;
   String? _error;
   String? _notice;
+
+  /// Whether the rarely-needed fields for the current kind are shown. Editing
+  /// an existing source opens with them out: whoever set them is the one most
+  /// likely to be here to change them.
+  late bool _advancedOpen = _isEdit;
 
   bool get _isEdit => widget.existing != null;
 
@@ -162,6 +168,9 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
         _port.text = defaults[kind] ?? current;
       }
       _kind = kind;
+      // Each kind hides different things back there, so a section left open
+      // on S3 shouldn't decide what SMB opens with.
+      _advancedOpen = false;
     });
   }
 
@@ -367,30 +376,54 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
   Widget build(BuildContext context) {
     final colors = ShadTheme.of(context).colorScheme;
     final maxHeight = MediaQuery.sizeOf(context).height * 0.85;
+    // A phone fits the form or the chrome around it, not both: what follows
+    // spends the space on the fields.
+    final compact = isMobilePlatform;
+    final advanced = _advancedFields(_kind);
+
+    final test = ShadButton.secondary(
+      onPressed: _busy ? null : _testOnly,
+      child: const Text('Test'),
+    );
+    final save = ShadButton(
+      onPressed: _busy ? null : _save,
+      child: Text(_isEdit ? 'Save' : 'Add'),
+    );
 
     return ShadDialog(
       title: Text(_isEdit ? 'Edit source' : 'Add a remote source'),
-      description: const Text(
-        'Browse cloud storage next to your local folders, and copy between '
-        'them the same way.',
-      ),
+      // Two centred lines and a gap to say what the title says. Worth it on a
+      // desktop, where they cost nothing; not on a phone, where they cost a
+      // field.
+      description: compact
+          ? null
+          : const Text(
+              'Browse cloud storage next to your local folders, and copy '
+              'between them the same way.',
+            ),
+      // Shad centres a dialog's title below its 640px breakpoint. A form reads
+      // from the left edge that its own labels start at.
+      titleTextAlign: TextAlign.start,
       constraints: BoxConstraints(maxWidth: 480, maxHeight: maxHeight),
       scrollable: true,
       titlePinned: true,
-      actions: [
-        ShadButton.outline(
-          onPressed: _busy ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        ShadButton.secondary(
-          onPressed: _busy ? null : _testOnly,
-          child: const Text('Test'),
-        ),
-        ShadButton(
-          onPressed: _busy ? null : _save,
-          child: Text(_isEdit ? 'Save' : 'Add'),
-        ),
-      ],
+      // Below that same breakpoint Shad stacks the actions full-width, which
+      // turned three buttons into a third of a phone screen. Two of them fit
+      // one row — and Cancel is what the close button in the corner already
+      // does, so on a phone it goes.
+      actionsAxis: compact ? Axis.horizontal : null,
+      actionsMainAxisSize: compact ? MainAxisSize.max : null,
+      expandActionsWhenTiny: compact ? false : null,
+      actions: compact
+          ? [Expanded(child: test), Expanded(child: save)]
+          : [
+              ShadButton.outline(
+                onPressed: _busy ? null : () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              test,
+              save,
+            ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisSize: MainAxisSize.min,
@@ -404,14 +437,31 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
           ],
           _Field(
             label: 'Name',
-            hint: 'Shown in the sidebar',
+            // The placeholder already shows the name it will take, so on a
+            // phone this hint is a line that adds nothing.
+            hint: compact ? null : 'Shown in the sidebar',
             child: ShadInput(
               controller: _label,
               placeholder: Text(_defaultLabel),
             ),
           ),
           const SizedBox(height: 12),
-          ..._fieldsFor(_kind),
+          ..._basicFields(_kind),
+          // What is left is for self-hosted servers and unusual setups: real
+          // settings, but ones that made the common case read as a wall of
+          // fields with the buttons pushed off the bottom.
+          if (advanced.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _Disclosure(
+              label: 'Advanced',
+              open: _advancedOpen,
+              onToggle: () => setState(() => _advancedOpen = !_advancedOpen),
+            ),
+            if (_advancedOpen) ...[
+              const SizedBox(height: 12),
+              ...advanced,
+            ],
+          ],
           if (_error != null) ...[
             const SizedBox(height: 14),
             _Banner(text: _error!, tone: colors.destructive),
@@ -425,7 +475,8 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
     );
   }
 
-  List<Widget> _fieldsFor(RemoteKind kind) {
+  /// The fields every setup of [kind] has to fill in.
+  List<Widget> _basicFields(RemoteKind kind) {
     switch (kind) {
       case RemoteKind.s3:
         return [
@@ -462,23 +513,6 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
               placeholder: const Text('my-bucket'),
               onChanged: (_) => setState(() {}),
             ),
-          ),
-          const SizedBox(height: 12),
-          _Field(
-            label: 'Endpoint',
-            hint: 'For MinIO, R2, Wasabi, Spaces… Leave empty for AWS.',
-            child: ShadInput(
-              controller: _endpoint,
-              placeholder: const Text('https://minio.example.com'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _Toggle(
-            label: 'Force path-style URLs',
-            sublabel: 'Needed by most self-hosted servers. AWS uses '
-                'virtual-hosted style.',
-            value: _pathStyle,
-            onChanged: (v) => setState(() => _pathStyle = v),
           ),
         ];
       case RemoteKind.gdrive:
@@ -563,15 +597,6 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
           ),
           const SizedBox(height: 12),
           _Field(
-            label: 'Key passphrase',
-            child: ShadInput(
-              controller: _passphrase,
-              obscureText: true,
-              placeholder: Text(_isEdit ? 'Unchanged' : 'If the key has one'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _Field(
             label: 'Password',
             hint: 'Used when there is no key, or the key is refused.',
             child: ShadInput(
@@ -580,29 +605,6 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
               placeholder: Text(_isEdit ? 'Unchanged' : ''),
             ),
           ),
-          const SizedBox(height: 12),
-          _Field(
-            label: 'Start folder',
-            hint: 'Empty opens your home directory, the same as `sftp`. '
-                'Use / to browse the whole server.',
-            child: ShadInput(
-              controller: _basePath,
-              placeholder: const Text('/var/www'),
-            ),
-          ),
-          if (_isEdit &&
-              (widget.existing?.get(RemoteKeys.hostKey) ?? '').isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _Field(
-              label: 'Pinned host key',
-              hint: 'Recorded on the first connection. Notilus refuses to '
-                  'connect if the server presents a different one.',
-              child: Text(
-                widget.existing!.get(RemoteKeys.hostKey),
-                style: const TextStyle(fontSize: 11.5),
-              ),
-            ),
-          ],
         ];
       case RemoteKind.smb:
         return [
@@ -661,24 +663,6 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
               placeholder: Text(_isEdit ? 'Unchanged' : ''),
             ),
           ),
-          const SizedBox(height: 12),
-          _Field(
-            label: 'Workgroup or domain',
-            hint: 'Leave empty unless the server asked for one.',
-            child: ShadInput(
-              controller: _workgroup,
-              placeholder: const Text('WORKGROUP'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          _Field(
-            label: 'Start folder',
-            hint: 'Empty opens the top of the share.',
-            child: ShadInput(
-              controller: _basePath,
-              placeholder: const Text('Projects'),
-            ),
-          ),
         ];
       case RemoteKind.webdav:
         return [
@@ -708,6 +692,89 @@ class _RemoteSourceDialogState extends State<_RemoteSourceDialog> {
         ];
     }
   }
+
+  /// The fields a self-hosted server or an unusual setup needs, and the rest of
+  /// the time doesn't. Kept behind a disclosure so the common path is short.
+  List<Widget> _advancedFields(RemoteKind kind) {
+    switch (kind) {
+      case RemoteKind.s3:
+        return [
+          _Field(
+            label: 'Endpoint',
+            hint: 'For MinIO, R2, Wasabi, Spaces… Leave empty for AWS.',
+            child: ShadInput(
+              controller: _endpoint,
+              placeholder: const Text('https://minio.example.com'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _Toggle(
+            label: 'Force path-style URLs',
+            sublabel: 'Needed by most self-hosted servers. AWS uses '
+                'virtual-hosted style.',
+            value: _pathStyle,
+            onChanged: (v) => setState(() => _pathStyle = v),
+          ),
+        ];
+      case RemoteKind.sftp:
+        return [
+          _Field(
+            label: 'Key passphrase',
+            child: ShadInput(
+              controller: _passphrase,
+              obscureText: true,
+              placeholder: Text(_isEdit ? 'Unchanged' : 'If the key has one'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _Field(
+            label: 'Start folder',
+            hint: 'Empty opens your home directory, the same as `sftp`. '
+                'Use / to browse the whole server.',
+            child: ShadInput(
+              controller: _basePath,
+              placeholder: const Text('/var/www'),
+            ),
+          ),
+          if (_isEdit &&
+              (widget.existing?.get(RemoteKeys.hostKey) ?? '').isNotEmpty) ...[
+            const SizedBox(height: 12),
+            _Field(
+              label: 'Pinned host key',
+              hint: 'Recorded on the first connection. Notilus refuses to '
+                  'connect if the server presents a different one.',
+              child: Text(
+                widget.existing!.get(RemoteKeys.hostKey),
+                style: const TextStyle(fontSize: 11.5),
+              ),
+            ),
+          ],
+        ];
+      case RemoteKind.smb:
+        return [
+          _Field(
+            label: 'Workgroup or domain',
+            hint: 'Leave empty unless the server asked for one.',
+            child: ShadInput(
+              controller: _workgroup,
+              placeholder: const Text('WORKGROUP'),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _Field(
+            label: 'Start folder',
+            hint: 'Empty opens the top of the share.',
+            child: ShadInput(
+              controller: _basePath,
+              placeholder: const Text('Projects'),
+            ),
+          ),
+        ];
+      case RemoteKind.gdrive:
+      case RemoteKind.webdav:
+        return const [];
+    }
+  }
 }
 
 /// Confirms and removes a source. The files themselves are untouched — this
@@ -718,7 +785,7 @@ Future<void> confirmRemoveRemote(
 ) async {
   final browser = context.read<BrowserProvider>();
   final home = browser.shortcuts['Home'];
-  final confirmed = await showShadDialog<bool>(
+  final confirmed = await showAppDialog<bool>(
     context: context,
     builder: (ctx) => ShadDialog.alert(
       title: Text('Remove "${connection.label}"?'),
@@ -759,6 +826,29 @@ class _KindPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Five buttons wrap to two rows on a phone, which put 100px of chrome
+    // above a form that had none to spare. One row that names the current
+    // choice says the same thing.
+    if (isMobilePlatform) {
+      return _Field(
+        label: 'Type',
+        child: ShadSelect<RemoteKind>(
+          initialValue: selected,
+          onChanged: (kind) {
+            if (kind != null) onChanged(kind);
+          },
+          options: [
+            for (final kind in RemoteKind.values)
+              ShadOption(
+                value: kind,
+                child: _KindLabel(kind: kind),
+              ),
+          ],
+          selectedOptionBuilder: (context, kind) => _KindLabel(kind: kind),
+        ),
+      );
+    }
+
     // Wrap rather than a Row of Expandeds: four buttons with icons don't fit
     // one line at a large OS text size, and a second row is better than four
     // clipped labels.
@@ -795,6 +885,81 @@ class _KindPicker extends StatelessWidget {
       case RemoteKind.webdav:
         return 'WebDAV';
     }
+  }
+}
+
+/// A source kind as an icon and its full name, for the phone's picker. The
+/// short names the buttons use ("SSH", "SMB") are there because a button is
+/// narrow; a row of its own has the width to say what it is.
+class _KindLabel extends StatelessWidget {
+  const _KindLabel({required this.kind});
+
+  final RemoteKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(kind.icon, size: 16, color: colors.primary),
+        const SizedBox(width: 8),
+        Text(_long(kind)),
+      ],
+    );
+  }
+
+  static String _long(RemoteKind kind) {
+    switch (kind) {
+      case RemoteKind.s3:
+        return 'S3 or compatible';
+      case RemoteKind.gdrive:
+        return 'Google Drive';
+      case RemoteKind.sftp:
+        return 'SSH / SFTP';
+      case RemoteKind.smb:
+        return 'SMB share';
+      case RemoteKind.webdav:
+        return 'WebDAV';
+    }
+  }
+}
+
+/// The header for a group of fields that is usually left alone.
+class _Disclosure extends StatelessWidget {
+  const _Disclosure({
+    required this.label,
+    required this.open,
+    required this.onToggle,
+  });
+
+  final String label;
+  final bool open;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = ShadTheme.of(context).colorScheme;
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ShadButton.link(
+        onPressed: onToggle,
+        padding: EdgeInsets.zero,
+        trailing: Icon(
+          open ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+          size: 14,
+          color: colors.mutedForeground,
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w500,
+            color: colors.mutedForeground,
+          ),
+        ),
+      ),
+    );
   }
 }
 

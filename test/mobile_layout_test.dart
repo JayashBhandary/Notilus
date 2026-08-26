@@ -44,19 +44,86 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
   }
 
-  testWidgets('phone tabs lead with browsing and drop the desktop-only ones',
+  testWidgets('a phone gives the screen to the page and the drawer the rest',
       (tester) async {
     await pumpPhone(tester, mobile: true);
     expect(tester.takeException(), isNull);
 
-    expect(find.text('Files'), findsOneWidget);
+    // No bottom bar: the pages it carried are rows in the drawer's footer,
+    // which is built off-screen with the rest of the drawer.
+    expect(find.text('Files'), findsNothing);
     expect(find.text('Info'), findsOneWidget);
     expect(find.text('Chat'), findsOneWidget);
-    // The places are the drawer now, not a tab: one swipe or one button, and
-    // the bar is left for the pages you switch between.
+    expect(find.text('Settings'), findsOneWidget);
+    // The places are the drawer too, rather than a tab.
     expect(find.text('Places'), findsNothing);
     // Workflow editing wants a canvas, so it stays on the desktop layouts.
     expect(find.text('Flows'), findsNothing);
+  });
+
+  testWidgets('the phone drawer opens Chat and comes back to Files',
+      (tester) async {
+    await pumpPhone(tester, mobile: true);
+
+    Future<void> openDrawerAndTap(String label) async {
+      await tester.tap(find.byIcon(LucideIcons.panelLeft));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      // Scoped to the drawer: once a page is open its name is in the top bar
+      // too, and a bare text finder would match both.
+      await tester.tap(
+        find.descendant(of: find.byType(Sidebar), matching: find.text(label)),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    await openDrawerAndTap('Chat');
+    // The top bar names the page, since neither panel has a title of its own.
+    expect(find.text('Chat'), findsNWidgets(2), reason: 'title and drawer row');
+    // Off the browser there is nothing to navigate, so those buttons go.
+    expect(find.byIcon(LucideIcons.arrowUp), findsNothing);
+
+    // Tapping the page you are on is the way back.
+    await openDrawerAndTap('Chat');
+    expect(find.byIcon(LucideIcons.arrowUp), findsOneWidget);
+  });
+
+  testWidgets('picking anything in the drawer shuts it', (tester) async {
+    await pumpPhone(tester, mobile: true);
+
+    double drawerLeft() => tester.getTopLeft(find.byType(Sidebar)).dx;
+
+    Future<void> openDrawer() async {
+      await tester.tap(find.byIcon(LucideIcons.panelLeft));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(drawerLeft(), 0, reason: 'drawer is open');
+    }
+
+    Future<void> tapInDrawer(String label) async {
+      await tester.tap(
+        find.descendant(of: find.byType(Sidebar), matching: find.text(label)),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+
+    // A page: the drawer is over the page it just opened.
+    await openDrawer();
+    await tapInDrawer('File Transfer');
+    expect(drawerLeft(), lessThan(0), reason: 'a page shuts it');
+
+    // A media library, reached from the drawer's own list.
+    await openDrawer();
+    await tapInDrawer('Images');
+    expect(drawerLeft(), lessThan(0), reason: 'a library shuts it');
+
+    // A tag files nothing yet, but a row that answers a tap with nothing at
+    // all reads as broken, so it shuts the drawer like the rest.
+    await openDrawer();
+    await tapInDrawer('Red');
+    expect(drawerLeft(), lessThan(0), reason: 'a tag shuts it');
   });
 
   testWidgets('a narrow desktop window keeps its own tabs and its drawer',

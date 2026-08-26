@@ -16,12 +16,36 @@ import '../utils/platform.dart';
 import 'desk_context_menu.dart';
 import 'remote/remote_source_dialog.dart';
 
+/// A row for the sidebar's pinned footer.
+///
+/// These are the app-level destinations — the assistant, the selected file's
+/// details, settings — which on a phone have nowhere else to live now that its
+/// top bar carries only what the open folder needs.
+class SidebarAction {
+  const SidebarAction({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+    this.selected = false,
+    this.trailing,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool selected;
+
+  /// Shown at the end of the row (a status dot, a count).
+  final Widget? trailing;
+}
+
 class Sidebar extends StatelessWidget {
   const Sidebar({
     super.key,
     this.width = 210,
     this.onNavigate,
     this.onFocusCenter,
+    this.footer = const <SidebarAction>[],
   });
 
   /// Fixed width when shown inline. The drawer version sizes itself via
@@ -36,6 +60,10 @@ class Sidebar extends StatelessWidget {
   /// pane (a folder or a page). Compact layout uses this to focus the center
   /// tab; wide layout leaves it null.
   final VoidCallback? onFocusCenter;
+
+  /// Rows pinned below the scrolling list. Empty on the wide layout, where the
+  /// same destinations have their own chrome.
+  final List<SidebarAction> footer;
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +84,12 @@ class Sidebar extends StatelessWidget {
       onFocusCenter?.call();
       onNavigate?.call();
     }
+
+    /// For a tap that leaves the centre pane alone but is still the end of
+    /// what you came to the sidebar for — opening a dialog over it, or a row
+    /// that does nothing yet. The drawer shuts either way: on a phone it
+    /// covers the thing the tap was about.
+    void dismiss() => onNavigate?.call();
 
     // On macOS the traffic lights sit at the window's top-left, which is
     // now over the sidebar. Push the first item down so it doesn't overlap.
@@ -145,7 +179,7 @@ class Sidebar extends StatelessWidget {
             _HeaderAction(
               icon: LucideIcons.plus,
               tooltip: 'Add a remote source',
-              onTap: () => _addRemote(context, after),
+              onTap: () => _addRemote(context, after, dismiss),
             ),
             _HeaderAction(
               icon: LucideIcons.refreshCw,
@@ -193,6 +227,8 @@ class Sidebar extends StatelessWidget {
           onTap: () => after(
             () => browser.navigateTo(VPath.root(connection.id)),
           ),
+          onOpen: (path) => after(() => browser.navigateTo(path)),
+          onLeave: dismiss,
         ),
       ),
       if (hub.isEmpty)
@@ -200,14 +236,14 @@ class Sidebar extends StatelessWidget {
           label: 'Add remote source…',
           icon: LucideIcons.cloudUpload,
           selected: false,
-          onTap: () => _addRemote(context, after),
+          onTap: () => _addRemote(context, after, dismiss),
         ),
     ];
 
     final tags = <Widget>[
       const _SectionHeader(label: 'Tags'),
       ..._kTags.map(
-        (t) => _TagItem(label: t.name, color: t.color),
+        (t) => _TagItem(label: t.name, color: t.color, onTap: dismiss),
       ),
     ];
 
@@ -226,13 +262,50 @@ class Sidebar extends StatelessWidget {
         child: SafeArea(
           right: false,
           bottom: false,
-          child: ListView(
-            padding: EdgeInsets.only(top: topPadding, bottom: 16),
+          child: Column(
             children: [
-              for (final (index, section) in sections.indexed) ...[
-                if (index > 0) const SizedBox(height: 14),
-                ...section,
-              ],
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.only(top: topPadding, bottom: 16),
+                  children: [
+                    for (final (index, section) in sections.indexed) ...[
+                      if (index > 0) const SizedBox(height: 14),
+                      ...section,
+                    ],
+                  ],
+                ),
+              ),
+              // Pinned rather than in the list: settings and the assistant are
+              // reached from anywhere in a long list of drives, so they can't
+              // sit past the end of the scroll.
+              if (footer.isNotEmpty)
+                Container(
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: colors.border)),
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    right: false,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Column(
+                        children: [
+                          for (final action in footer)
+                            _SidebarItem(
+                              label: action.label,
+                              icon: action.icon,
+                              selected: action.selected,
+                              trailing: action.trailing,
+                              onTap: () {
+                                action.onTap();
+                                onNavigate?.call();
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -263,8 +336,13 @@ class Sidebar extends StatelessWidget {
   Future<void> _addRemote(
     BuildContext context,
     void Function(VoidCallback) after,
+    VoidCallback dismiss,
   ) async {
     final browser = context.read<BrowserProvider>();
+    // Out of the way first: the dialog is the whole screen on a phone, and
+    // coming back from it to a drawer still standing open reads as a step not
+    // taken.
+    dismiss();
     final id = await showRemoteSourceDialog(context);
     if (id == null) return;
     after(() => browser.navigateTo(VPath.root(id)));
@@ -281,6 +359,8 @@ class _RemoteItem extends StatefulWidget {
     required this.error,
     required this.selected,
     required this.onTap,
+    required this.onOpen,
+    required this.onLeave,
   });
 
   final RemoteConnection connection;
@@ -288,6 +368,14 @@ class _RemoteItem extends StatefulWidget {
   final String? error;
   final bool selected;
   final VoidCallback onTap;
+
+  /// Navigate to a path the row's menu picked. Routed out so the menu goes
+  /// through the same "navigate, then shut the drawer" path as a plain tap.
+  final ValueChanged<String> onOpen;
+
+  /// The menu is done with the sidebar — it put a dialog over it, or ejected
+  /// the row itself.
+  final VoidCallback onLeave;
 
   @override
   State<_RemoteItem> createState() => _RemoteItemState();
@@ -306,8 +394,11 @@ class _RemoteItemState extends State<_RemoteItem> {
         DeskMenuItem(
           label: 'Open',
           icon: LucideIcons.folderOpen,
-          onTap: () => browser.navigateTo(VPath.root(connection.id)),
+          onTap: () => widget.onOpen(VPath.root(connection.id)),
         ),
+        // Reconnect is the one action that leaves the drawer standing: what it
+        // changes is this row's own status dot, so hiding the row to show the
+        // result would be the wrong way round.
         DeskMenuItem(
           label: 'Reconnect',
           icon: LucideIcons.refreshCw,
@@ -322,18 +413,27 @@ class _RemoteItemState extends State<_RemoteItem> {
         DeskMenuItem(
           label: 'Edit…',
           icon: LucideIcons.settings,
-          onTap: () => showRemoteSourceDialog(context, existing: connection),
+          onTap: () {
+            widget.onLeave();
+            showRemoteSourceDialog(context, existing: connection);
+          },
         ),
         DeskMenuItem(
           label: 'Eject',
           icon: LucideIcons.circleMinus,
-          onTap: () => RemoteHub.instance.unmount(connection.id),
+          onTap: () {
+            widget.onLeave();
+            RemoteHub.instance.unmount(connection.id);
+          },
         ),
         DeskMenuItem.divider(),
         DeskMenuItem(
           label: 'Remove source…',
           icon: LucideIcons.trash,
-          onTap: () => confirmRemoveRemote(context, connection),
+          onTap: () {
+            widget.onLeave();
+            confirmRemoveRemote(context, connection);
+          },
         ),
       ],
     );
@@ -488,9 +588,14 @@ const List<_TagSpec> _kTags = [
 ];
 
 class _TagItem extends StatefulWidget {
-  const _TagItem({required this.label, required this.color});
+  const _TagItem({
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
   final String label;
   final Color color;
+  final VoidCallback onTap;
 
   @override
   State<_TagItem> createState() => _TagItemState();
@@ -508,10 +613,12 @@ class _TagItemState extends State<_TagItem> {
       onExit: (_) => setState(() => _hover = false),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        // Intentionally inert: tag filtering does not exist yet (no tag field
-        // on FileEntry and nowhere to persist one). The rows are kept because
-        // they were already shipping, not because they do anything.
-        onTap: () {},
+        // Tag filtering does not exist yet — no tag field on FileEntry and
+        // nowhere to persist one — so the tap files nothing away. It still
+        // shuts the drawer, because a row that looks selectable and answers a
+        // tap with nothing at all reads as a broken screen rather than an
+        // unfinished feature.
+        onTap: widget.onTap,
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 6),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -584,6 +691,7 @@ class _SidebarItem extends StatefulWidget {
     required this.selected,
     required this.onTap,
     this.iconColor,
+    this.trailing,
   });
 
   final String label;
@@ -591,6 +699,7 @@ class _SidebarItem extends StatefulWidget {
   final bool selected;
   final VoidCallback onTap;
   final Color? iconColor;
+  final Widget? trailing;
 
   @override
   State<_SidebarItem> createState() => _SidebarItemState();
@@ -652,6 +761,10 @@ class _SidebarItemState extends State<_SidebarItem> {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (widget.trailing != null) ...[
+                const SizedBox(width: 6),
+                widget.trailing!,
+              ],
             ],
           ),
         ),

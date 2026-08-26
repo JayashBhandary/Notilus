@@ -144,7 +144,7 @@ Future<void> showDeskContextMenu(
   overlay.insert(entry);
 }
 
-class _DeskMenuLayer extends StatelessWidget {
+class _DeskMenuLayer extends StatefulWidget {
   const _DeskMenuLayer({
     required this.anchor,
     required this.items,
@@ -154,6 +154,33 @@ class _DeskMenuLayer extends StatelessWidget {
   final Offset anchor;
   final List<DeskMenuItem> items;
   final VoidCallback onDismiss;
+
+  @override
+  State<_DeskMenuLayer> createState() => _DeskMenuLayerState();
+}
+
+class _DeskMenuLayerState extends State<_DeskMenuLayer> {
+  /// The submenus drilled into, innermost last. Only ever grows past one entry
+  /// on a touchscreen — see [_drillsIn].
+  late List<DeskMenuItem> _trail = [];
+
+  /// Whether a submenu opens *inside* this menu rather than beside it.
+  ///
+  /// shadcn shows a submenu while its parent row is hovered or focused, and a
+  /// finger does neither: the row highlights under the touch and the submenu
+  /// never appears, which is what "the second menu doesn't load" is. A phone
+  /// gets the pattern every mobile menu uses instead — tapping the row replaces
+  /// the menu's contents, with a back row to climb out.
+  bool get _drillsIn => isMobilePlatform;
+
+  List<DeskMenuItem> get _level =>
+      _trail.isEmpty ? widget.items : _trail.last.submenu!;
+
+  void _push(DeskMenuItem parent) => setState(() => _trail = [..._trail, parent]);
+
+  void _pop() => setState(
+        () => _trail = _trail.sublist(0, _trail.length - 1),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -168,17 +195,46 @@ class _DeskMenuLayer extends StatelessWidget {
     // edge, so the manual viewport clamping this file used to do is gone.
     return ShadContextMenu(
       visible: true,
-      anchor: ShadGlobalAnchor(anchor),
+      anchor: ShadGlobalAnchor(widget.anchor),
       constraints: _menuConstraints,
-      onTapOutside: (_) => onDismiss(),
-      items: _toShadItems(items, onDismiss),
+      onTapOutside: (_) => widget.onDismiss(),
+      items: [
+        // The row that names where you are and takes you back out of it. It
+        // leads the level so the way back is the first thing under a thumb.
+        if (_trail.isNotEmpty) ...[
+          _shadItem(
+            DeskMenuItem(label: _trail.last.label, onTap: _pop),
+            widget.onDismiss,
+            inset: false,
+            leadingOverride:
+                Icon(LucideIcons.chevronLeft, size: kMenuIconSize),
+            navigate: _pop,
+          ),
+          const ShadSeparator.horizontal(
+            margin: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            thickness: 1,
+          ),
+        ],
+        ..._toShadItems(
+          _level,
+          widget.onDismiss,
+          onDrillIn: _drillsIn ? _push : null,
+        ),
+      ],
       child: const SizedBox.shrink(),
     );
   }
 }
 
 /// Maps [DeskMenuItem]s onto shadcn's menu widgets, recursing into submenus.
-List<Widget> _toShadItems(List<DeskMenuItem> items, VoidCallback dismiss) {
+///
+/// With [onDrillIn] given, a row that has a submenu reports the tap instead of
+/// carrying the submenu itself, and the caller re-renders at that level.
+List<Widget> _toShadItems(
+  List<DeskMenuItem> items,
+  VoidCallback dismiss, {
+  void Function(DeskMenuItem parent)? onDrillIn,
+}) {
   // Reserve the leading slot for every row only if some row actually uses it,
   // otherwise a menu of plain labels carries a redundant 20px gutter.
   final anyLeading =
@@ -194,7 +250,7 @@ List<Widget> _toShadItems(List<DeskMenuItem> items, VoidCallback dismiss) {
           thickness: 1,
         )
       else
-        _shadItem(item, dismiss, inset: !anyLeading),
+        _shadItem(item, dismiss, inset: !anyLeading, onDrillIn: onDrillIn),
   ];
 }
 
@@ -202,12 +258,19 @@ Widget _shadItem(
   DeskMenuItem item,
   VoidCallback dismiss, {
   required bool inset,
+  void Function(DeskMenuItem parent)? onDrillIn,
+  Widget? leadingOverride,
+
+  /// Set for the rows that move around inside the menu (drill in, back out)
+  /// rather than doing something and closing it.
+  VoidCallback? navigate,
 }) {
   final hasSubmenu = item.submenu != null;
+  final drillsIn = hasSubmenu && onDrillIn != null;
 
   // Sizes are pinned rather than inherited: the app-wide IconTheme is 16px,
   // which towers over a 13px label.
-  final leading = switch (item) {
+  final leading = leadingOverride ?? switch (item) {
     // A toggle shows a tick when on and an empty slot when off, so the label
     // never shifts as it flips.
     DeskMenuItem(checked: final bool checked) => checked
@@ -229,23 +292,33 @@ Widget _shadItem(
 
   // A submenu parent must not dismiss on press — pressing it opens the
   // submenu. Leaves dismiss to whichever leaf is eventually chosen.
-  final onPressed = hasSubmenu || !item.enabled || item.onTap == null
-      ? null
-      : () {
-          dismiss();
-          item.onTap!.call();
-        };
+  final onPressed = navigate ??
+      (drillsIn
+          ? () => onDrillIn(item)
+          : hasSubmenu || !item.enabled || item.onTap == null
+              ? null
+              : () {
+                  dismiss();
+                  item.onTap!.call();
+                });
 
-  final subItems =
-      hasSubmenu ? _toShadItems(item.submenu!, dismiss) : const <Widget>[];
+  // Whether the whole menu closes when this row is pressed. shadcn defaults it
+  // to "yes unless the row carries a submenu", which is wrong for a row that
+  // only moves between levels: those carry no submenu of their own.
+  final closeOnTap = navigate != null || drillsIn ? false : null;
+
+  final subItems = hasSubmenu && !drillsIn
+      ? _toShadItems(item.submenu!, dismiss)
+      : const <Widget>[];
 
   if (inset && leading == null) {
     return ShadContextMenuItem.inset(
       enabled: item.enabled,
       trailing: trailing,
       onPressed: onPressed,
+      closeOnTap: closeOnTap,
       items: subItems,
-      anchor: hasSubmenu ? _submenuAnchor : null,
+      anchor: subItems.isEmpty ? null : _submenuAnchor,
       constraints: _menuConstraints,
       child: label,
     );
@@ -255,8 +328,9 @@ Widget _shadItem(
     leading: leading,
     trailing: trailing,
     onPressed: onPressed,
+    closeOnTap: closeOnTap,
     items: subItems,
-    anchor: hasSubmenu ? _submenuAnchor : null,
+    anchor: subItems.isEmpty ? null : _submenuAnchor,
     constraints: _menuConstraints,
     child: label,
   );

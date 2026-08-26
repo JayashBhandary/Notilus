@@ -5,6 +5,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../services/sharing/share_server_controller.dart';
 import '../../services/thumbnails/sidecar_warmer.dart';
+import '../../widgets/app_dialog.dart';
 
 /// The File Sharing page: what is published, who may connect, and what the
 /// server is doing right now.
@@ -1131,7 +1132,7 @@ Future<SharedFolder?> _showFolderDialog(
   // No ticks means every account, which is what a one-person setup wants.
   var everyone = chosen.isEmpty;
 
-  return showShadDialog<SharedFolder>(
+  return showAppDialog<SharedFolder>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setState) {
@@ -1256,7 +1257,7 @@ Future<_UserResult?> _showUserDialog(
   final password = TextEditingController();
   final confirm = TextEditingController();
 
-  return showShadDialog<_UserResult>(
+  return showAppDialog<_UserResult>(
     context: context,
     builder: (ctx) => StatefulBuilder(
       builder: (ctx, setState) {

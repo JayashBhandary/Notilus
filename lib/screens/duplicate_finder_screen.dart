@@ -17,6 +17,7 @@ import '../services/file_actions_service.dart';
 import '../services/settings_store.dart';
 import '../services/system_info_service.dart' show formatBytes;
 import '../theme.dart';
+import '../widgets/app_dialog.dart';
 import '../widgets/shad_spinner.dart';
 import '../widgets/skeleton.dart';
 import 'preview/file_preview_screen.dart';
@@ -364,7 +365,7 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
     }
     if (fileCount == 0) return;
 
-    final confirmed = await showShadDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
       builder: (ctx) => ShadDialog.alert(
         title: const Text('Move duplicates to Trash?'),
@@ -473,7 +474,7 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
   }
 
   Future<void> _trash(DuplicateGroup group, FileEntry entry) async {
-    final confirmed = await showShadDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
       builder: (ctx) => ShadDialog.alert(
         title: const Text('Move to Trash?'),
@@ -513,7 +514,7 @@ class _DuplicateFinderViewState extends State<DuplicateFinderView> {
   }
 
   Future<void> _showError(String message) async {
-    await showShadDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (ctx) => ShadDialog.alert(
         title: const Text('Error'),

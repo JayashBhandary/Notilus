@@ -25,6 +25,7 @@ import '../services/text_document_service.dart';
 import '../theme.dart';
 import '../utils/platform.dart';
 import '../utils/responsive.dart';
+import 'app_dialog.dart';
 import 'desk_context_menu.dart';
 import 'file_drag_drop.dart';
 import 'file_icon_grid.dart';
@@ -2000,7 +2001,7 @@ class _InfoRow extends StatelessWidget {
 }
 
 void _showViewOptions(BuildContext context, BrowserProvider browser) {
-  showShadDialog<void>(
+  showAppDialog<void>(
     context: context,
     builder: (ctx) => _ViewOptionsDialog(browser: browser),
   );

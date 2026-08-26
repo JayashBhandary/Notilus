@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'package:notilus/theme.dart';
+import 'package:notilus/utils/platform.dart';
 import 'package:notilus/widgets/desk_context_menu.dart';
 
 /// The file/folder right-click menu, now rendered by [ShadContextMenu].
@@ -367,6 +368,88 @@ void main() {
       expect(chosen, 1);
       // A leaf inside a submenu must tear down the root menu too, not just its
       // own level.
+      expect(find.byType(ShadContextMenuItem), findsNothing);
+    });
+  });
+
+  group('submenus on a touchscreen', () {
+    // shadcn opens a submenu while its parent row is hovered or focused, and a
+    // finger is neither: on a phone the second menu simply never appeared. The
+    // phone drills into the submenu in place instead.
+    setUp(() => debugMobilePlatformOverride = true);
+    tearDown(() => debugMobilePlatformOverride = null);
+
+    testWidgets('tapping a parent replaces the menu with its submenu',
+        (tester) async {
+      await open(tester, fileItems());
+      expect(find.text('Default Application'), findsNothing);
+
+      await tester.tap(find.text('Open With'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text('Default Application'), findsOneWidget);
+      expect(find.text('Choose Application…'), findsOneWidget);
+      // In place, not beside: the level it came from is gone, and the row that
+      // opened it is now the way back.
+      expect(find.text('Rename…'), findsNothing);
+      expect(find.byIcon(LucideIcons.chevronLeft), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the back row returns to the level above', (tester) async {
+      await open(tester, fileItems());
+
+      await tester.tap(find.text('Open With'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      // The back row is labelled with where you are, so it also names the level.
+      await tester.tap(find.byIcon(LucideIcons.chevronLeft));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.text('Rename…'), findsOneWidget);
+      expect(find.text('Default Application'), findsNothing);
+      expect(find.byIcon(LucideIcons.chevronLeft), findsNothing);
+    });
+
+    testWidgets('drilling in does not close the menu or run the parent',
+        (tester) async {
+      await open(tester, fileItems());
+
+      await tester.tap(find.text('Open With'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(ShadContextMenuItem), findsWidgets);
+    });
+
+    testWidgets('a leaf two levels down runs and closes the whole menu',
+        (tester) async {
+      var sorted = 0;
+      await open(tester, [
+        DeskMenuItem(
+          label: 'View',
+          icon: LucideIcons.layoutGrid,
+          submenu: [
+            DeskMenuItem(
+              label: 'Sort By',
+              submenu: [
+                DeskMenuItem(label: 'Name', onTap: () => sorted++),
+              ],
+            ),
+          ],
+        ),
+      ]);
+
+      for (final label in ['View', 'Sort By', 'Name']) {
+        await tester.tap(find.text(label));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 400));
+      }
+
+      expect(sorted, 1);
       expect(find.byType(ShadContextMenuItem), findsNothing);
     });
   });

@@ -10,6 +10,7 @@ import '../../providers/transfer_controller.dart';
 import '../../services/system_info_service.dart' show formatBytes;
 import '../../services/transfer/file_transfer.dart';
 import '../../theme.dart';
+import '../../widgets/app_dialog.dart';
 import '../../widgets/shad_spinner.dart';
 
 /// Phase 9 — the real "Send to…" flow, invoked from the file browser's context
@@ -72,7 +73,7 @@ Future<Contact?> _pickContact(
   List<OutgoingFile> files,
 ) {
   final totalBytes = files.fold<int>(0, (a, f) => a + f.size);
-  return showShadDialog<Contact>(
+  return showAppDialog<Contact>(
     context: context,
     builder: (ctx) => ShadDialog(
       title: Text(
@@ -191,7 +192,7 @@ Future<void> _sendAndReport(
   Contact contact,
   List<OutgoingFile> files,
 ) async {
-  unawaited(showShadDialog<void>(
+  unawaited(showAppDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (ctx) => ShadDialog.alert(
@@ -246,7 +247,7 @@ void _toast(
 
 Future<void> _alert(BuildContext context, String title, String message) {
   if (!context.mounted) return Future.value();
-  return showShadDialog<void>(
+  return showAppDialog<void>(
     context: context,
     builder: (ctx) => ShadDialog.alert(
       title: Text(title),

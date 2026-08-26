@@ -9,6 +9,7 @@ import '../../providers/transfer_controller.dart';
 import '../../services/system_info_service.dart' show formatBytes;
 import '../../services/transfer/file_transfer.dart';
 import '../../theme.dart';
+import '../../widgets/app_dialog.dart';
 import '../../widgets/shad_spinner.dart';
 
 /// Contacts + presence page (center view). Shows this machine's shareable
@@ -632,7 +633,7 @@ Future<String?> _promptForName(
   required String initial,
 }) async {
   final controller = TextEditingController(text: initial);
-  final name = await showShadDialog<String>(
+  final name = await showAppDialog<String>(
     context: context,
     builder: (ctx) => ShadDialog.alert(
       title: Text(title),
@@ -669,7 +670,7 @@ Future<void> _showEditName(BuildContext context, String current) async {
 Future<void> _showAddContact(BuildContext context) async {
   final nameCtl = TextEditingController();
   final codeCtl = TextEditingController();
-  final result = await showShadDialog<bool>(
+  final result = await showAppDialog<bool>(
     context: context,
     builder: (ctx) => ShadDialog.alert(
       title: const Text('Add contact'),
@@ -709,7 +710,7 @@ Future<void> _showAddContact(BuildContext context) async {
   // Resolving a code hits the network (LAN broadcast, then Firebase), so show a
   // brief spinner while we look the peer up.
   final ctrl = context.read<TransferController>();
-  showShadDialog<void>(
+  showAppDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (_) => const ShadDialog.alert(
@@ -722,7 +723,7 @@ Future<void> _showAddContact(BuildContext context) async {
   final err = await ctrl.addByCode(codeCtl.text, name: nameCtl.text);
   if (context.mounted) Navigator.of(context, rootNavigator: true).pop(); // spinner
   if (err != null && context.mounted) {
-    await showShadDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (ctx) => ShadDialog.alert(
         title: const Text('Couldn’t add contact'),

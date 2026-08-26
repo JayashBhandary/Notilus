@@ -5,6 +5,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../../models/file_entry.dart';
+import '../../widgets/app_dialog.dart';
 import '../../widgets/shad_spinner.dart';
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -591,7 +592,7 @@ Future<int?> promptForPage(
   required int pageCount,
 }) async {
   final controller = TextEditingController(text: '$current');
-  return showShadDialog<int>(
+  return showAppDialog<int>(
     context: context,
     builder: (ctx) => ShadDialog.alert(
       title: const Text('Go to page'),

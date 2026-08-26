@@ -167,6 +167,20 @@ class AppTheme {
     );
   }
 
+  /// Shared by both dialog variants — the plain one and the alert — because
+  /// nothing about a corner radius or a margin depends on which it is.
+  static ShadDialogTheme get _dialogTheme => ShadDialogTheme(
+        radius: BorderRadius.circular(14),
+        removeBorderRadiusWhenTiny: false,
+        // Roomier than Shad's 24 on a phone, where the dialog is most of the
+        // screen and its content has no window frame to sit inside.
+        padding: EdgeInsets.all(isMobilePlatform ? 22 : 24),
+        // The safe area is handled by the margin around the box instead. Left
+        // on, it padded the content away from a notch that the box itself was
+        // still sitting under.
+        useSafeArea: false,
+      );
+
   static ShadThemeData shadThemeFor(Brightness brightness) {
     final palette = brightness == Brightness.dark
         ? AppPalette.dark
@@ -184,6 +198,15 @@ class AppTheme {
         placeholderStyle:
             TextStyle(fontSize: kFieldFontSize, color: palette.subtleText),
       ),
+      // Dialogs. Shad drops a dialog's border radius below its `sm`
+      // breakpoint — 640px, which is every phone and any narrow desktop window
+      // — so a dialog arrived as a square slab with its corners on the corners
+      // of the screen. Both variants keep their corners at every size instead,
+      // a little softer than the app's global 8 because a dialog is a much
+      // bigger surface than a button. The margin that makes those corners
+      // visible is applied outside the box, by `showAppDialog`.
+      primaryDialogTheme: _dialogTheme,
+      alertDialogTheme: _dialogTheme,
       // Same reasoning for cards: Shad defaults to 24px padding, which is airy
       // for a web page and wrong for panels that already sit inside a 16px
       // gutter and stack several to a row.

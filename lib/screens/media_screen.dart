@@ -17,6 +17,7 @@ import '../services/thumbnail_service.dart';
 import '../services/thumbnails/sidecar_thumbnails.dart';
 import '../theme.dart';
 import '../utils/platform.dart';
+import '../widgets/app_dialog.dart';
 import '../widgets/shad_spinner.dart';
 import 'preview/file_preview_screen.dart';
 import 'transfer/send_to.dart';
@@ -237,7 +238,7 @@ class _MediaViewState extends State<MediaView> {
   }
 
   Future<void> _showRootsDialog() async {
-    await showShadDialog<void>(
+    await showAppDialog<void>(
       context: context,
       builder: (dialogContext) => _RootsDialog(onAdd: _addRoot),
     );
@@ -258,7 +259,7 @@ class _MediaViewState extends State<MediaView> {
     final paths = _selectedPaths();
     if (paths.isEmpty || _busyLabel != null) return;
 
-    final confirmed = await showShadDialog<bool>(
+    final confirmed = await showAppDialog<bool>(
       context: context,
       builder: (ctx) => ShadDialog.alert(
         title: const Text('Move to Trash?'),

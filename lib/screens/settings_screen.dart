@@ -6,19 +6,18 @@ import '../providers/settings_provider.dart';
 import '../services/llm/llm_client.dart';
 import '../theme.dart';
 import '../utils/platform.dart';
+import '../widgets/app_dialog.dart';
 import '../widgets/shad_spinner.dart';
 
 /// Shows the settings as a centered modal dialog. Settings hold only a handful
 /// of controls, so a popup is lighter than a dedicated page. Presented with no
-/// transition — animating the barrier + card every open is wasted GPU work,
-/// hence the empty [animateIn]/[animateOut] effect lists.
+/// transition — animating the barrier + card every open is wasted GPU work.
 Future<void> showSettingsDialog(BuildContext context) {
-  return showShadDialog<void>(
+  return showAppDialog<void>(
     context: context,
     barrierColor: const Color(0x66000000),
     barrierLabel: 'Settings',
-    animateIn: const [],
-    animateOut: const [],
+    animated: false,
     builder: (_) => const SettingsDialog(),
   );
 }

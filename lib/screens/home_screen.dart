@@ -502,6 +502,7 @@ class _CompactLayout extends StatelessWidget {
     final palette = AppColors.of(context);
     final colors = ShadTheme.of(context).colorScheme;
     final browser = context.watch<BrowserProvider>();
+    final settings = context.watch<SettingsProvider>();
     // The integrated terminal needs somewhere it can actually `cd`; a
     // `notilus://` folder isn't one, so a cloud location falls back to home.
     final cwd = browser.isRemote
@@ -544,6 +545,27 @@ class _CompactLayout extends StatelessWidget {
     // has a button.
     final browsing = index == 0 && centerView == CenterView.files;
 
+    // The phone's drawer footer: the pages the bottom bar used to carry, plus
+    // the settings and connection state the top bar used to. Tapping the page
+    // you are on comes back to Files, so the drawer is never a one-way door.
+    final footer = <SidebarAction>[
+      if (isMobilePlatform) ...[
+        for (var i = 1; i < tabs.length; i++)
+          SidebarAction(
+            label: tabs[i].label,
+            icon: tabs[i].icon,
+            selected: i == index,
+            onTap: () => onTabChanged(i == index ? 0 : i),
+          ),
+        SidebarAction(
+          label: 'Settings',
+          icon: LucideIcons.settings,
+          onTap: onSettings,
+          trailing: _ConnectionStatusDot(connected: settings.connected),
+        ),
+      ],
+    ];
+
     final shell = SafeArea(
           bottom: false,
           child: Column(
@@ -553,12 +575,21 @@ class _CompactLayout extends StatelessWidget {
                 onSettings: onSettings,
                 onToggleTerminal: onToggleTerminal,
                 terminalOpen: terminalOpen,
-                title: index == 0 ? _centerTitle(centerView) : '',
+                // Off the browser the page needs naming here: neither panel
+                // carries a title of its own, and on a phone the tab bar that
+                // used to label it is gone.
+                title: index == 0
+                    ? _centerTitle(centerView)
+                    : (isMobilePlatform ? tabs[index].label : ''),
                 // No keyboard shortcuts on a phone, so the two moves a browser
                 // needs most get buttons of their own — as does the folder
                 // menu, which a touchscreen has no right-click to reach.
                 showNavigation: isMobilePlatform && browsing,
                 showFolderMenu: isMobilePlatform && browsing,
+                // A phone's bar holds only what the open folder needs. The
+                // app-level controls — settings, the connection state, the
+                // other pages — are in the drawer's footer instead.
+                showAppActions: !isMobilePlatform,
               ),
               Expanded(
                 // Same reason as the wide layout: the terminal shares the
@@ -590,14 +621,20 @@ class _CompactLayout extends StatelessWidget {
               ),
               const FileOpProgressBar(),
               PathStatusBar(key: compactPathStatusBarKey),
-              SafeArea(
-                top: false,
-                child: _CompactTabBar(
-                  index: index,
-                  items: tabs,
-                  onChanged: onTabChanged,
-                ),
-              ),
+              // A phone gives the whole screen to the page and reaches Info
+              // and Chat from the top bar instead; the bottom bar stays for
+              // the narrow-window desktop layouts, which also have Flows.
+              if (!isMobilePlatform)
+                SafeArea(
+                  top: false,
+                  child: _CompactTabBar(
+                    index: index,
+                    items: tabs,
+                    onChanged: onTabChanged,
+                  ),
+                )
+              else
+                const SafeArea(top: false, child: SizedBox.shrink()),
             ],
           ),
         );
@@ -632,6 +669,7 @@ class _CompactLayout extends StatelessWidget {
           width: _drawerWidth,
           onNavigate: onCloseDrawer,
           onFocusCenter: () => onTabChanged(0),
+          footer: footer,
         ),
       ),
       child: shell,
@@ -840,6 +878,7 @@ class _CompactTopBar extends StatelessWidget {
     this.title = '',
     this.showNavigation = false,
     this.showFolderMenu = false,
+    this.showAppActions = true,
   });
 
   /// Opens the drawer.
@@ -860,6 +899,11 @@ class _CompactTopBar extends StatelessWidget {
   /// When non-empty, shown in place of the current-folder label (used when a
   /// non-file page occupies the center pane).
   final String title;
+
+  /// Whether the bar carries the app-level controls (connection state,
+  /// settings). False on a phone, where they live in the drawer's footer and
+  /// the bar is left to the folder.
+  final bool showAppActions;
 
   @override
   Widget build(BuildContext context) {
@@ -938,12 +982,14 @@ class _CompactTopBar extends StatelessWidget {
             onPressed: onToggleTerminal,
             highlighted: terminalOpen,
           ),
-        _ConnectionDot(connected: settings.connected, onTap: onSettings),
-        _ToolbarIconButton(
-          icon: LucideIcons.settings,
-          tooltip: 'Settings',
-          onPressed: onSettings,
-        ),
+        if (showAppActions) ...[
+          _ConnectionDot(connected: settings.connected, onTap: onSettings),
+          _ToolbarIconButton(
+            icon: LucideIcons.settings,
+            tooltip: 'Settings',
+            onPressed: onSettings,
+          ),
+        ],
         if (windowButtons == WindowButtons.drawn) ...[
           const SizedBox(width: 4),
           const WindowControls(),
@@ -1039,6 +1085,26 @@ class _ConnectionDot extends StatelessWidget {
             color: connected ? palette.success : colors.destructive,
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The connection state as a bare dot, for rows that are already tappable.
+class _ConnectionStatusDot extends StatelessWidget {
+  const _ConnectionStatusDot({required this.connected});
+  final bool connected;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = AppColors.of(context);
+    final colors = ShadTheme.of(context).colorScheme;
+    return Container(
+      width: 8,
+      height: 8,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: connected ? palette.success : colors.destructive,
       ),
     );
   }

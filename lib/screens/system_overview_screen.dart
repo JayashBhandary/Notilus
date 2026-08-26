@@ -14,6 +14,7 @@ import '../providers/settings_provider.dart';
 import '../services/file_service.dart';
 import '../services/system_info_service.dart';
 import '../theme.dart';
+import '../widgets/app_dialog.dart';
 import '../widgets/shad_spinner.dart';
 import '../widgets/skeleton.dart';
 
@@ -137,7 +138,7 @@ class SystemOverviewViewState extends State<SystemOverviewView> {
     List<CategoryBreakdown> breakdowns,
   ) async {
     if (settings.model == null) {
-      await showShadDialog<void>(
+      await showAppDialog<void>(
         context: context,
         builder: (ctx) => ShadDialog.alert(
           title: const Text('No model selected'),
