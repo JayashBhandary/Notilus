@@ -176,7 +176,7 @@ void main() {
       expect(find.text('View'), findsOneWidget);
       expect(find.text('Sort By'), findsNothing);
       expect(find.text('Use Groups'), findsNothing);
-      expect(find.text('Show Hidden Files'), findsNothing);
+      expect(find.text('Show Hidden Files/Folders'), findsNothing);
 
       await tester.tap(find.text('View'));
       await tester.pump();
@@ -186,7 +186,7 @@ void main() {
       expect(find.text('as List'), findsOneWidget);
       expect(find.text('Sort By'), findsOneWidget);
       expect(find.text('Use Groups'), findsOneWidget);
-      expect(find.text('Show Hidden Files'), findsOneWidget);
+      expect(find.text('Show Hidden Files/Folders'), findsOneWidget);
       expect(find.text('Show View Options'), findsOneWidget);
     });
 

@@ -9,6 +9,15 @@ bool isCompactWidth(double width) => width < kCompactBreakpoint;
 bool isCompact(BuildContext context) =>
     isCompactWidth(MediaQuery.sizeOf(context).width);
 
+/// Smallest square a finger can be expected to hit.
+///
+/// 44pt is the floor both phone platforms publish (Apple's HIG and Material's
+/// touch-target guidance land on the same number). Desktop controls stay at
+/// their mouse-sized 36 — see `isMobilePlatform` in `utils/platform.dart`,
+/// which is the axis this belongs to: a narrow *desktop* window is still
+/// driven by a pointer.
+const double kTouchTargetMin = 44;
+
 /// Smallest slice of the content area left visible above the terminal panel.
 const double kMinContentHeight = 72;
 

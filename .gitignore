@@ -76,3 +76,5 @@ rust_builder/pubspec.lock
 core/target/
 rust_builder/**/.cargokit*
 .agents/
+
+**/.thumbs/     

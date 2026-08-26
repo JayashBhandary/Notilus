@@ -1,6 +1,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
+import 'utils/platform.dart';
+
 /// Resolved app palette. Two const instances ([light] and [dark]) are exposed.
 /// Use [AppColors.of] in widgets that should react to the active theme.
 class AppPalette {
@@ -110,12 +112,24 @@ class AppColors {
 
 /// Label size inside menus. Matches the file listing and the panels rather than
 /// Shad's 14px default, so a menu doesn't read as a different app.
-const double kMenuFontSize = 13;
+///
+/// On a phone the context menu is not a shortcut for something else — it is
+/// the only way to reach these actions — so it is sized to be read at arm's
+/// length and hit with a thumb.
+double get kMenuFontSize => isMobilePlatform ? 15 : 13;
 
 /// Glyph size inside menus — a touch above [kMenuFontSize] so an icon's body
 /// matches the label's cap height, which is how the platform's own menus look.
 /// Shad would otherwise inherit the app-wide 16px IconTheme.
-const double kMenuIconSize = 14;
+double get kMenuIconSize => isMobilePlatform ? 17 : 14;
+
+/// Height of one menu row. A desktop menu is dense; a touch menu has to clear
+/// the 44px finger floor, which is what [kTouchTargetMin] names.
+double get kMenuRowHeight => isMobilePlatform ? 44 : 26;
+
+/// Body text size for fields. 13 is the app's desktop body size; 16 is the
+/// floor below which iOS zooms the view in on a focused field.
+double get kFieldFontSize => isMobilePlatform ? 16 : 13;
 
 class AppTheme {
   /// Maps [AppPalette] onto shadcn's colour-scheme slots so Shad components
@@ -166,8 +180,9 @@ class AppTheme {
       // across every panel, so Shad's 14px default would break alignment with
       // the not-yet-migrated widgets.
       inputTheme: ShadInputTheme(
-        style: TextStyle(fontSize: 13, color: palette.text),
-        placeholderStyle: TextStyle(fontSize: 13, color: palette.subtleText),
+        style: TextStyle(fontSize: kFieldFontSize, color: palette.text),
+        placeholderStyle:
+            TextStyle(fontSize: kFieldFontSize, color: palette.subtleText),
       ),
       // Same reasoning for cards: Shad defaults to 24px padding, which is airy
       // for a web page and wrong for panels that already sit inside a 16px
@@ -178,7 +193,7 @@ class AppTheme {
       // the platform's own menus use: a 26px row, 13px label, and a hairline
       // gap so a long menu doesn't run the height of the window.
       contextMenuTheme: ShadContextMenuTheme(
-        height: 26,
+        height: kMenuRowHeight,
         textStyle: TextStyle(
           fontSize: kMenuFontSize,
           color: palette.text,

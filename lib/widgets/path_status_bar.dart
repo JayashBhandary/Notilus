@@ -8,10 +8,34 @@ import '../providers/browser_provider.dart';
 import '../services/remote/remote_hub.dart';
 import '../services/remote/remote_path.dart';
 import '../theme.dart';
+import '../utils/platform.dart';
 
 /// Lets Cmd/Ctrl+L put the status bar into path-editing mode from elsewhere.
-final GlobalKey<PathStatusBarState> pathStatusBarKey =
-    GlobalKey<PathStatusBarState>();
+///
+/// One key per layout rather than one shared key: the wide and compact layouts
+/// each build their own status bar, and a single key mounted from two places
+/// is what "Multiple widgets used the same GlobalKey" is. Only one layout is
+/// ever on screen, so exactly one of these resolves — [pathStatusBarState]
+/// picks whichever that is.
+final GlobalKey<PathStatusBarState> widePathStatusBarKey =
+    GlobalKey<PathStatusBarState>(debugLabel: 'pathStatusBar/wide');
+final GlobalKey<PathStatusBarState> compactPathStatusBarKey =
+    GlobalKey<PathStatusBarState>(debugLabel: 'pathStatusBar/compact');
+
+/// The mounted status bar, whichever layout is on screen.
+PathStatusBarState? get pathStatusBarState =>
+    widePathStatusBarKey.currentState ?? compactPathStatusBarKey.currentState;
+
+/// Type sizes and heights for the bar, which is a dense desktop strip on a
+/// desktop and a tappable row on a phone.
+///
+/// 11px text in a 26px strip is a mouse's status bar: legible at a desk,
+/// unreadable at arm's length and far too short to hit a crumb inside. On
+/// mobile the same widget grows to a 40px row with 13px text — desktop keeps
+/// the numbers it had.
+double get _barHeight => isMobilePlatform ? 40 : 26;
+double get _barFontSize => isMobilePlatform ? 13 : 11;
+double get _crumbIconSize => isMobilePlatform ? 14 : 11;
 
 /// Finder-style compact status bar at the bottom of the window.
 ///
@@ -139,7 +163,7 @@ class PathStatusBarState extends State<PathStatusBar> {
     final selected = browser.selectedPaths.length;
 
     return Container(
-      height: 26,
+      height: _barHeight,
       decoration: BoxDecoration(
         color: palette.headerBg,
         border: Border(top: BorderSide(color: palette.divider)),
@@ -177,7 +201,7 @@ class PathStatusBarState extends State<PathStatusBar> {
           Text(
             _itemSummary(count, selected),
             style: TextStyle(
-              fontSize: 11,
+              fontSize: _barFontSize,
               color: palette.subtleText,
             ),
           ),
@@ -191,8 +215,19 @@ class PathStatusBarState extends State<PathStatusBar> {
       controller: _controller,
       focusNode: _focusNode,
       autofocus: true,
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      style: TextStyle(fontSize: 11, color: palette.text),
+      padding: EdgeInsets.symmetric(
+        horizontal: 6,
+        vertical: isMobilePlatform ? 8 : 1,
+      ),
+      style: TextStyle(fontSize: _barFontSize, color: palette.text),
+      // A path is not prose: the phone keyboards' first guess at one is a
+      // capital letter and a spell-check underline, and the Return key should
+      // say what it does.
+      keyboardType: TextInputType.url,
+      textInputAction: TextInputAction.go,
+      textCapitalization: TextCapitalization.none,
+      autocorrect: false,
+      enableSuggestions: false,
       decoration: BoxDecoration(
         color: palette.contentBg,
         border: Border.all(
@@ -202,7 +237,7 @@ class PathStatusBarState extends State<PathStatusBar> {
       ),
       placeholder: _error ?? 'Type a path',
       placeholderStyle: TextStyle(
-        fontSize: 11,
+        fontSize: _barFontSize,
         color: _error == null ? palette.subtleText : CupertinoColors.systemRed,
       ),
       onChanged: (_) {
@@ -258,7 +293,7 @@ class PathStatusBarState extends State<PathStatusBar> {
           padding: const EdgeInsets.symmetric(horizontal: 3),
           child: Icon(
             CupertinoIcons.chevron_right,
-            size: 9,
+            size: isMobilePlatform ? 11 : 9,
             color: palette.subtleText,
           ),
         ));
@@ -298,19 +333,24 @@ class _MiniCrumbState extends State<_MiniCrumb> {
         behavior: HitTestBehavior.opaque,
         onTap: widget.onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+          // Wider on a phone, where each crumb is a tap target rather than a
+          // click target with a cursor to aim it.
+          padding: EdgeInsets.symmetric(
+            horizontal: isMobilePlatform ? 6 : 2,
+            vertical: isMobilePlatform ? 8 : 2,
+          ),
           child: Row(
             children: [
               Icon(
                 widget.icon,
-                size: 11,
+                size: _crumbIconSize,
                 color: widget.palette.subtleText,
               ),
               const SizedBox(width: 4),
               Text(
                 widget.label,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: _barFontSize,
                   color: _hover
                       ? widget.palette.text
                       : widget.palette.subtleText,

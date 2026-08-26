@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../theme.dart' show kMenuIconSize;
+import '../utils/platform.dart';
 
 /// One entry in a desktop context menu.
 ///
@@ -45,7 +46,21 @@ class DeskMenuItem {
 }
 
 /// Minimum width, so short menus don't collapse to their longest label.
-const double _menuMinWidth = 220;
+double get _menuMinWidth => isMobilePlatform ? 240 : 220;
+
+/// Maximum width, so one long label can't inflate the whole menu.
+///
+/// Without it the menu grows to its widest row, and a submenu — which opens to
+/// the right of the menu it came from — walks off the right edge of a narrow
+/// window. Labels past this ellipsize instead. The phone gets a little more
+/// room because its labels are set larger.
+double get _menuMaxWidth => isMobilePlatform ? 300 : 260;
+
+/// The width constraints every menu and submenu is built with.
+BoxConstraints get _menuConstraints => BoxConstraints(
+      minWidth: _menuMinWidth,
+      maxWidth: _menuMaxWidth,
+    );
 
 /// Where a submenu opens relative to its parent row.
 ///
@@ -79,6 +94,19 @@ const ShadAnchorBase _submenuAnchor = ShadAnchor(
 // The one context menu allowed on screen at a time. Opening a new one closes
 // any existing one, so overlapping triggers can never stack two menus.
 OverlayEntry? _activeMenu;
+
+/// Where to open a menu that was reached by *tapping a button* rather than by
+/// right-clicking a point.
+///
+/// A touchscreen has no pointer position to anchor to, so the button itself is
+/// the anchor: the menu hangs off its bottom-left corner, the way a toolbar
+/// menu does everywhere else. Falls back to the top-left of the screen if the
+/// widget has no box yet, which only happens if it is called before layout.
+Offset menuAnchorBelow(BuildContext context) {
+  final box = context.findRenderObject();
+  if (box is! RenderBox || !box.hasSize) return Offset.zero;
+  return box.localToGlobal(box.size.bottomLeft(Offset.zero));
+}
 
 /// Opens a context menu at [globalPosition].
 ///
@@ -141,7 +169,7 @@ class _DeskMenuLayer extends StatelessWidget {
     return ShadContextMenu(
       visible: true,
       anchor: ShadGlobalAnchor(anchor),
-      constraints: const BoxConstraints(minWidth: _menuMinWidth),
+      constraints: _menuConstraints,
       onTapOutside: (_) => onDismiss(),
       items: _toShadItems(items, onDismiss),
       child: const SizedBox.shrink(),
@@ -183,8 +211,8 @@ Widget _shadItem(
     // A toggle shows a tick when on and an empty slot when off, so the label
     // never shifts as it flips.
     DeskMenuItem(checked: final bool checked) => checked
-        ? const Icon(LucideIcons.check, size: kMenuIconSize)
-        : const SizedBox.square(dimension: kMenuIconSize),
+        ? Icon(LucideIcons.check, size: kMenuIconSize)
+        : SizedBox.square(dimension: kMenuIconSize),
     DeskMenuItem(icon: final IconData icon) =>
       Icon(icon, size: kMenuIconSize),
     _ => null,
@@ -194,7 +222,7 @@ Widget _shadItem(
       ? Icon(item.trailing, size: kMenuIconSize)
       // Submenu chevrons read better a shade smaller than a content glyph.
       : (hasSubmenu
-          ? const Icon(LucideIcons.chevronRight, size: kMenuIconSize - 2)
+          ? Icon(LucideIcons.chevronRight, size: kMenuIconSize - 2)
           : null);
 
   final label = Text(item.label, overflow: TextOverflow.ellipsis);
@@ -218,7 +246,7 @@ Widget _shadItem(
       onPressed: onPressed,
       items: subItems,
       anchor: hasSubmenu ? _submenuAnchor : null,
-      constraints: const BoxConstraints(minWidth: _menuMinWidth),
+      constraints: _menuConstraints,
       child: label,
     );
   }
@@ -229,7 +257,7 @@ Widget _shadItem(
     onPressed: onPressed,
     items: subItems,
     anchor: hasSubmenu ? _submenuAnchor : null,
-    constraints: const BoxConstraints(minWidth: _menuMinWidth),
+    constraints: _menuConstraints,
     child: label,
   );
 }

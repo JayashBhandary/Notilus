@@ -28,7 +28,7 @@ import '../utils/responsive.dart';
 import 'desk_context_menu.dart';
 import 'file_drag_drop.dart';
 import 'file_icon_grid.dart';
-import 'path_status_bar.dart' show pathStatusBarKey;
+import 'path_status_bar.dart' show pathStatusBarState;
 import 'terminal_panel.dart' show TerminalLauncher;
 import 'marquee_selection.dart';
 
@@ -192,7 +192,7 @@ class _FileListViewState extends State<FileListView> {
         // Cmd/Ctrl+L puts the status-bar path into edit mode — the Explorer
         // and Nautilus binding.
         case LogicalKeyboardKey.keyL:
-          pathStatusBarKey.currentState?.beginEditing();
+          pathStatusBarState?.beginEditing();
           return KeyEventResult.handled;
         // Cmd/Ctrl+H toggles dotfiles, which needs a re-listing since the
         // filter is applied natively during the directory read.
@@ -460,6 +460,9 @@ class _Header extends StatelessWidget {
             palette: palette,
             browser: browser,
           ),
+          // Matches the per-row menu button, so the Size column keeps sitting
+          // over its own values instead of shifting left by a button's width.
+          if (isMobilePlatform) const SizedBox(width: kTouchTargetMin),
         ],
       ),
     );
@@ -661,7 +664,10 @@ class _FileRowState extends State<_FileRow>
     }
 
     final density = browser.rowDensity;
-    final vPad = (compact ? 8 : 5) * density;
+    // A row is a tap target on a phone, not just a line of text: 12 of padding
+    // either side of a ~20px line clears the 44px floor. Desktop — including a
+    // narrow desktop window, which is still driven by a mouse — is unchanged.
+    final vPad = (isMobilePlatform ? 12 : (compact ? 8 : 5)) * density;
     final iconSize = (compact ? 20 : 18) * density;
     final fontSize = 13 * density;
 
@@ -779,6 +785,11 @@ class _FileRowState extends State<_FileRow>
                     ),
                   ),
                 ),
+                // The row's own menu, as a button. Long-press still opens it,
+                // but a long-press is invisible: nothing on screen says the
+                // menu is there, and it collides with the press-and-drag that
+                // starts a file drag.
+                if (isMobilePlatform) ItemMenuButton(entry: widget.entry),
               ],
             ),
           ),
@@ -1079,7 +1090,7 @@ List<DeskMenuItem> _viewSubmenu(BuildContext context, BrowserProvider browser) {
       onTap: () => browser.setUseGroups(!browser.useGroups),
     ),
     DeskMenuItem(
-      label: 'Show Hidden Files',
+      label: 'Show Hidden Files/Folders',
       checked: browser.showHidden,
       onTap: () => browser.setShowHidden(!browser.showHidden),
     ),
@@ -1885,6 +1896,69 @@ void _showInfoDialog(BuildContext context, FileEntry entry) {
       ],
     ),
   );
+}
+
+/// The per-item context menu, as a button.
+///
+/// Touch only. A right-click has no touchscreen equivalent, and the long-press
+/// that stands in for it is both undiscoverable and in the way of dragging a
+/// file, so on a phone every row and tile carries the menu openly.
+class ItemMenuButton extends StatelessWidget {
+  const ItemMenuButton({
+    super.key,
+    required this.entry,
+    this.compactTarget = false,
+  });
+
+  final FileEntry entry;
+
+  /// Grid tiles are smaller than the touch floor themselves, so the badge over
+  /// one is sized to the tile rather than to the 44px minimum.
+  final bool compactTarget;
+
+  @override
+  Widget build(BuildContext context) {
+    final browser = context.read<BrowserProvider>();
+    final palette = AppColors.of(context);
+    final side = compactTarget ? 32.0 : kTouchTargetMin;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        // Same rule the right-click path follows: the item the menu is about
+        // becomes the selected one, so a Copy hits what the user pointed at.
+        if (!browser.selectedPaths.contains(entry.path)) {
+          browser.toggleSelect(entry, additive: false);
+        }
+        showRowContextMenu(context, browser, entry, menuAnchorBelow(context));
+      },
+      child: SizedBox(
+        width: side,
+        height: side,
+        child: Center(
+          child: DecoratedBox(
+            // Over a thumbnail the glyph needs a ground of its own; in a row
+            // it sits on the row's own background and doesn't.
+            decoration: compactTarget
+                ? BoxDecoration(
+                    color: palette.cardBg,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: palette.divider),
+                  )
+                : const BoxDecoration(),
+            child: Padding(
+              padding: EdgeInsets.all(compactTarget ? 4 : 0),
+              child: Icon(
+                LucideIcons.ellipsisVertical,
+                size: 18,
+                color: palette.subtleText,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _InfoRow extends StatelessWidget {

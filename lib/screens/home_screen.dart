@@ -15,11 +15,13 @@ import '../theme.dart';
 import '../utils/platform.dart';
 import '../utils/responsive.dart';
 import '../widgets/chat_panel.dart';
+import '../widgets/desk_context_menu.dart' show menuAnchorBelow;
 import '../widgets/file_list_view.dart';
 import '../widgets/file_op_progress.dart';
 import '../widgets/file_drag_drop.dart';
 import '../widgets/search_bar.dart';
 import '../widgets/info_panel.dart';
+import '../widgets/mobile_shell.dart';
 import '../widgets/path_status_bar.dart';
 import '../widgets/remote/transfer_hud.dart';
 import '../widgets/sidebar.dart';
@@ -143,7 +145,14 @@ class _HomeScreenState extends State<HomeScreen> {
   static const double _terminalMax = 600;
 
   // Keyed so the toolbar's refresh button can re-run the System Overview scan.
-  final GlobalKey<SystemOverviewViewState> _overviewKey = GlobalKey();
+  // One key per layout: the two layouts both build the centre pane, and a
+  // single key named from two build methods is what "Multiple widgets used the
+  // same GlobalKey" is. Only the wide toolbar has a refresh button, but the
+  // compact layout still needs a key of its own to hang state on.
+  final GlobalKey<SystemOverviewViewState> _wideOverviewKey =
+      GlobalKey(debugLabel: 'systemOverview/wide');
+  final GlobalKey<SystemOverviewViewState> _compactOverviewKey =
+      GlobalKey(debugLabel: 'systemOverview/compact');
 
   @override
   void initState() {
@@ -189,6 +198,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _toggleDrawer() => setState(() => _drawerOpen = !_drawerOpen);
   void _closeDrawer() {
     if (_drawerOpen) setState(() => _drawerOpen = false);
+  }
+
+  /// Set from the swipe, which knows where it ended up rather than what to
+  /// flip. Toggling on a gesture would fight the drag it just finished.
+  void _setDrawerOpen(bool open) {
+    if (_drawerOpen != open) setState(() => _drawerOpen = open);
   }
 
   void _toggleTerminal() {
@@ -250,13 +265,14 @@ class _HomeScreenState extends State<HomeScreen> {
               drawerOpen: _drawerOpen,
               onToggleDrawer: _toggleDrawer,
               onCloseDrawer: _closeDrawer,
+              onSetDrawerOpen: _setDrawerOpen,
               onSettings: _openSettings,
               terminalOpen: _terminalOpen,
               terminalHeight: _terminalHeight,
               onToggleTerminal: _toggleTerminal,
               onCloseTerminal: _closeTerminal,
               onResizeTerminal: _resizeTerminal,
-              overviewKey: _overviewKey,
+              overviewKey: _compactOverviewKey,
             )
           : _WideLayout(
               rightTab: _rightTab,
@@ -267,7 +283,7 @@ class _HomeScreenState extends State<HomeScreen> {
               onToggleTerminal: _toggleTerminal,
               onCloseTerminal: _closeTerminal,
               onResizeTerminal: _resizeTerminal,
-              overviewKey: _overviewKey,
+              overviewKey: _wideOverviewKey,
             );
   }
 }
@@ -370,7 +386,7 @@ class _WideLayout extends StatelessWidget {
                             ),
                             if (terminalOpen)
                               TerminalPanel(
-                                key: terminalPanelKey,
+                                key: wideTerminalPanelKey,
                                 cwd: cwd,
                                 height: clampTerminalHeight(
                                   terminalHeight,
@@ -423,7 +439,7 @@ class _WideLayout extends StatelessWidget {
           ),
         ),
         const FileOpProgressBar(),
-        PathStatusBar(key: pathStatusBarKey),
+        PathStatusBar(key: widePathStatusBarKey),
       ],
     );
   }
@@ -448,28 +464,6 @@ class _CompactTab {
   final Widget body;
 }
 
-/// The sidebar as a full-width page.
-///
-/// On a phone the places list *is* a destination — the drives, the shares, the
-/// media libraries — so it gets the whole width and the bottom bar rather than
-/// a drawer that has to be swiped away before anything can be tapped.
-class _PlacesTab extends StatelessWidget {
-  const _PlacesTab({required this.onOpen});
-
-  /// Called once the user picks somewhere, to hand the screen back to Files.
-  final VoidCallback onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (ctx, c) => Sidebar(
-        width: c.maxWidth,
-        onFocusCenter: onOpen,
-      ),
-    );
-  }
-}
-
 class _CompactLayout extends StatelessWidget {
   const _CompactLayout({
     required this.tab,
@@ -477,6 +471,7 @@ class _CompactLayout extends StatelessWidget {
     required this.drawerOpen,
     required this.onToggleDrawer,
     required this.onCloseDrawer,
+    required this.onSetDrawerOpen,
     required this.onSettings,
     required this.terminalOpen,
     required this.terminalHeight,
@@ -491,6 +486,7 @@ class _CompactLayout extends StatelessWidget {
   final bool drawerOpen;
   final VoidCallback onToggleDrawer;
   final VoidCallback onCloseDrawer;
+  final ValueChanged<bool> onSetDrawerOpen;
   final VoidCallback onSettings;
   final bool terminalOpen;
   final double terminalHeight;
@@ -513,22 +509,17 @@ class _CompactLayout extends StatelessWidget {
         : browser.currentPath;
     final centerView = browser.centerView;
 
-    // A phone gets the places as a tab rather than a drawer: reaching a share
-    // is the whole point of the mobile app, and a swipe-in panel is a worse
-    // place for the thing you came to tap. Workflow editing goes the other
-    // way — it needs a canvas, so it stays on the desktop layouts.
+    // The places live in the drawer on every compact layout, phone included:
+    // it is one swipe from the left edge or one tap on the menu button, and
+    // keeping it out of the tab bar leaves the bar for the pages you switch
+    // between rather than the one you visit and leave. Workflow editing wants
+    // a canvas, so it stays on the desktop layouts.
     final tabs = <_CompactTab>[
       _CompactTab(
         icon: LucideIcons.folder,
         label: 'Files',
         body: _centerBody(centerView, overviewKey),
       ),
-      if (isMobilePlatform)
-        _CompactTab(
-          icon: LucideIcons.hardDrive,
-          label: 'Places',
-          body: _PlacesTab(onOpen: () => onTabChanged(0)),
-        ),
       const _CompactTab(
         icon: LucideIcons.info,
         label: 'Info',
@@ -548,25 +539,26 @@ class _CompactLayout extends StatelessWidget {
     ];
     // A resize can outrun the stored index (the desktop set is longer).
     final index = tab.clamp(0, tabs.length - 1);
-    final hasDrawer = !isMobilePlatform;
+    // Whether the file browser is the thing on screen, which is what decides
+    // if a horizontal swipe means anything and whether the folder's own menu
+    // has a button.
+    final browsing = index == 0 && centerView == CenterView.files;
 
-    return Stack(
-      children: [
-        SafeArea(
+    final shell = SafeArea(
           bottom: false,
           child: Column(
             children: [
               _CompactTopBar(
-                onMenu: hasDrawer ? onToggleDrawer : null,
+                onMenu: onToggleDrawer,
                 onSettings: onSettings,
                 onToggleTerminal: onToggleTerminal,
                 terminalOpen: terminalOpen,
                 title: index == 0 ? _centerTitle(centerView) : '',
                 // No keyboard shortcuts on a phone, so the two moves a browser
-                // needs most get buttons of their own.
-                showNavigation: isMobilePlatform &&
-                    index == 0 &&
-                    centerView == CenterView.files,
+                // needs most get buttons of their own — as does the folder
+                // menu, which a touchscreen has no right-click to reach.
+                showNavigation: isMobilePlatform && browsing,
+                showFolderMenu: isMobilePlatform && browsing,
               ),
               Expanded(
                 // Same reason as the wide layout: the terminal shares the
@@ -583,7 +575,7 @@ class _CompactLayout extends StatelessWidget {
                       ),
                       if (terminalOpen)
                         TerminalPanel(
-                          key: terminalPanelKey,
+                          key: compactTerminalPanelKey,
                           cwd: cwd,
                           height: clampTerminalHeight(
                             terminalHeight,
@@ -597,7 +589,7 @@ class _CompactLayout extends StatelessWidget {
                 ),
               ),
               const FileOpProgressBar(),
-              PathStatusBar(key: pathStatusBarKey),
+              PathStatusBar(key: compactPathStatusBarKey),
               SafeArea(
                 top: false,
                 child: _CompactTabBar(
@@ -608,40 +600,41 @@ class _CompactLayout extends StatelessWidget {
               ),
             ],
           ),
+        );
+
+    // The drawer is the sidebar on every compact layout. On a phone it is also
+    // reachable without the button: a drag from the left edge pulls it out,
+    // and one anywhere else pages back and forward through the history.
+    return MobileShell(
+      drawerWidth: _drawerWidth,
+      drawerOpen: drawerOpen,
+      onDrawerOpenChanged: onSetDrawerOpen,
+      swipeNavigation: isMobilePlatform && browsing,
+      onSwipeBack: () {
+        // Back where there is history, up otherwise: on a phone the swipe is
+        // the only gesture for either, and a dead swipe at the start of a
+        // session reads as broken.
+        if (browser.canGoBack) {
+          browser.goBack();
+        } else if (browser.canGoUp) {
+          browser.goUp();
+        }
+      },
+      onSwipeForward: () {
+        if (browser.canGoForward) browser.goForward();
+      },
+      drawer: DecoratedBox(
+        decoration: BoxDecoration(
+          color: palette.sidebarBg,
+          border: Border(right: BorderSide(color: colors.border)),
         ),
-        // Scrim + drawer. Absent on mobile, where Places is a tab.
-        if (hasDrawer) IgnorePointer(
-          ignoring: !drawerOpen,
-          child: AnimatedOpacity(
-            opacity: drawerOpen ? 1 : 0,
-            duration: const Duration(milliseconds: 180),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onCloseDrawer,
-              child: Container(color: const Color(0x66000000)),
-            ),
-          ),
-        ),
-        if (hasDrawer) AnimatedPositioned(
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOutCubic,
-          top: 0,
-          bottom: 0,
-          left: drawerOpen ? 0 : -_drawerWidth,
+        child: Sidebar(
           width: _drawerWidth,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: palette.sidebarBg,
-              border: Border(right: BorderSide(color: colors.border)),
-            ),
-            child: Sidebar(
-              width: _drawerWidth,
-              onNavigate: onCloseDrawer,
-              onFocusCenter: () => onTabChanged(0),
-            ),
-          ),
+          onNavigate: onCloseDrawer,
+          onFocusCenter: () => onTabChanged(0),
         ),
-      ],
+      ),
+      child: shell,
     );
   }
 }
@@ -846,10 +839,10 @@ class _CompactTopBar extends StatelessWidget {
     required this.terminalOpen,
     this.title = '',
     this.showNavigation = false,
+    this.showFolderMenu = false,
   });
 
-  /// Opens the drawer, or null where there isn't one (mobile, which has a
-  /// Places tab instead).
+  /// Opens the drawer.
   final VoidCallback? onMenu;
   final VoidCallback onSettings;
   final VoidCallback onToggleTerminal;
@@ -858,6 +851,11 @@ class _CompactTopBar extends StatelessWidget {
   /// Whether to show back/up buttons. Set on touch platforms, where the
   /// keyboard shortcuts that serve the desktop layouts don't exist.
   final bool showNavigation;
+
+  /// Whether to show the folder's own actions as a button. A touchscreen has
+  /// no right-click, so the menu the desktop opens on empty space needs
+  /// somewhere to be tapped from.
+  final bool showFolderMenu;
 
   /// When non-empty, shown in place of the current-folder label (used when a
   /// non-file page occupies the center pane).
@@ -932,6 +930,7 @@ class _CompactTopBar extends StatelessWidget {
               : _CurrentFolderLabel(path: browser.currentPath),
         ),
         const SizedBox(width: 4),
+        if (showFolderMenu) const _FolderMenuButton(),
         if (hasIntegratedTerminal)
           _ToolbarIconButton(
             icon: LucideIcons.terminal,
@@ -950,6 +949,32 @@ class _CompactTopBar extends StatelessWidget {
           const WindowControls(),
         ],
       ],
+    );
+  }
+}
+
+/// The folder's own actions, as a button.
+///
+/// The desktop reaches these by right-clicking empty space in the listing.
+/// There is no right-click on a touchscreen and no reliable empty space in a
+/// full folder either, so the same menu gets a permanent home in the top bar.
+class _FolderMenuButton extends StatelessWidget {
+  const _FolderMenuButton();
+
+  @override
+  Widget build(BuildContext context) {
+    final browser = context.read<BrowserProvider>();
+    return _ToolbarIconButton(
+      icon: LucideIcons.ellipsisVertical,
+      tooltip: 'Folder actions',
+      // Anchored to the button rather than to a tap position: a finger's
+      // contact point is wherever it happened to land, and a menu that moves
+      // between taps of the same button is worse than one that doesn't.
+      onPressed: () => showBackgroundContextMenu(
+        context,
+        browser,
+        menuAnchorBelow(context),
+      ),
     );
   }
 }
@@ -1232,12 +1257,18 @@ class _ToolbarIconButton extends StatelessWidget {
     final palette = AppColors.of(context);
     final colors = ShadTheme.of(context).colorScheme;
     final enabled = onPressed != null;
+    // A mouse lands on a 36px target; a fingertip is about 9mm across and
+    // doesn't. Both phone platforms ask for 44 as the floor, and the bar is
+    // 48 tall, so it fits without moving anything else. Desktop keeps 36.
+    final side = isMobilePlatform && size < kTouchTargetMin
+        ? kTouchTargetMin
+        : size;
 
     final button = ShadIconButton.ghost(
-      width: size,
-      height: size,
+      width: side,
+      height: side,
       padding: EdgeInsets.zero,
-      iconSize: (size * 0.5).clamp(14.0, 22.0),
+      iconSize: (side * 0.5).clamp(14.0, 22.0),
       // ShadIconButton keys its disabled look off `enabled`, not off a null
       // callback, so both have to be set.
       enabled: enabled,

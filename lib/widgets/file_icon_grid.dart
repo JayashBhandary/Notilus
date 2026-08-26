@@ -11,7 +11,9 @@ import '../theme.dart';
 import 'file_drag_drop.dart';
 import 'file_thumbnail.dart';
 import '../utils/responsive.dart';
-import 'file_list_view.dart' show openFilePreview, openFileInDefaultApp;
+import '../utils/platform.dart';
+import 'file_list_view.dart'
+    show ItemMenuButton, openFilePreview, openFileInDefaultApp;
 import 'marquee_selection.dart';
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -277,10 +279,33 @@ class _IconTileState extends State<_IconTile>
                 SizedBox(
                   width: iconSize,
                   height: iconSize,
-                  child: _Thumbnail(
-                    entry: widget.entry,
-                    size: iconSize,
-                    palette: palette,
+                  child: Stack(
+                    // The badge overhangs the thumbnail's corner, which the
+                    // default hard-edge clip would cut in half.
+                    clipBehavior: Clip.none,
+                    children: [
+                      Positioned.fill(
+                        child: _Thumbnail(
+                          entry: widget.entry,
+                          size: iconSize,
+                          palette: palette,
+                        ),
+                      ),
+                      // Touch only, and over the thumbnail rather than beside
+                      // it: a tile is too narrow to give the menu a column of
+                      // its own without shrinking every thumbnail to pay for
+                      // it. See `ItemMenuButton` for why long-press isn't
+                      // enough on its own.
+                      if (isMobilePlatform)
+                        Positioned(
+                          top: -6,
+                          right: -6,
+                          child: ItemMenuButton(
+                            entry: widget.entry,
+                            compactTarget: true,
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: _kGridIconLabelGap),

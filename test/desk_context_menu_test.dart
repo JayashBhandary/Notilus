@@ -100,7 +100,7 @@ void main() {
         ),
         DeskMenuItem.divider(),
         DeskMenuItem(
-          label: 'Show Hidden Files',
+          label: 'Show Hidden Files/Folders',
           checked: hiddenShown,
           onTap: () {},
         ),
@@ -124,7 +124,7 @@ void main() {
       expect(find.text('Open With'), findsOneWidget);
       expect(find.text('Rename…'), findsOneWidget);
       expect(find.text('Paste'), findsOneWidget);
-      expect(find.text('Show Hidden Files'), findsOneWidget);
+      expect(find.text('Show Hidden Files/Folders'), findsOneWidget);
       // Submenu entries stay closed until the parent is opened.
       expect(find.text('Default Application'), findsNothing);
     });
@@ -221,10 +221,10 @@ void main() {
       // The empty leading slot is what keeps a toggle's label from shifting
       // sideways as it flips.
       await open(tester, fileItems(hiddenShown: true));
-      final onLeft = tester.getTopLeft(find.text('Show Hidden Files')).dx;
+      final onLeft = tester.getTopLeft(find.text('Show Hidden Files/Folders')).dx;
 
       await open(tester, fileItems());
-      final offLeft = tester.getTopLeft(find.text('Show Hidden Files')).dx;
+      final offLeft = tester.getTopLeft(find.text('Show Hidden Files/Folders')).dx;
 
       expect(offLeft, onLeft);
     });

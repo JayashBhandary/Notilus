@@ -621,7 +621,13 @@ class _SidebarItemState extends State<_SidebarItem> {
         onTap: widget.onTap,
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          // A 26px row is a mouse's list item. In the phone drawer the same
+          // row is a tap target, so it grows to clear the touch floor — see
+          // `kTouchTargetMin`.
+          padding: EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: isMobilePlatform ? 11 : 3,
+          ),
           decoration: BoxDecoration(
             color: bg,
             borderRadius: BorderRadius.circular(5),
@@ -630,7 +636,7 @@ class _SidebarItemState extends State<_SidebarItem> {
             children: [
               Icon(
                 widget.icon,
-                size: 14,
+                size: isMobilePlatform ? 17 : 14,
                 color: widget.iconColor ?? defaultIconColor,
               ),
               const SizedBox(width: 7),
@@ -638,7 +644,7 @@ class _SidebarItemState extends State<_SidebarItem> {
                 child: Text(
                   widget.label,
                   style: TextStyle(
-                    fontSize: 12.5,
+                    fontSize: isMobilePlatform ? 15 : 12.5,
                     color: colors.foreground,
                     fontWeight:
                         widget.selected ? FontWeight.w500 : FontWeight.normal,

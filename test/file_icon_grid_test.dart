@@ -11,9 +11,11 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'package:notilus/models/file_entry.dart';
 import 'package:notilus/providers/browser_provider.dart';
+import 'package:notilus/utils/platform.dart';
 import 'package:notilus/services/file_service.dart';
 import 'package:notilus/theme.dart';
 import 'package:notilus/widgets/file_icon_grid.dart';
+import 'package:notilus/widgets/file_list_view.dart' show ItemMenuButton;
 import 'package:notilus/widgets/marquee_selection.dart';
 
 /// Guards the icon grid's tile geometry.
@@ -120,6 +122,29 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
   }
+
+  tearDown(() => debugMobilePlatformOverride = null);
+
+  testWidgets('a phone tile carries its menu as a button', (tester) async {
+    // No right-click on a touchscreen, and a long-press is both invisible and
+    // in the way of dragging the file, so the menu gets a badge of its own.
+    debugMobilePlatformOverride = true;
+    await pump(tester, _StubBrowser(items: files));
+
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byType(ItemMenuButton),
+      findsNWidgets(files.length),
+      reason: 'one per tile',
+    );
+  });
+
+  testWidgets('a desktop tile does not', (tester) async {
+    debugMobilePlatformOverride = false;
+    await pump(tester, _StubBrowser(items: files));
+
+    expect(find.byType(ItemMenuButton), findsNothing);
+  });
 
   testWidgets('lays out without overflow', (tester) async {
     await pump(tester, _StubBrowser(items: files));

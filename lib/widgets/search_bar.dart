@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/browser_provider.dart';
 import '../providers/search_provider.dart';
 import '../theme.dart';
+import '../utils/platform.dart';
 
 /// Search field for the current folder subtree.
 ///
@@ -49,7 +50,22 @@ class _FolderSearchBarState extends State<FolderSearchBar> {
               placeholder: browser.isRemote
                   ? 'Search this folder by name'
                   : 'Search this folder',
-              style: TextStyle(fontSize: 12, color: palette.text),
+              // 12px is a desktop field size. iOS zooms the page in on
+              // anything under 16 and Android just renders it small, so the
+              // phone gets a field it can actually read and hit.
+              style: TextStyle(
+                fontSize: isMobilePlatform ? 16 : 12,
+                color: palette.text,
+              ),
+              padding: EdgeInsets.symmetric(
+                horizontal: 6,
+                vertical: isMobilePlatform ? 10 : 4,
+              ),
+              // A filename is not prose: the phone keyboards' first guess is
+              // a capitalised word with a spell-check underline under it.
+              // (CupertinoSearchTextField exposes no textInputAction; its
+              // Return key already reads "Search".)
+              autocorrect: false,
               backgroundColor: palette.contentBg,
               onChanged: (value) =>
                   search.setQuery(value, root: browser.currentPath),

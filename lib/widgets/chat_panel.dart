@@ -14,6 +14,8 @@ import '../providers/settings_provider.dart';
 import '../services/llm/llm_client.dart';
 import '../services/remote/remote_path.dart';
 import '../theme.dart';
+import '../utils/platform.dart';
+import '../utils/responsive.dart';
 
 class ChatPanel extends StatefulWidget {
   const ChatPanel({super.key});
@@ -575,14 +577,16 @@ class _ChatComposer extends StatelessWidget {
                     border: Border.all(color: palette.divider),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  style: TextStyle(fontSize: 13, color: palette.text),
+                  style: TextStyle(fontSize: kFieldFontSize, color: palette.text),
                   onSubmitted: (_) => onSend(),
                 ),
               ),
               const SizedBox(width: 6),
               SizedBox(
-                width: 36,
-                height: 32,
+                // Send is the one button in the panel a thumb has to hit, so
+                // on a phone it grows to the touch floor.
+                width: isMobilePlatform ? kTouchTargetMin : 36,
+                height: isMobilePlatform ? kTouchTargetMin : 32,
                 child: CupertinoButton(
                   padding: EdgeInsets.zero,
                   color: busy ? CupertinoColors.systemRed : palette.accent,

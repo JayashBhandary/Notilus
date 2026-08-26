@@ -16,6 +16,7 @@ import '../services/system_info_service.dart' show formatBytes;
 import '../services/thumbnail_service.dart';
 import '../services/thumbnails/sidecar_thumbnails.dart';
 import '../theme.dart';
+import '../utils/platform.dart';
 import '../widgets/shad_spinner.dart';
 import 'preview/file_preview_screen.dart';
 import 'transfer/send_to.dart';
@@ -633,7 +634,7 @@ class _Controls extends StatelessWidget {
               child: CupertinoSearchTextField(
                 controller: controller,
                 placeholder: 'Search ${kind.pluralNoun}',
-                style: TextStyle(fontSize: 12, color: palette.text),
+                style: TextStyle(fontSize: isMobilePlatform ? 16 : 12, color: palette.text),
                 backgroundColor: palette.contentBg,
                 onChanged: onQueryChanged,
                 onSuffixTap: () {

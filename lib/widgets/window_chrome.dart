@@ -5,6 +5,8 @@ import 'package:flutter/widgets.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../utils/platform.dart';
+
 // ──────────────────────────────────────────────────────────────────────────
 // Window chrome
 //
@@ -37,6 +39,9 @@ enum WindowButtons {
 
 WindowButtons _forPlatform() {
   if (kIsWeb) return WindowButtons.none;
+  // A phone has no window to close, and drawing three window buttons into a
+  // 375px top bar is what pushes it past its own width.
+  if (isMobilePlatform) return WindowButtons.none;
   if (Platform.isMacOS) return WindowButtons.native;
   if (Platform.isWindows || Platform.isLinux) return WindowButtons.drawn;
   return WindowButtons.none;

@@ -16,11 +16,21 @@ import '../theme.dart';
 /// grow). Closing the last tab calls [onClose].
 /// Reaches the integrated terminal from elsewhere in the app.
 ///
-/// Mirrors `pathStatusBarKey`: the panel is owned by the home screen, and this
-/// is how a menu item that wants a shell — "Open SSH Session Here" on a remote
-/// folder — gets one without threading callbacks through five widgets.
-final GlobalKey<TerminalPanelState> terminalPanelKey =
-    GlobalKey<TerminalPanelState>();
+/// Mirrors `pathStatusBarState`: the panel is owned by the home screen, and
+/// this is how a menu item that wants a shell — "Open SSH Session Here" on a
+/// remote folder — gets one without threading callbacks through five widgets.
+///
+/// One key per layout, for the same reason the status bar has two: the wide
+/// and compact layouts each build a panel, and a single key named from two
+/// build methods is what "Multiple widgets used the same GlobalKey" is.
+final GlobalKey<TerminalPanelState> wideTerminalPanelKey =
+    GlobalKey<TerminalPanelState>(debugLabel: 'terminalPanel/wide');
+final GlobalKey<TerminalPanelState> compactTerminalPanelKey =
+    GlobalKey<TerminalPanelState>(debugLabel: 'terminalPanel/compact');
+
+/// The mounted panel, whichever layout is on screen.
+TerminalPanelState? get terminalPanelState =>
+    wideTerminalPanelKey.currentState ?? compactTerminalPanelKey.currentState;
 
 /// Opens the terminal (if it is closed) and runs a command in it.
 class TerminalLauncher {
@@ -32,7 +42,7 @@ class TerminalLauncher {
   static String? _pending;
 
   static void run(String command) {
-    final state = terminalPanelKey.currentState;
+    final state = terminalPanelState;
     if (state != null) {
       state.runCommand(command);
       return;
