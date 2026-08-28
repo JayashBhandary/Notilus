@@ -1,7 +1,7 @@
 name: notilus
 description: Notilus — Finder-style file manager with an AI assistant (Ollama, Claude, Gemini, OpenAI) and custom prompt-chain workflows.
 publish_to: 'none'
-version: 0.4.1
+version: 0.5.0
 
 environment:
   # 3.3 is the floor for extension types, which flutter_rust_bridge's generated
