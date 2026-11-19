@@ -5,16 +5,17 @@
 <h1 align="center">Notilus</h1>
 
 <p align="center">
-  A Finder-style file manager built in Flutter, with a built-in Ollama chat
-  panel, a Quick-Look-style preview viewer, and a workflow editor for running
+  A Finder-style file manager built in Flutter, with a built-in AI chat
+  panel (local Ollama, or OpenAI / Gemini / Claude with your own key), a Quick-Look-style preview viewer, and a workflow editor for running
   custom prompt chains against your local files.
 </p>
 
 Notilus is a single-developer, local-first project. It runs on macOS, Windows,
 Linux, iPad, and iPhone from one Flutter codebase, and talks to a local
-[Ollama](https://ollama.com) instance — no cloud, no account, no telemetry.
+[Ollama](https://ollama.com) instance by default — no account, no telemetry.
+Cloud models (OpenAI, Gemini, Claude) are opt-in with your own API key.
 
-**Current version:** `0.1.5` (see `pubspec.yaml`).
+**Current version:** `0.5.0` (see `pubspec.yaml`).
 
 ---
 
